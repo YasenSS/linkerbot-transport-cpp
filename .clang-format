@@ -1,0 +1,17 @@
+BasedOnStyle: LLVM
+Language: Cpp
+
+# Keep nesting easy to scan without pushing ordinary declarations too far right.
+IndentWidth: 4
+ContinuationIndentWidth: 4
+UseTab: Never
+NamespaceIndentation: All
+
+# LLVM defaults to 80 columns, which made signatures and calls overly vertical.
+ColumnLimit: 100
+
+BreakBeforeBraces: Attach
+# Preserve the repository's existing `Type *name` / `Type &name` convention.
+PointerAlignment: Right
+SortIncludes: CaseSensitive
+AllowShortFunctionsOnASingleLine: Empty

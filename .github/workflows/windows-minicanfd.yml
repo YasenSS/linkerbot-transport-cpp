@@ -1,0 +1,111 @@
+name: Windows comm regression, native ABI and ZIP
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-loader:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install fixed CMake
+        run: |
+          $Version = '3.31.8'
+          $Name = "cmake-$Version-windows-x86_64.zip"
+          $Base = "https://github.com/Kitware/CMake/releases/download/v$Version"
+          Invoke-WebRequest "$Base/$Name" -OutFile "$env:RUNNER_TEMP/$Name"
+          Invoke-WebRequest "$Base/cmake-$Version-SHA-256.txt" -OutFile "$env:RUNNER_TEMP/cmake-checksums.txt"
+          $Line = Get-Content "$env:RUNNER_TEMP/cmake-checksums.txt" | Where-Object { $_ -match " $([regex]::Escape($Name))$" }
+          if (@($Line).Count -ne 1) { throw 'CMake checksum entry missing or ambiguous' }
+          $Expected = ($Line -split '\s+')[0]
+          if ((Get-FileHash "$env:RUNNER_TEMP/$Name" -Algorithm SHA256).Hash -ne $Expected) { throw 'CMake SHA256 mismatch' }
+          Expand-Archive "$env:RUNNER_TEMP/$Name" -DestinationPath "$env:RUNNER_TEMP/cmake"
+          "$env:RUNNER_TEMP/cmake/cmake-$Version-windows-x86_64/bin" >> $env:GITHUB_PATH
+      - name: Record source and tools
+        run: |
+          git rev-parse HEAD
+          cmake --version
+          Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsBuildNumber
+          & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -format json
+      - name: Configure without a vendor SDK
+        run: |
+          cmake -S . -B build -G 'Visual Studio 17 2022' -A x64 -T 'v143,version=14.44' `
+            '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>DLL' `
+            -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
+      - name: Build tests and native DLL fixtures
+        run: |
+          cmake --build build --config ${{ matrix.configuration }} --parallel 4 2>&1 | Tee-Object build-results.log
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+      - name: Run comm regression and actual Windows loader tests
+        run: |
+          ctest --test-dir build -C ${{ matrix.configuration }} --show-only=json-v1 > test-list.json
+          if ($LASTEXITCODE -ne 0) { throw 'CTest discovery failed' }
+          $Tests = (Get-Content test-list.json -Raw | ConvertFrom-Json).tests
+          if ($Tests.Count -eq 0 -or 'vendor-native-loader' -notin $Tests.name -or 'pcan-native-loader' -notin $Tests.name) { throw 'Native loader tests were not registered' }
+          if (@($Tests | Where-Object { $_.name -like 'SLCAN*' }).Count -lt 10) { throw 'SLCAN offline coverage missing' }
+          ctest --test-dir build -C ${{ matrix.configuration }} --output-on-failure --no-tests=error --timeout 60 --output-log test-results.log
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+      - name: Package and consume a relocated standalone ZIP
+        run: |
+          $Configuration = '${{ matrix.configuration }}'
+          cpack --config build/CPackConfig.cmake -C $Configuration -B dist
+          if ($LASTEXITCODE -ne 0) { throw 'CPack failed' }
+          $Archives = @(Get-ChildItem dist/*.zip)
+          if ($Archives.Count -ne 1) { throw 'Expected one ZIP' }
+          $Archive = $Archives[0]
+          $Expected = (Get-Content "$($Archive.FullName).sha256" -Raw) -split '\s+' | Select-Object -First 1
+          if ((Get-FileHash $Archive.FullName -Algorithm SHA256).Hash -ne $Expected) { throw 'ZIP SHA256 mismatch' }
+          $Destination = Join-Path $env:RUNNER_TEMP "通信 SDK with spaces $Configuration"
+          Expand-Archive $Archive.FullName -DestinationPath $Destination
+          $Roots = @(Get-ChildItem $Destination -Directory)
+          if ($Roots.Count -ne 1) { throw 'Expected a single package root' }
+          $Prefix = $Roots[0].FullName
+          foreach ($Required in @('include/linkerbot/can/slcan_transport.hpp', 'share/linkerbot-comm/docs/zh/slcan.md', 'share/linkerbot-comm/docs/zh/session.md', 'share/linkerbot-comm/examples/shared_bus.cpp')) {
+            if (!(Test-Path "$Prefix/$Required")) { throw "Missing package entry $Required" }
+          }
+          foreach ($Required in @('share/linkerbot-comm/LICENSE', 'share/linkerbot-comm/NOTICE', 'share/linkerbot-comm/README.md', 'share/linkerbot-comm/docs/zh/windows-build.md', 'share/linkerbot-comm/build-info.json', 'lib/linkerbot-comm.lib', 'lib/cmake/linkerbot-comm/linkerbot-comm-config.cmake', 'include/linkerbot/can/pcan_transport.hpp')) {
+            if (!(Test-Path "$Prefix/$Required")) { throw "Missing $Required" }
+          }
+          $Files = @(Get-ChildItem $Prefix -File -Recurse)
+          if ($Files | Where-Object { $_.Name -match 'fixture|PCANBasic\.dll|HCanbus\.dll|catch2' }) { throw 'Test/vendor component leaked into release ZIP' }
+          $Files.FullName | Out-File package-files.txt
+          $Metadata = Get-Content "$Prefix/share/linkerbot-comm/build-info.json" -Raw | ConvertFrom-Json
+          $Runtime = if ($Configuration -eq 'Debug') { 'MDd' } else { 'MD' }
+          if ($Metadata.comm_sha -ne (git rev-parse HEAD) -or $Metadata.source_dirty -or $Metadata.configuration -ne $Configuration -or $Metadata.runtime -ne $Runtime -or $Metadata.architecture -ne 'x64' -or $Metadata.toolset -ne '143') { throw 'Package provenance/runtime mismatch' }
+          cmake -S "$Prefix/share/linkerbot-comm/validation/installed-consumer" -B consumer -G 'Visual Studio 17 2022' -A x64 -T 'v143,version=14.44' "-DCMAKE_PREFIX_PATH=$Prefix"
+          if ($LASTEXITCODE -ne 0) { throw 'Consumer configure failed' }
+          cmake --build consumer --config $Configuration --parallel 4 2>&1 | Tee-Object consumer-build.log
+          if ($LASTEXITCODE -ne 0) { throw 'Consumer build failed' }
+          ctest --test-dir consumer -C $Configuration --output-on-failure --no-tests=error --output-log consumer-results.log
+          if ($LASTEXITCODE -ne 0) { throw 'Consumer test failed' }
+      - name: Save native-loader evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-adapters-${{ matrix.configuration }}
+          path: |
+            build-results.log
+            test-list.json
+            test-results.log
+            consumer-build.log
+            consumer-results.log
+            package-files.txt
+            dist/*.zip
+            dist/*.sha256
+            build/CMakeCache.txt
+            build/Testing/Temporary/LastTest.log

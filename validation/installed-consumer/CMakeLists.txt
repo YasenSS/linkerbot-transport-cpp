@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+project(comm-installed-consumer LANGUAGES CXX)
+find_package(linkerbot-comm 0.3 CONFIG REQUIRED)
+add_executable(comm-installed-consumer main.cpp)
+target_link_libraries(comm-installed-consumer PRIVATE linkerbot::comm-compat)
+enable_testing()
+add_test(NAME comm-installed-consumer COMMAND comm-installed-consumer)

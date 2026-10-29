@@ -1,0 +1,95 @@
+name: Offline comm tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Debian's pool only keeps the versions some suite still references, so the
+# pinned orig tarball disappears once catch2 moves on. Set the CATCH2_TARBALL_URL
+# repo variable to a copy hosted on this Gitea instance and it takes priority;
+# the sha256 gates whichever source answers.
+env:
+  CATCH2_VERSION: 3.7.1
+  CATCH2_SHA256: c991b247a1a0d7bb9c39aa35faf0fe9e19764213f28ffba3109388e62ee0269c
+  CATCH2_MIRROR: ${{ vars.CATCH2_TARBALL_URL }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+    steps:
+      - name: Install build and test dependencies
+        run: |
+          set -eu
+          apt_get() { if [ "$(id -u)" -eq 0 ]; then apt-get "$@"; else sudo apt-get "$@"; fi; }
+          apt_get update
+          apt_get install -y --no-install-recommends build-essential cmake git ca-certificates curl
+      # Keep the test framework independent of the runner's Catch2 2.x/3.x package.
+      - name: Install pinned Catch2
+        run: |
+          set -eu
+          deps="${GITHUB_WORKSPACE}/.ci-deps"
+          if [ -f "$deps/catch2/lib/cmake/Catch2/Catch2Config.cmake" ]; then
+            echo "reusing Catch2 ${CATCH2_VERSION} left by an earlier run"
+            exit 0
+          fi
+          mkdir -p "$deps/catch2-src"
+          tarball="$deps/catch2.tar.gz"
+          fetched=
+          for url in ${CATCH2_MIRROR:-} \
+            "https://deb.debian.org/debian/pool/main/c/catch2/catch2_${CATCH2_VERSION}.orig.tar.gz"
+          do
+            echo "fetching $url"
+            if curl --fail --location --retry 3 --connect-timeout 20 --max-time 180 \
+                 "$url" --output "$tarball"; then
+              fetched=1
+              break
+            fi
+            echo "  unavailable, trying the next source" >&2
+          done
+          if [ -z "$fetched" ]; then
+            echo "no source served catch2 ${CATCH2_VERSION}; set CATCH2_TARBALL_URL" >&2
+            exit 1
+          fi
+          printf '%s  %s\n' "${CATCH2_SHA256}" "$tarball" | sha256sum --check -
+          tar -xzf "$tarball" -C "$deps/catch2-src" --strip-components=1
+          cmake -S "$deps/catch2-src" -B "$deps/catch2-build" \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$deps/catch2" \
+            -DCMAKE_INSTALL_LIBDIR=lib -DBUILD_TESTING=OFF -DCATCH_BUILD_TESTING=OFF -DCATCH_INSTALL_DOCS=OFF
+          cmake --build "$deps/catch2-build" --parallel "$(nproc)"
+          cmake --install "$deps/catch2-build"
+      # No uses: actions/* here — act_runner would resolve them against the
+      # unreachable github.com. Check out with this instance's git only.
+      - name: Checkout
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          git config --global --add safe.directory '*'
+          git_auth() { git -c "http.extraHeader=AUTHORIZATION: bearer ${TOKEN}" "$@"; }
+          url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git init
+          git remote add origin "$url" 2>/dev/null || git remote set-url origin "$url"
+          # Gitea does not always advertise the merge SHA for fetch-by-object-id.
+          git_auth fetch --depth 1 origin "${GITHUB_SHA}" \
+            || git_auth fetch --depth 1 origin "${GITHUB_REF}"
+          git checkout --force --detach FETCH_HEAD
+      - name: Build and test offline
+        run: |
+          set -eu
+          build="build-${{ matrix.build_type }}"
+          cmake -S . -B "$build" -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCatch2_DIR="${GITHUB_WORKSPACE}/.ci-deps/catch2/lib/cmake/Catch2" \
+            -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
+          cmake --build "$build" --target linkerbot-comm comm-tests vendor-loader-tests pcan-tests --parallel "$(nproc)"
+          ctest --test-dir "$build" --output-on-failure --no-tests=error
+          cmake --install "$build" --prefix "${GITHUB_WORKSPACE}/dist-${{ matrix.build_type }}"

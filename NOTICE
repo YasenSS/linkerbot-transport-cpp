@@ -1,0 +1,27 @@
+linkerbot-transport-cpp
+=======================
+
+Copyright (c) 2026 linker-bot
+
+This project is licensed under the MIT License. See LICENSE in the project
+root for the complete license text.
+
+Third-party software
+--------------------
+
+Catch2 3
+  Catch2 is used only to build and run this project's tests. It is not linked
+  into or distributed with the linkerbot-comm runtime library.
+  The CMake download fallback uses v3.8.1; Gitea CI currently uses v3.7.1.
+  An installed Catch2 3 package may also be used.
+  Catch2 is licensed under the Boost Software License 1.0.
+  Source: https://github.com/catchorg/Catch2
+  License: https://www.boost.org/LICENSE_1_0.txt
+
+Optional vendor CAN FD library
+------------------------------
+
+The optional libcanbus.so / HCanbus.dll implementation is loaded dynamically
+at runtime. The vendor binary is not included in this repository or installed
+by this project's CMake rules. Users must obtain it separately and comply
+with the vendor's applicable license and distribution terms.
