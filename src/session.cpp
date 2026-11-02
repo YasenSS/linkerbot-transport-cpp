@@ -14,7 +14,31 @@
 #include <utility>
 
 namespace linkerbot::transport {
-namespace { thread_local const void *current_writer = nullptr; }
+    namespace {
+        thread_local const void *current_writer = nullptr;
+        thread_local unsigned session_cleanup_depth = 0;
+        class SessionCleanupScope {
+          public:
+            SessionCleanupScope() {
+                ++session_cleanup_depth;
+            }
+            ~SessionCleanupScope() {
+                --session_cleanup_depth;
+            }
+            SessionCleanupScope(const SessionCleanupScope &) = delete;
+            SessionCleanupScope &operator=(const SessionCleanupScope &) = delete;
+        };
+        struct RegistryEntry;
+        void release_registry_lifetime(RegistryEntry *entry, uint64_t generation) noexcept;
+        struct RegistryLifetime {
+            RegistryLifetime() = default;
+            ~RegistryLifetime();
+            RegistryLifetime(const RegistryLifetime &) = delete;
+            RegistryLifetime &operator=(const RegistryLifetime &) = delete;
+            RegistryEntry *entry = nullptr;
+            uint64_t generation = 0;
+        };
+    } // namespace
 struct RouteInbox::State {
     mutable std::mutex mutex;
     std::condition_variable cv;
@@ -74,6 +98,9 @@ SendResult SendReceipt::wait_until(Deadline deadline) const {
 void SendReceipt::wait() const { (void)wait_until(Deadline::max()); }
 
 struct Session::Impl {
+    // Declared first so it is destroyed last, after writer, subscriptions,
+    // leases and owned buses have crossed their cleanup barriers.
+    RegistryLifetime registry_lifetime;
     Impl *cleanup_next = nullptr;
     void close();
     struct Job {
@@ -276,8 +303,131 @@ struct Session::Impl {
 
 namespace {
 std::mutex registry_mutex;
-std::map<const void *, std::weak_ptr<Session>> bus_sessions;
-std::map<const void *, std::weak_ptr<Session>> borrowed_sessions;
+struct RegistryEntry {
+    std::weak_ptr<Session> session;
+    std::condition_variable changed;
+    bool initializing = false;
+    std::thread::id initializer;
+    bool active = false;
+    uint64_t generation = 0;
+};
+using SessionRegistry = std::map<const void *, RegistryEntry>;
+SessionRegistry bus_sessions;
+SessionRegistry borrowed_sessions;
+// A thread can initialize several independent backends recursively, but can
+// wait for at most one other initializer at a time. Guard this wait-for graph
+// with registry_mutex and reject an edge that would close a cycle.
+std::map<std::thread::id, std::thread::id> registry_waits;
+
+bool wait_would_cycle(std::thread::id waiter, std::thread::id initializer) {
+    auto current = initializer;
+    for (size_t steps = 0; steps <= registry_waits.size(); ++steps) {
+        if (current == waiter)
+            return true;
+        const auto next = registry_waits.find(current);
+        if (next == registry_waits.end())
+            return false;
+        current = next->second;
+    }
+    // The existing graph should always be acyclic. Refuse to extend it if a
+    // stale or corrupted cycle is ever observed rather than waiting forever.
+    return true;
+}
+
+class RegistryWait {
+  public:
+    RegistryWait(std::thread::id waiter, std::thread::id initializer) : waiter_(waiter) {
+        const auto inserted = registry_waits.emplace(waiter, initializer).second;
+        if (!inserted)
+            throw can::ValidationError("Session initializer already waits for another backend");
+    }
+    ~RegistryWait() {
+        registry_waits.erase(waiter_);
+    }
+    RegistryWait(const RegistryWait &) = delete;
+    RegistryWait &operator=(const RegistryWait &) = delete;
+
+  private:
+    std::thread::id waiter_;
+};
+
+struct RegistryReservation {
+    RegistryEntry *entry = nullptr;
+    std::shared_ptr<Session> previous;
+};
+
+RegistryReservation reserve_session(SessionRegistry &registry, const void *key) {
+    // Backend close/destruction is application-controlled code. Re-entering a
+    // Session registry from it can wait for the very tombstone whose cleanup
+    // is executing on this thread, or form a cross-key cleanup cycle.
+    if (session_cleanup_depth != 0)
+        throw can::ValidationError("Session registry cannot be entered during Session cleanup");
+    std::unique_lock<std::mutex> lock(registry_mutex);
+    auto &entry = registry[key];
+    for (;;) {
+        if (auto previous = entry.session.lock())
+            return {&entry, std::move(previous)};
+        if (entry.active) {
+            // Final release from a Session callback is cleaned on an external
+            // worker. Waiting here from that same callback/writer would make
+            // cleanup wait for the caller that is waiting for cleanup.
+            if (current_writer || can::CANDispatcher::is_any_receive_thread())
+                throw can::ValidationError(
+                    "Session backend cleanup is still active on this callback thread");
+            entry.changed.wait(lock, [&] { return !entry.active; });
+            continue;
+        }
+        if (!entry.initializing) {
+            entry.initializing = true;
+            entry.initializer = std::this_thread::get_id();
+            return {&entry, {}};
+        }
+        if (entry.initializer == std::this_thread::get_id())
+            throw can::ValidationError("recursive Session initialization for the same backend");
+        const auto waiter = std::this_thread::get_id();
+        if (wait_would_cycle(waiter, entry.initializer))
+            throw can::ValidationError("cyclic Session backend initialization");
+        RegistryWait waiting(waiter, entry.initializer);
+        entry.changed.wait(lock, [&] { return !entry.initializing; });
+    }
+}
+
+void publish_session(RegistryReservation &reservation, const std::shared_ptr<Session> &session,
+                     RegistryLifetime &lifetime) {
+    std::lock_guard<std::mutex> lock(registry_mutex);
+    ++reservation.entry->generation;
+    if (reservation.entry->generation == 0)
+        ++reservation.entry->generation;
+    lifetime.entry = reservation.entry;
+    lifetime.generation = reservation.entry->generation;
+    reservation.entry->session = session;
+    reservation.entry->active = true;
+    reservation.entry->initializing = false;
+    reservation.entry->initializer = {};
+    reservation.entry->changed.notify_all();
+}
+
+void abandon_session(RegistryReservation &reservation) {
+    std::lock_guard<std::mutex> lock(registry_mutex);
+    reservation.entry->initializing = false;
+    reservation.entry->initializer = {};
+    reservation.entry->changed.notify_all();
+}
+
+void release_registry_lifetime(RegistryEntry *entry, uint64_t generation) noexcept {
+    if (!entry)
+        return;
+    const std::lock_guard<std::mutex> lock(registry_mutex);
+    if (!entry->active || entry->generation != generation)
+        return;
+    entry->session.reset();
+    entry->active = false;
+    entry->changed.notify_all();
+}
+
+RegistryLifetime::~RegistryLifetime() {
+    release_registry_lifetime(entry, generation);
+}
 }
 // No detached worker and no allocation on final callback release. The queue
 // owns Impl until close has crossed the subscription and writer barriers.
@@ -313,8 +463,14 @@ private:
                 if (!head_) tail_ = nullptr;
                 active_ = true;
             }
-            try { impl->close(); } catch (...) { /* backend retains its retry ownership */ }
-            delete impl;
+            {
+                SessionCleanupScope cleanup_scope;
+                try {
+                    impl->close();
+                } catch (...) { /* backend retains its retry ownership */
+                }
+                delete impl;
+            }
             { std::lock_guard<std::mutex> lock(mutex_); active_ = false; cv_.notify_all(); }
         }
     }
@@ -373,62 +529,89 @@ std::shared_ptr<Session> Session::own(std::unique_ptr<can::CANTransport> transpo
 }
 std::shared_ptr<Session> Session::share(std::shared_ptr<can::ManagedCANBus> bus) {
     if (!bus) throw can::ValidationError("session bus must not be null");
-    std::lock_guard<std::mutex> lock(registry_mutex);
-    if (auto previous = bus_sessions[bus.get()].lock()) {
-        std::lock_guard<std::mutex> operation(previous->impl_->lifecycle);
-        std::lock_guard<std::mutex> state(previous->impl_->mutex);
-        if (previous->impl_->stopping) throw can::ClosedError("physical session is already closed");
-        return previous;
+    auto reservation = reserve_session(bus_sessions, bus.get());
+    if (reservation.previous) {
+        std::lock_guard<std::mutex> operation(reservation.previous->impl_->lifecycle);
+        std::lock_guard<std::mutex> state(reservation.previous->impl_->mutex);
+        if (reservation.previous->impl_->stopping)
+            throw can::ClosedError("physical session is already closed");
+        return reservation.previous;
     }
-    auto p = std::make_unique<Impl>();
-    p->bus = std::move(bus);
-    p->bus->start();
-    auto result = std::shared_ptr<Session>(new Session(std::move(p)));
-    result->start();
-    bus_sessions[result->impl_->bus.get()] = result;
-    return result;
+    try {
+        auto p = std::make_unique<Impl>();
+        p->bus = std::move(bus);
+        // Factories and driver startup are application code. Never execute
+        // them while holding the process-wide registry mutex.
+        p->bus->start();
+        auto result = std::shared_ptr<Session>(new Session(std::move(p)));
+        result->start();
+        publish_session(reservation, result, result->impl_->registry_lifetime);
+        return result;
+    } catch (...) {
+        abandon_session(reservation);
+        throw;
+    }
 }
 std::shared_ptr<Session> Session::lease(can::CANBusLease lease) {
     auto holder = std::make_shared<can::CANBusLease>(std::move(lease));
     auto bus = holder->shared_bus();
-    std::lock_guard<std::mutex> lock(registry_mutex);
-    if (auto previous = bus_sessions[bus.get()].lock()) {
-        std::lock_guard<std::mutex> operation(previous->impl_->lifecycle);
-        std::lock_guard<std::mutex> state(previous->impl_->mutex);
-        if (previous->impl_->stopping) throw can::ClosedError("physical session is already closed");
+    auto reservation = reserve_session(bus_sessions, bus.get());
+    if (reservation.previous) {
+        std::lock_guard<std::mutex> operation(reservation.previous->impl_->lifecycle);
+        std::lock_guard<std::mutex> state(reservation.previous->impl_->mutex);
+        if (reservation.previous->impl_->stopping)
+            throw can::ClosedError("physical session is already closed");
         // A prior share(bus) may have no pool ownership at all. Retain every
         // supplied lease until explicit close or final Session destruction.
-        previous->impl_->leases.push_back(std::move(holder));
-        return previous;
+        reservation.previous->impl_->leases.push_back(std::move(holder));
+        return reservation.previous;
     }
-    auto p = std::make_unique<Impl>();
-    p->bus = std::move(bus);
-    p->leases.push_back(std::move(holder));
-    auto result = std::shared_ptr<Session>(new Session(std::move(p)));
-    result->start();
-    bus_sessions[result->impl_->bus.get()] = result;
-    return result;
+    try {
+        auto p = std::make_unique<Impl>();
+        p->bus = std::move(bus);
+        p->leases.push_back(std::move(holder));
+        auto result = std::shared_ptr<Session>(new Session(std::move(p)));
+        result->start();
+        publish_session(reservation, result, result->impl_->registry_lifetime);
+        return result;
+    } catch (...) {
+        abandon_session(reservation);
+        throw;
+    }
 }
 std::shared_ptr<Session> Session::borrow(can::CANDispatcher &dispatcher) {
-    std::lock_guard<std::mutex> lock(registry_mutex);
-    if (auto previous = borrowed_sessions[&dispatcher].lock()) {
-        std::lock_guard<std::mutex> state(previous->impl_->mutex);
-        if (previous->impl_->stopping) throw can::ClosedError("borrowed session is already closed");
-        return previous;
+    auto reservation = reserve_session(borrowed_sessions, &dispatcher);
+    if (reservation.previous) {
+        std::lock_guard<std::mutex> state(reservation.previous->impl_->mutex);
+        if (reservation.previous->impl_->stopping)
+            throw can::ClosedError("borrowed session is already closed");
+        return reservation.previous;
     }
-    auto p = std::make_unique<Impl>();
-    p->borrowed = &dispatcher;
-    auto result = std::shared_ptr<Session>(new Session(std::move(p)));
-    result->start();
-    borrowed_sessions[&dispatcher] = result;
-    return result;
+    try {
+        auto p = std::make_unique<Impl>();
+        p->borrowed = &dispatcher;
+        auto result = std::shared_ptr<Session>(new Session(std::move(p)));
+        result->start();
+        publish_session(reservation, result, result->impl_->registry_lifetime);
+        return result;
+    } catch (...) {
+        abandon_session(reservation);
+        throw;
+    }
 }
 Session::~Session() {
+    SessionCleanupScope cleanup_scope;
     if (current_writer || can::CANDispatcher::is_any_receive_thread()) {
         Cleanup::instance().enqueue(impl_.release());
         return;
     }
-    try { close(); } catch (...) {}
+    try {
+        impl_->close();
+    } catch (...) {
+    }
+    // Keep the marker active through member destruction too: a lease or owned
+    // backend destructor may retry a virtual close after close() failed.
+    impl_.reset();
 }
 std::shared_ptr<RouteInbox> Session::subscribe_routes(const std::vector<RouteKey> &keys, size_t capacity) {
     if (!capacity) throw can::ValidationError("route capacity must be positive");
@@ -554,7 +737,10 @@ can::TransportHealth Session::transport_health() const {
     h.pending_tx += session.pending_tx;
     return h;
 }
-void Session::close() { impl_->close(); }
+void Session::close() {
+    SessionCleanupScope cleanup_scope;
+    impl_->close();
+}
 void Session::Impl::close() {
     auto &p = *this;
     if (current_writer || can::CANDispatcher::is_any_receive_thread())
