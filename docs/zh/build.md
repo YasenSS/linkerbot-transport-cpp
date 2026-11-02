@@ -4,8 +4,9 @@
 
 ## 前置条件与目录约定
 
-需要 CMake 3.16+、C++17 编译器和线程支持。Linux CI 使用 Ubuntu 24.04 / GCC 13，
-覆盖原生 amd64、ARM64 的 Debug/Release；本地维护验证优先使用 Linux ARM64。
+需要 CMake 3.16+、C++17 编译器和线程支持。Linux CI 使用 Ubuntu 24.04，主矩阵以
+GCC 13 覆盖原生 amd64、ARM64 的 Debug/Release 与 95% 行覆盖率；Clang 18 质量矩阵
+在两个架构上覆盖 libc++、ASan+UBSan 和 TSan。本地维护验证优先使用 Linux ARM64。
 Windows 使用 MSVC x64，见专项说明。macOS 不在当前实机支持和 CI 验证矩阵内。
 
 以下 Bash 命令都从源码根目录执行。示例使用 Ninja，需预先安装；也可去掉 `-G Ninja`
@@ -91,8 +92,26 @@ gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build-cover
 
 覆盖率静态库的消费者也须在链接时加 `--coverage`，例如配置消费者时传
 `-DCMAKE_CXX_FLAGS=--coverage`。普通 Release 构建保持 coverage OFF。
-线程检查应保留编译器版本、完整告警和退出码；不同测试复用栈地址时可能出现跨用例锁图告警，
-应像 CTest 一样逐例复核，不能用全局关闭死锁检查或压掉告警替代诊断。
+
+## Clang、第二标准库与 sanitizer
+
+Clang 质量矩阵在 Linux amd64 与 ARM64 上执行以下三种独立 Debug 构建：
+
+- `libcxx`：使用 Clang 18 与 libc++ 运行全部 CTest，包括两个原生 ABI fixture；另以
+  `-Wall -Wextra -Wpedantic -Werror` 构建生产库和示例，并验证安装后的 libc++ 消费者。
+- `asan-ubsan`：使用 libstdc++ 和 `-fsanitize=address,undefined`，启用泄漏检测并在首个
+  ASan/UBSan 错误处失败。普通 CTest 逐例运行；仅排除下述两个原生 ABI fixture。
+- `tsan`：使用 libstdc++ 和 `-fsanitize=thread`，不关闭死锁检查，逐 CTest 进程运行全部测试。
+
+ASan+UBSan 不与 Ubuntu 的系统 libc++ 组合：ARM64 实测会在 libc++/libc++abi 的异常对象
+分配路径报告 `operator new`/`free` 不匹配，这不是项目代码缺陷。两个 native-loader fixture
+也不进入 ASan+UBSan 运行：它们为模拟无头文件的第三方 C++ 动态库，刻意各自声明布局相同、
+类型身份不同的 ABI 结构；两侧都带 UBSan 元数据时会报告函数类型不匹配。CI 没有关闭相应
+sanitizer 检查来隐藏报告；这些 fixture 仍由 GCC 主矩阵、Clang+libc++ 和 TSan 全量覆盖。
+
+线程检查应保留编译器版本、完整告警和退出码。把所有 Catch2 用例塞入同一进程会因不同测试
+复用栈地址而产生跨用例锁图告警，因此 CI 使用 `catch_discover_tests` 生成的逐例 CTest 进程，
+不能用全局关闭死锁检查或压掉告警替代诊断。
 
 ## 源码接入和安装接入
 
