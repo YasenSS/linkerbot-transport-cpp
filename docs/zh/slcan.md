@@ -1,5 +1,7 @@
 # SLCAN：Windows / Linux 原生串口
 
+[文档索引](../README.md) · [诊断](troubleshooting.md) · [验证边界](validation.md)
+
 SDK 提供两个显式固件配置：Lawicel Classic 和 CANable 2.0 FD 扩展。
 原生串口实现使用系统驱动，不依赖额外厂商 DLL。
 固件协议需要由用户确认，端口名、CANable 产品名不能证明协议兼容。
@@ -23,7 +25,7 @@ FD 使用 CAN DLC 映射 `0..8,12,16,20,24,32,48,64`。`Message.dlc` 是字节�
 发送 9、10、11 等长度时向上补零到合法线长，接收保留线上完整长度。
 每条帧的 `Message.is_extended/is_fd/is_brs` 决定帧格式；`config.fd=true`
 允许 FD，不强制将 Classic 帧转换成 FD，也不强制 BRS。`config.brs` 是配置校验项，
-不能替代消息的 `is_brs`。O30 使用标准 FD、无 BRS；L30 使用扩展 FD。
+不能替代消息的 `is_brs`。标准/扩展 ID 和 BRS 必须由上层设备协议决定。
 
 协议依据：[CANable 固件说明](https://github.com/normaldotcom/canable2-fw/blob/main/README.md)、
 [固件解析代码](https://github.com/normaldotcom/canable2-fw/blob/main/src/slcan.c)、
@@ -34,6 +36,8 @@ FD 使用 CAN DLC 映射 `0..8,12,16,20,24,32,48,64`。`Message.dlc` 是字节�
 
 ```cpp
 #include <linkerbot/can/slcan_transport.hpp>
+#include <chrono>
+#include <iostream>
 linkerbot::can::SlcanConfig config;
 config.port = "/dev/ttyACM0";           // Windows 改为 COM10；必须为已确认的适配器
 config.serial_baud = 115200;           // UART，与 CAN 速率独立，按固件设置
@@ -44,10 +48,13 @@ config.data_bitrate = 5'000'000;        // 仅 2M / 5M
 config.startup_delay = std::chrono::milliseconds{0}; // 固件开口复位时按需设置，最多 5 秒
 linkerbot::can::SlcanTransport transport(config);    // 独占打开、配置、初始化
 const auto frame = transport.read();   // 空队列在 receive_timeout 后返回 nullopt
+if (frame) std::cout << frame->id << '\n';
 transport.close();
 ```
 
-Classic Lawicel 使用默认 protocol、`fd=false`，不设置 FD 参数。
+默认参数为 Lawicel Classic、115200 UART、1 Mbit/s CAN、receive_timeout 10 ms、
+command_timeout 500 ms、startup_delay 0 ms，`fd=false`、`brs=false`；data_bitrate 默认
+5 Mbit/s 仅在 FD 时使用。Classic Lawicel 保留默认 protocol、`fd=false`，不设置 FD 参数。
 固件须预先关闭回显和时间戳；SDK 不发送猜测性探测或刷写命令。
 Lawicel 的首条 C 须能在已关闭状态返回成功 CR。
 
@@ -96,8 +103,7 @@ ACK 差异、全部 FD 长度、标准/扩展 ID、BRS、拆粘包、无效输�
 含 CR 为 27 字节，64 字节扩展 FD 含 CR 为 139 字节，理想上限分别约 426 / 82 帧每秒。
 实际还受 ACK、USB、固件和双向业务影响，不能套用 PCAN / MiniCANFD 性能阈值。
 真实验收应记录固件、驱动、适配器、UART/CAN 速率及负载和延迟结果。
-配套 hand SDK 已于 2026-10-19 记录 Windows Debug / CANable 配置的六型号实机结果：
-四种 Classic 手型、L30 扩展 FD 与 O30 标准 FD 的发现、读取和单关节命令及恢复通过。
-这不覆盖 Lawicel 固件、Linux 原生串口实物、其他固件版本、Release 实机或长期吞吐。
-具体适配器身份和参数以 hand SDK 的 `docs/hardware-acceptance/<型号>/report.md` 为准；
-不能只凭 USB 名称或外壳型号认定为已验证组合。SLCAN 继续标为实验性。
+原导入文档对 Windows Debug / CANable 六型号的陈述作为历史转述保留于
+[验证记录](validation.md#历史实机陈述保留出处不作本仓库验收)。本库没有随附的实机报告，
+不能从端口名、USB 产品名或外壳型号推断为已验证组合。Lawicel、Linux 原生串口实物、
+其他固件/驱动、Release 实机和长期吞吐仍需独立验收。SLCAN 继续标为实验性。

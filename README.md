@@ -1,93 +1,82 @@
 # linkerbot-transport-cpp
 
-[English](#english) | [简体中文](#简体中文)
+[English](#english) | [简体中文](#简体中文) | [Documentation / 文档](docs/README.md)
 
 ## English
 
-C++17 CAN / CAN FD communication library for Linkerbot SDKs. It provides
-physical connections, shared buses, receive routing and queued transmission.
-Device commands, protocol parsing and hand control belong in the hand SDK.
+C++17 CAN / CAN FD transport library for Linkerbot SDKs. It owns physical links,
+shares connections, routes incoming frames and schedules outgoing batches.
+Device commands, request/reply matching and hand control belong in the device SDK.
+The source version is **0.3.0 (unreleased)**; a successful CI artifact is not a published release.
 
-### Backends
+### Start here
 
-| Backend | Platform | Frames | Configuration |
+- [Build, install, CMake options and coverage](docs/zh/build.md) — Linux first.
+- [Session, routing, ownership and recovery](docs/zh/session.md).
+- Backends: [SocketCAN](docs/zh/socketcan.md), [MiniCANFD](docs/zh/minicanfd.md),
+  [PCAN](docs/zh/pcan.md), [SLCAN](docs/zh/slcan.md).
+- [Windows builds and packages](docs/zh/windows-build.md).
+- [Errors and diagnostics](docs/zh/troubleshooting.md), [upgrade and rollback](docs/zh/operations.md).
+- [Validation evidence and hardware limits](docs/zh/validation.md).
+
+Detailed guides are maintained in Chinese. This English overview is current;
+there is no separately maintained English translation of every guide.
+
+<a id="backends"></a>
+<a id="validated-scope-030"></a>
+
+### Backends and support
+
+| Backend | Implementation target | Frames | Runtime requirements |
 | --- | --- | --- | --- |
-| SocketCAN | Linux | Classic / FD | Configure the network interface before opening it |
-| MiniCANFD | Linux / Windows x64 | FD | Vendor `libcanbus.so` / `HCanbus.dll`; [guide (中文)](docs/zh/minicanfd.md) |
-| PCAN-Basic | Windows x64 | Classic / FD | PEAK driver and matching DLL; [guide (中文)](docs/zh/pcan.md) |
-| Native SLCAN | Linux / Windows | Classic / CANable FD | Explicit serial port and firmware profile; [guide (中文)](docs/zh/slcan.md) |
-| FakeTransport | All supported platforms | In-memory frames | Offline tests and examples |
+| SocketCAN | Linux | Classic / FD | Configured CAN network interface |
+| MiniCANFD | Linux / Windows x64 | FD | Matching vendor library and driver |
+| PCAN-Basic | Windows x64 hardware target | Classic / FD | PEAK driver and matching DLL |
+| Native SLCAN | Linux / Windows; experimental | Classic / CANable FD | Explicit port and matching firmware profile |
+| FakeTransport | Offline use | In-memory frames | No adapter or vendor library |
 
-Linux PCAN fixtures verify the loader ABI; they do not establish Linux hardware
-support. SLCAN is experimental. Offline tests do not certify real adapters.
-
-### Validated scope (0.3.0)
-
-The GitHub Linux workflow builds and runs offline tests on Ubuntu 24.04
-x86_64 and ARM64 in Debug and Release, including repeated Session recovery
-checks and an installed-package consumer. These jobs do not test CAN hardware.
-Both Linux Debug jobs require at least 95% aggregate production line coverage.
-The measurement includes `src/` and `include/` code compiled for Linux; it
-excludes tests and Catch2, and does not measure Windows-only code or hardware acceptance.
-
-The validation baseline is Ubuntu 24.04 x86_64 / GCC 13 and Windows 11 x64 /
-MSVC v143 14.44, using C++17. Windows Debug offline checks and Release engineering,
-installation and ZIP relocation checks have passed for recorded source revisions.
-Hardware evidence comes from the paired hand SDK: Linux SocketCAN covers all six
-models; Windows Debug PCAN Classic covers L6/O6/L20 Lite/L20; MiniCANFD covers O30
-with x64 `HCanbus.dll 3.3.103.0`; CANable-profile SLCAN covers all six models.
-PCAN FD and L30 MiniCANFD hardware remain unverified. Lawicel firmware, native
-Linux PCAN/MiniCANFD/SLCAN hardware, Release hardware, Windows USB hotplug and
-long-running load are not certified by those records. Other firmware or driver
-versions need their own validation; backend availability alone is not a hardware pass.
+Linux amd64 and ARM64 Debug/Release CI checks the library, offline regression,
+recovery, example and installed consumer. Both Debug jobs require at least 95%
+aggregate production **line** coverage for code compiled on Linux. Windows x64
+Debug/Release CI additionally checks native DLL ABI fixtures and relocated ZIPs.
+These checks do not establish hardware compatibility, Windows-only coverage,
+USB hotplug reliability or real-time performance. Linux PCAN fixtures verify the
+loader ABI, not Linux PCAN hardware support. See the [evidence and limits](docs/zh/validation.md).
 
 ### Build and test
+
+Run from the source root with CMake 3.16+ and a C++17 compiler:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel 4
-ctest --test-dir build --output-on-failure --no-tests=error
+ctest --test-dir build --output-on-failure --no-tests=error --timeout 60
 ./build/comm-example
 ```
 
-Tests require Catch2 3. If it is missing, CMake downloads v3.8.1 by default.
-For an offline build, install Catch2 3 or set `Catch2_DIR`, then pass
-`-DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF`.
-`LINKERBOT_COMM_BUILD_TESTS` and `LINKERBOT_COMM_BUILD_EXAMPLES` default to ON
-for top-level builds and OFF for subdirectory builds. Disable tests to build
-the library without Catch2. See [Windows builds (中文)](docs/zh/windows-build.md)
-for MSVC, runtime and ZIP instructions.
+Tests require Catch2 3. CMake uses an installed package first, then downloads
+v3.8.1 if permitted. For offline builds, install Catch2 3 and set `Catch2_DIR`
+if needed, then use `-DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF`.
+Top-level builds enable tests and examples; subdirectory builds default both to OFF.
+The core library does not require Catch2. See the [complete build guide](docs/zh/build.md)
+for a library-only build, coverage and package consumption.
 
-To reproduce the Linux/GCC coverage gate, install `gcovr` and use a fresh build directory:
+<a id="use-from-cmake"></a>
 
-```bash
-cmake -S . -B build-coverage -DCMAKE_BUILD_TYPE=Debug -DLINKERBOT_COMM_ENABLE_COVERAGE=ON
-cmake --build build-coverage --parallel 4
-ctest --test-dir build-coverage --output-on-failure --no-tests=error --timeout 60
-gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build-coverage/_deps' --fail-under-line 95 --txt build-coverage
-```
+### CMake integration
 
-Coverage requires tests to be enabled. Instrumented static libraries are for
-validation; standalone consumers of those libraries must also link with
-`--coverage`. Regular Release builds leave coverage disabled.
-
-### Use from CMake
-
-The repository is named `linkerbot-transport-cpp`. The CMake package remains
-`linkerbot-comm`, with targets under `linkerbot::comm`, for compatibility.
-
-From source:
+The repository is `linkerbot-transport-cpp`; the package name remains
+`linkerbot-comm`, and the implementation target is `linkerbot::comm`.
 
 ```cmake
 add_subdirectory(../linkerbot-transport-cpp linkerbot-transport-cpp)
 target_link_libraries(your-sdk PRIVATE linkerbot::comm)
 ```
 
-Or install and consume the package:
+For an installed package:
 
 ```bash
-cmake --install build --prefix /path/to/comm
-# Configure your application with -DCMAKE_PREFIX_PATH=/path/to/comm
+cmake --install build --prefix "$PWD/install/comm"
 ```
 
 ```cmake
@@ -95,16 +84,16 @@ find_package(linkerbot-comm 0.3 CONFIG REQUIRED)
 target_link_libraries(your-sdk PRIVATE linkerbot::comm)
 ```
 
-`linkerbot::comm-compat` also exposes the legacy flat include names such as
-`can_transport.hpp`. `linkerbot::comm-values` exposes headers and the C++17
-requirement for value-only consumers; it does not link the implementation.
-The `0.3.x` line pairs with `linkerbot-hand-cpp 0.3.x`; comm must be at least
-the hand version. Rebuild applications with matching headers and libraries.
+Configure the consumer with `-DCMAKE_PREFIX_PATH=/absolute/path/to/install/comm`.
+Use `linkerbot::comm-compat` for legacy flat includes, or `linkerbot::comm-values`
+for value-only headers without implementation linkage. The `0.3.x` line pairs
+with hand SDK `0.3.x`; comm must be at least the hand version. Rebuild applications
+with matching headers, architecture, compiler and runtime; binary ABI compatibility
+across arbitrary builds is not promised.
 
-### Receive and send
+<a id="receive-and-send"></a>
 
-`Session` groups receive IDs into bounded inboxes and serializes outgoing
-batches. This complete example uses an in-memory adapter:
+### Offline send/receive example
 
 ```cpp
 #include <linkerbot/can/fake_transport.hpp>
@@ -135,132 +124,77 @@ int main() {
 }
 ```
 
-For a recoverable physical link, use `Session::create(factory)` with a factory
-that opens a new backend. `Session::own(transport)` opens a session over an
-existing adapter and cannot recreate it. See [Session and lifecycle (中文)](docs/zh/session.md)
-for sharing, cancellation, deadlines and recovery, and
-`examples/shared_bus.cpp` for two devices on one connection.
+This example confirms an in-memory reply. Physical backend acceptance, CAN ACK
+and device execution are separate events. A receipt timeout does not cancel an
+in-flight driver write. Use `Session::create(factory)` for a recoverable link;
+`Session::own()` and `Session::borrow()` cannot recreate their transports.
+For two devices on one connection, see [the shared-bus example](examples/shared_bus.cpp).
 
-### Frame and backend contracts
+<a id="frame-and-backend-contracts"></a>
 
-`Message.dlc` is a byte count, not a wire DLC nibble. Classic supports up to
-8 bytes and FD up to 64. BRS requires `is_fd=true`. Set `is_extended=true`
-for 29-bit IDs. FD lengths that need padding are converted at the backend.
+### Frame contract
 
-| TX backend / configuration | `is_fd=false, is_brs=false` |
+`Message.dlc` is a byte count: Classic 0..8, FD 0..64. Use `is_extended=true`
+for a 29-bit identifier. BRS requires both `is_fd=true` and `is_brs=true`.
+FD lengths may be padded by the backend to a representable wire length.
+
+| TX backend / mode | Untagged message (`is_fd=false`, `is_brs=false`) |
 | --- | --- |
-| SocketCAN `fd_mode=false` | Classic |
-| SocketCAN `fd_mode=true`, MiniCANFD | FD without BRS (compatibility default) |
-| PCAN FD, CANable FD | Classic; explicitly set `is_fd=true` for FD |
+| SocketCAN Classic | Classic |
+| SocketCAN FD, MiniCANFD | FD without BRS, for compatibility |
+| PCAN FD, CANable FD | Classic; set the FD flag explicitly for FD |
 
-`CANTransport` implementations own the physical link. `read()` returns
-`std::nullopt` on timeout; `write()` returns when the backend accepts the frame.
-Reads and writes may run concurrently. Custom backends must bound receive waits,
-handle concurrent I/O and provide idempotent cleanup through `close()`.
-`CANDispatcher` broadcasts to callbacks; `ManagedCANBus` adds explicit
-start/stop/recover and queued sends; `SharedCANBusPool` shares connections by key.
+Custom transports must support concurrent reads/writes, bounded receive waits,
+`std::nullopt` on receive timeout and idempotent, retryable cleanup where resources
+remain owned. Frame parsing and business response validation remain upper-layer work.
 
-Queue acceptance, backend acceptance and device execution are separate events.
-Wait on a receipt for the backend result; inspect device replies for business
-success. A receipt wait timeout does not cancel an in-flight write. `CANError`
-provides stable error categories, system errors and native status codes.
+### License and contributions
 
-### License
-
-[MIT](LICENSE), Copyright (c) 2026 linker-bot. See [NOTICE](NOTICE) for optional
-vendor libraries. Installation includes this README and the configuration guides
-under `share/linkerbot-comm`. Vendor binaries and drivers are obtained separately.
-See [CONTRIBUTING](CONTRIBUTING.md) for issue reports and contributions, and
-[CHANGELOG](CHANGELOG.md) for version changes.
+[MIT](LICENSE), Copyright (c) 2026 linker-bot. Optional vendor components are
+covered by their own terms; see [NOTICE](NOTICE). Drivers, vendor DLLs and test
+fixtures are not part of the runtime package. Installed documentation lives under
+`share/linkerbot-comm`. See [CONTRIBUTING](CONTRIBUTING.md) and [CHANGELOG](CHANGELOG.md).
 
 ## 简体中文
 
-Linkerbot SDK 共用的 C++17 CAN / CAN FD 通信库，负责物理连接、共享总线、接收路由和
-排队发送。设备命令、协议解析及手部控制由 hand SDK 负责。
+本项目是 Linkerbot SDK 的 C++17 CAN / CAN FD 通信层，负责连接、共享总线、接收路由和
+批次发送。设备命令、请求回复关联、型号识别与控制业务由上层 SDK 实现。
+当前源码版本为 **0.3.0（未发布）**；CI 产物不等于正式发行版本。
 
-### 后端与构建
+<a id="后端与构建"></a>
 
-| 后端 | 平台 | 帧类型 | 配置说明 |
-| --- | --- | --- | --- |
-| SocketCAN | Linux | Classic / FD | 打开前自行配置网络接口及速率 |
-| MiniCANFD | Linux / Windows x64 | FD | [厂商库、枚举与资源归属](docs/zh/minicanfd.md) |
-| PCAN-Basic | Windows x64 | Classic / FD | [PEAK 驱动、DLL 与时序](docs/zh/pcan.md) |
-| 原生 SLCAN | Linux / Windows | Classic / CANable FD | [串口与固件配置](docs/zh/slcan.md)，实验性支持 |
-| FakeTransport | 各支持平台 | 内存帧 | 离线测试与示例 |
+### 阅读顺序
 
-Linux 上的 PCAN 测试动态库只验证 loader ABI。离线测试不代表真实适配器已通过验收。
+1. [构建、安装与 CMake 接入](docs/zh/build.md)：Linux、离线依赖、选项、覆盖率和消费安装包。
+2. [Session 与生命周期](docs/zh/session.md)：路由、共享关闭、发送回执、取消和恢复。
+3. 按设备选择 [SocketCAN](docs/zh/socketcan.md)、[MiniCANFD](docs/zh/minicanfd.md)、
+   [PCAN](docs/zh/pcan.md) 或 [SLCAN](docs/zh/slcan.md)。
+4. [排障与诊断](docs/zh/troubleshooting.md)、[运行、升级与回滚](docs/zh/operations.md)。
+5. [验证记录与支持边界](docs/zh/validation.md)、[Windows 构建与打包](docs/zh/windows-build.md)。
 
-### 0.3.0 验证范围
+完整索引见 [docs/README.md](docs/README.md)。中文详细指南和上方英文概览都按当前实现维护；
+历史记录在验证文档中单独标记，不作为新增平台或硬件验收结论。
 
-GitHub Linux 工作流覆盖 Ubuntu 24.04 x86_64 与 ARM64 的 Debug / Release 构建、
-离线测试、重复 Session 恢复检查和安装包消费验证；这些任务不验证 CAN 实物。
-两个 Linux Debug 任务还要求生产代码的汇总行覆盖率至少达到 95%。统计包括 Linux 构建中
-编译到的 `src/` 与 `include/`，排除测试和 Catch2，不衡量 Windows 专用代码或实机验收。
-Linux/GCC 的本地复现命令见上方 [Build and test](#build-and-test)；覆盖率静态库仅用于验证，
-单独链接它的消费者也须加 `--coverage`，常规 Release 构建默认不启用覆盖率。
+<a id="030-验证范围"></a>
+<a id="接入与接口选择"></a>
+<a id="帧与完成语义"></a>
 
-基线为 Ubuntu 24.04 x86_64 / GCC 13 和 Windows 11 x64 / MSVC v143 14.44，使用 C++17。
-已有 Windows Debug 离线检查和 Release 工程、安装、ZIP 解压接入通过记录，均对应
-记录中的源码组合。配套 hand SDK 的实机结果如下：
+### 快速接入与关键约定
 
-| 路径 | 实机验证范围 |
-| --- | --- |
-| Linux SocketCAN | L6、O6、L20 Lite、L20、L30、O30 常用功能通过 |
-| Windows PCAN Classic | L6、O6、L20 Lite、L20，Debug 适配检查通过 |
-| Windows PCAN FD | 已实现，L30、O30 实机未测 |
-| Windows MiniCANFD | O30 的 Debug 检查通过，x64 `HCanbus.dll 3.3.103.0`；L30 未测 |
-| Windows SLCAN | 六型号的 Debug 检查通过，仅覆盖报告记录的 CANable 配置，保持实验性 |
+上方构建命令和离线 C++ 示例可直接使用。仓库名与 CMake 包名不同：安装包用
+`find_package(linkerbot-comm 0.3 CONFIG REQUIRED)`，实现链接 `linkerbot::comm`；
+旧扁平头文件用 `linkerbot::comm-compat`，只读值类型用 `linkerbot::comm-values`。
 
-上述结果不覆盖 Lawicel 固件、Linux 原生 PCAN/MiniCANFD/SLCAN 实物、Release 实机、
-Windows USB 拔插或长期负载，也不代表所有固件和驱动版本。按型号的完整记录维护在配套
-hand SDK 的 `docs/hardware-acceptance/<型号>/report.md`；本库不重复维护各手型报告。
+Linux amd64/ARM64 和 Windows x64 的 Debug/Release 有离线 CI。Linux Debug 要求
+编译到的生产代码汇总行覆盖率至少 95%，不是分支覆盖率或实机验收。
+厂商库必须匹配进程架构；ARM64 CI 不证明任意厂商 x64 库可在 ARM64 使用。
+SLCAN 仍属实验性，Linux PCAN 仅验证测试库 ABI。型号、驱动和实机范围统一见
+[验证说明](docs/zh/validation.md)。
 
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel 4
-ctest --test-dir build --output-on-failure --no-tests=error
-./build/comm-example
-```
+`Message.dlc` 表示字节数，Classic 最多 8、FD 最多 64。扩展 ID 须设置 `is_extended`，
+BRS 须同时设置 `is_fd`。不同后端对未标记消息的兼容解释见上方帧契约。
+入队、后端接受与设备执行是三个阶段；等待超时不会撤回在途帧。
+共享同一 Session 的调用者必须协调关闭；恢复后须重新注册路由并核验设备身份。
 
-测试依赖 Catch2 3；缺失时默认下载 v3.8.1。离线构建先安装 Catch2 3 或指定 `Catch2_DIR`，
-再加 `-DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF`。顶层构建默认启用测试和示例，
-作为子目录引入时默认关闭；分别通过 `LINKERBOT_COMM_BUILD_TESTS`、
-`LINKERBOT_COMM_BUILD_EXAMPLES` 控制。关闭测试后，核心库不依赖 Catch2。
-Windows 的 MSVC、运行库和 ZIP 消费方式见 [Windows 构建](docs/zh/windows-build.md)。
-
-### 接入与接口选择
-
-仓库名为 `linkerbot-transport-cpp`；为保持兼容，CMake 包名仍为 `linkerbot-comm`，
-链接目标仍使用 `linkerbot::comm` 系列名称。
-
-源码接入使用 `add_subdirectory`，安装包使用 `find_package(linkerbot-comm 0.3 CONFIG REQUIRED)`，
-均链接 `linkerbot::comm`，完整命令见上方英文示例。旧扁平头文件用户链接
-`linkerbot::comm-compat`；只使用值类型、不调用实现的目标可链接 `linkerbot::comm-values`。
-`0.3.x` 与 `linkerbot-hand-cpp 0.3.x` 配套，comm 版本不得低于 hand，更新后配套重编译。
-
-| 接口 | 用途 |
-| --- | --- |
-| `CANTransport` | 后端读写、关闭；构造即获取链路资源 |
-| `CANDispatcher` | 一条连接广播给多个回调；回调自行过滤帧 |
-| `ManagedCANBus` | 构造不打开设备；显式 start/stop/recover、排队发送 |
-| `SharedCANBusPool` | 相同通道配置共享连接；最后一个 lease 负责关闭 |
-| `transport::Session` | 精确 ID 路由、有界 inbox、批次调度、deadline 与取消 |
-
-上方完整示例演示 `Session` 单设备收发；[共享总线示例](examples/shared_bus.cpp) 演示双设备。
-需要恢复物理连接时使用可重建后端的 `Session::create(factory)`。路由、共享、回执与
-恢复规则见 [Session 与生命周期](docs/zh/session.md)。
-
-### 帧与完成语义
-
-`Message.dlc` 表示字节数，Classic 最多 8 字节、FD 最多 64 字节，不是线上 DLC 编码。
-扩展 ID 设置 `is_extended=true`；BRS 必须同时设置 `is_fd=true`、`is_brs=true`。
-MiniCANFD 和 SocketCAN `fd_mode=true` 将未标记帧按 FD、无 BRS 发送；
-PCAN 和 CANable FD 仍按 Classic 发送，必须显式设置 FD 标志。
-
-入队成功、后端接受、设备执行成功是三个阶段。回执等待后端结果，设备执行仍需业务回复。
-等待回执超时不会取消已经进入驱动的写入。`CANError` 保留稳定错误分类、系统错误和厂商状态码。
-`read()` 超时返回 `std::nullopt`；自定义后端须支持并发读写、有界接收等待及幂等关闭。
-
-采用 [MIT 许可证](LICENSE)，第三方说明见 [NOTICE](NOTICE)。安装包的文档位于
-`share/linkerbot-comm`；厂商库和驱动需另行获取。
-问题反馈和贡献流程见 [CONTRIBUTING](CONTRIBUTING.md)，版本变化见 [CHANGELOG](CHANGELOG.md)。
+采用 [MIT](LICENSE)；贡献流程见 [CONTRIBUTING](CONTRIBUTING.md)，版本变化见
+[CHANGELOG](CHANGELOG.md)，第三方组件见 [NOTICE](NOTICE)。

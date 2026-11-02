@@ -1,5 +1,7 @@
 # PCAN Classic CAN / CAN FD
 
+[文档索引](../README.md) · [诊断](troubleshooting.md) · [验证边界](validation.md)
+
 `PcanTransport` 提供真实通道枚举和运行时加载，核心 SDK 构建不需要厂商开发包。
 硬件支持目标为 Windows x64 / MSVC。Linux 测试动态库用于离线 ABI 验证。
 
@@ -30,17 +32,29 @@ handle 的格式化，不代表猜测可用通道。能力或可用性查询失�
 
 ```cpp
 #include <linkerbot/can/pcan_transport.hpp>
-using namespace linkerbot::can;
-auto api = load_pcan_api();
-auto attached = enumerate_pcan_channels(api);
-// 从 attached.channels 选择真实通道；不要假设 USBBUS1 一定存在。
-PcanConfig config;
-config.channel = pcan_channel_handle("PCAN_USBBUS1");
-config.mode = PcanMode::kClassic;
-config.nominal_bitrate = 1'000'000;
-PcanTransport transport(config, api); // 立即初始化；hand 的 lazy factory 则在 open 时执行
-transport.close();
+#include <algorithm>
+
+int main() {
+    namespace can = linkerbot::can;
+    auto api = can::load_pcan_api();
+    const auto attached = can::enumerate_pcan_channels(api);
+    const auto selected = std::find_if(attached.channels.begin(), attached.channels.end(),
+        [](const can::PcanChannel &channel) {
+            return (channel.condition & can::pcan_abi::available) && !channel.owned_by_process;
+        });
+    if (selected == attached.channels.end()) return 1;
+    can::PcanConfig config;
+    config.channel = selected->handle;
+    config.mode = can::PcanMode::kClassic;
+    config.nominal_bitrate = 1'000'000; // 必须与目标总线一致。
+    can::PcanTransport transport(config, api);
+    transport.close();
+}
 ```
+
+此例仅演示选择可用通道，不核验所连设备身份；实际应用还应按已确认的适配器和通道选择，
+不能把列表第一个可用通道视为特定设备。不要用 `PCAN_USBBUS1` 的名称猜测它已经连接。
+
 
 Classic 接受 1M、800k、500k、250k、125k、100k、50k、20k、10k、5k bit/s。
 FD 使用 `CAN_InitializeFD` / `CAN_ReadFD` / `CAN_WriteFD`，独立于 Classic 速率常量。
@@ -49,8 +63,8 @@ data = 1/11/4/4，精确产生 1M/5M bit/s。此时序尚未在指定硬件验�
 更改速率时须同时设置分频、段长和 SJW；配置会校验范围、SJW ≤ TSEG2 及精确速率。
 
 PCAN 按显式帧标志收发：`is_fd=false,is_brs=false` 在 FD 通道上仍是 Classic；
-FD 需 `is_fd=true`，BRS 需额外 `is_brs=true`。L30 编码器使用扩展 FD，O30 使用标准 FD、
-无 BRS。DLC 0–15 转换为 0–64 字节；发送不能直接表示的长度向上取合法 DLC 并零填充。
+FD 需 `is_fd=true`，BRS 需额外 `is_brs=true`。设备协议决定标准/扩展 ID 和 BRS，
+本库不提供手型号编码器。DLC 0–15 转换为 0–64 字节；发送不能直接表示的长度向上取合法 DLC 并零填充。
 Classic 拒绝大于 8 字节、FD/BRS 或非法 ID，不截断。
 
 ## 生命周期与错误
@@ -72,11 +86,22 @@ TX queue full、bus error 分别由 `PcanTransportError::reason()` 表达，原�
 
 ## 验证
 
-配套 hand SDK 已记录 Windows Debug / PCAN Classic 的 L6、O6、L20 Lite、L20
-发现、读取、单关节命令及恢复通过；实测使用 PCAN-Basic `5.0.0.1115`。
-PCAN FD、Release 实机、USB 拔插及长期负载没有本轮通过记录。
+当前通信库的 Windows Debug/Release CI 与 Linux fixture 验证可在
+[验证记录](validation.md) 核对。原导入文档对 hand SDK / PCAN Classic 的实机陈述作为
+历史转述集中保留于该文档，不能代表当前源码、PCAN FD 或新驱动已经验收。
 
 构建与测试命令见 [README](../../README.md) 和 [Windows 构建](windows-build.md)。
 `pcan-native-loader` 动态加载独立声明原生 ABI 的 `pcan-fixture`，覆盖 Classic/FD、
 Classic-only、缺符号库、枚举、帧转换与资源清理。fixture 不安装。
 真实 DLL、驱动与适配器的双向收发、USB 断开恢复、模式切换和持续负载需硬件验证。
+
+
+显式库路径覆盖 `LINKERBOT_PCAN_LIB`；空环境变量按未设置处理，空显式路径拒绝。
+Linux loader 默认尝试 `libpcanbasic.so`，这一实现细节不改变 Windows x64 的硬件支持目标。
+接收等待默认 10 ms，可配置 0..100 ms；通道默认值为 0，会在打开前被拒绝，必须显式选择。
+
+```powershell
+$env:LINKERBOT_PCAN_LIB = 'C:\PEAK\PCANBasic.dll'
+```
+
+环境变量只影响后续加载，不能替换现有连接使用的 DLL；具体依赖和资源重试见上文。

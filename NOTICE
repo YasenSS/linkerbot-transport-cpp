@@ -12,7 +12,9 @@ Third-party software
 Catch2 3
   Catch2 is used only to build and run this project's tests. It is not linked
   into or distributed with the linkerbot-comm runtime library.
-  The CMake download fallback uses v3.8.1; Gitea CI currently uses v3.7.1.
+  The CMake download fallback (including GitHub CI) pins v3.8.1.
+  The separate Gitea workflow configuration pins v3.7.1; that is not a
+  statement that the Gitea workflow ran for any particular commit.
   An installed Catch2 3 package may also be used.
   Catch2 is licensed under the Boost Software License 1.0.
   Source: https://github.com/catchorg/Catch2
@@ -25,3 +27,13 @@ The optional libcanbus.so / HCanbus.dll implementation is loaded dynamically
 at runtime. The vendor binary is not included in this repository or installed
 by this project's CMake rules. Users must obtain it separately and comply
 with the vendor's applicable license and distribution terms.
+
+Optional PCAN-Basic components
+-----------------------------
+
+PCAN-Basic is loaded dynamically. The PEAK driver, PCANBasic.dll and vendor
+headers are not distributed by this project. Users obtain matching components
+from PEAK and comply with the applicable vendor license and distribution terms.
+The independently declared ABI fixtures under tests/ are test components and
+are not installed or included in runtime archives.
+Source: https://www.peak-system.com/products/software/development-packages/pcan-basic/?L=1
