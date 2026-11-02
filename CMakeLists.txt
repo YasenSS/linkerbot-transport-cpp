@@ -222,9 +222,8 @@ install(FILES LICENSE NOTICE README.md CHANGELOG.md CONTRIBUTING.md
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm)
 install(FILES examples/shared_bus.cpp
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/examples)
-install(FILES docs/zh/session.md docs/zh/minicanfd.md docs/zh/pcan.md docs/zh/slcan.md
-    docs/zh/windows-build.md
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/docs/zh)
+install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/docs
+    FILES_MATCHING PATTERN "*.md")
 
 include(cmake/ReleasePackage.cmake)
 install(FILES validation/installed-consumer/CMakeLists.txt validation/installed-consumer/main.cpp
