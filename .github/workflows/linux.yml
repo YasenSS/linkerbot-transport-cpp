@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   offline-tests:
+    name: GCC 13 (${{ matrix.runner }}, ${{ matrix.build_type }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     strategy:
@@ -48,6 +49,12 @@ jobs:
         run: |
           ctest --test-dir build -R '^Session recover' --repeat until-fail:20 \
             --output-on-failure --no-tests=error --timeout 60 --output-log recovery-results.log
+      - name: Repeat Session registry handoff regressions
+        run: |
+          ctest --test-dir build \
+            -R '^(Session registry waiters recheck a replacement active generation|Session registry rebinds a waiter to a replacement initialization attempt)$' \
+            --repeat until-fail:20 --output-on-failure --no-tests=error --timeout 60 \
+            --output-log registry-handoff-results.log
       - name: Run shared-bus example
         run: ./build/comm-example
       - name: Install and test a standalone consumer
@@ -67,8 +74,127 @@ jobs:
           path: |
             test-results.log
             recovery-results.log
+            registry-handoff-results.log
             consumer-results.log
             coverage-summary.json
             build/CMakeCache.txt
             build/Testing/Temporary/LastTest.log
+            consumer/Testing/Temporary/LastTest.log
+
+  clang-quality:
+    name: Clang 18 (${{ matrix.runner }}, ${{ matrix.mode }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        mode: [libcxx, asan-ubsan, tsan]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Clang toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build git ca-certificates \
+            clang llvm-18 libc++-dev libc++abi-dev libclang-rt-18-dev
+          {
+            uname -a
+            cmake --version
+            clang++ --version
+          } | tee clang-toolchain.txt
+      - name: Configure Clang quality build
+        run: |
+          compile_flags='-Wall -Wextra -Wpedantic'
+          link_flags=''
+          case '${{ matrix.mode }}' in
+            libcxx)
+              compile_flags="$compile_flags -stdlib=libc++"
+              link_flags='-stdlib=libc++'
+              ;;
+            asan-ubsan)
+              compile_flags="$compile_flags -fsanitize=address,undefined -fno-omit-frame-pointer"
+              link_flags='-fsanitize=address,undefined'
+              ;;
+            tsan)
+              compile_flags="$compile_flags -fsanitize=thread -fno-omit-frame-pointer"
+              link_flags='-fsanitize=thread'
+              ;;
+            *)
+              echo "Unsupported Clang mode: ${{ matrix.mode }}" >&2
+              exit 2
+              ;;
+          esac
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            "-DCMAKE_CXX_FLAGS=$compile_flags" \
+            "-DCMAKE_EXE_LINKER_FLAGS=$link_flags" \
+            "-DCMAKE_SHARED_LINKER_FLAGS=$link_flags" \
+            -DLINKERBOT_COMM_BUILD_TESTS=ON \
+            -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+      - name: Build library, tests and native ABI fixtures
+        run: cmake --build build --parallel 4
+      - name: Run Clang regression
+        run: |
+          case '${{ matrix.mode }}' in
+            libcxx)
+              ctest --test-dir build --output-on-failure --no-tests=error --timeout 90 \
+                --output-log clang-test-results.log
+              ;;
+            asan-ubsan)
+              symbolizer="$(command -v llvm-symbolizer-18 || command -v llvm-symbolizer)"
+              export ASAN_SYMBOLIZER_PATH="$symbolizer"
+              export ASAN_OPTIONS='detect_leaks=1:halt_on_error=1'
+              export UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1'
+              ctest --test-dir build -E '^(pcan-native-loader|vendor-native-loader)$' \
+                --output-on-failure --no-tests=error --timeout 90 \
+                --output-log clang-test-results.log
+              ;;
+            tsan)
+              symbolizer="$(command -v llvm-symbolizer-18 || command -v llvm-symbolizer)"
+              export TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_path=$symbolizer"
+              ctest --test-dir build --output-on-failure --no-tests=error --timeout 120 \
+                --output-log clang-test-results.log
+              ;;
+          esac
+      - name: Require warning-free production build with libc++
+        if: matrix.mode == 'libcxx'
+        run: |
+          cmake -S . -B build-strict -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            '-DCMAKE_CXX_FLAGS=-stdlib=libc++ -Wall -Wextra -Wpedantic -Werror' \
+            '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
+            '-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++' \
+            -DLINKERBOT_COMM_BUILD_TESTS=OFF \
+            -DLINKERBOT_COMM_BUILD_EXAMPLES=ON \
+            -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
+          cmake --build build-strict --parallel 4
+          ./build-strict/comm-example
+      - name: Install and test a libc++ consumer
+        if: matrix.mode == 'libcxx'
+        run: |
+          cmake --install build --prefix "$RUNNER_TEMP/comm clang install"
+          cmake -S "$RUNNER_TEMP/comm clang install/share/linkerbot-comm/validation/installed-consumer" \
+            -B consumer -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            '-DCMAKE_CXX_FLAGS=-stdlib=libc++' \
+            '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm clang install"
+          cmake --build consumer --parallel 4
+          ctest --test-dir consumer --output-on-failure --no-tests=error --timeout 60 \
+            --output-log clang-consumer-results.log
+      - name: Save Clang test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-clang-${{ matrix.runner }}-${{ matrix.mode }}
+          path: |
+            clang-toolchain.txt
+            clang-test-results.log
+            clang-consumer-results.log
+            build/CMakeCache.txt
+            build/Testing/Temporary/LastTest.log
+            build-strict/CMakeCache.txt
             consumer/Testing/Temporary/LastTest.log

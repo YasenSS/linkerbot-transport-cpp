@@ -24,11 +24,32 @@ Pool 对相同 key 共享连接，对同一物理通道的 FD/速率冲突配置
 `close()` 失败时仍持有资源，须由该持有者重试关闭；此时新 acquire 抛 `FaultedError`。
 `Session::close()` 也可重试失败的资源释放。会话关闭后不能重新启用。
 
+如果最后一个 lease 在接收或故障回调中析构，Pool 会把关闭操作交给进程内的清理线程，
+避免等待当前回调所属的 dispatcher。进程退出或销毁相关外部资源前，应由外部线程调用
+`CANBusLease::drain_deferred_cleanup()`；若它抛 `FaultedError`，先排除后端关闭故障，再调用
+`retry_deferred_cleanup()` 和 `drain_deferred_cleanup()`。`pending_deferred_cleanup()` 可用于
+诊断待处理数量。失败任务会继续保留原 Pool 记录、物理 key 和重试所有权，不会为规避错误
+而删除记录或改用新 key。以上 drain/retry 接口不能从接收或故障回调中调用。
+
 `share()` / `lease()` / `borrow()` 复用的是同一个 Session，而不是独立逻辑连接。
 任一共享使用者调用 `close()` 会让所有使用者的路由失效，并释放该 Session 持有的所有 lease；
 `share()` 本身不停止外部 bus，但其他设备不能继续使用已关闭的 Session。
 应由统一所有者关闭会话，单设备退出时只关闭自己的 inbox、取消自己的 endpoint。
 注册表里仍存活的已关闭 Session 会拒绝再次 share/borrow；旧对象释放后才能创建新的会话。
+
+factory 可以在同一线程重入不同的注册表 key（例如不同 `ManagedCANBus`）的 `share()`；同线程
+重入同一 key，或注册表检测到初始化线程之间的等待环时，会抛 `ValidationError`。factory 不应
+等待另一个线程对同一尚未完成 key 的 `share()`，因为这种发生在应用 factory 内的等待无法由
+注册表观察和打断。
+
+后端的 `close()` 及其析构函数不得调用 `Session::share()`、`lease()` 或 `borrow()`；Session
+清理期间进入注册表会抛 `ValidationError`。这一限制同时适用于相同和不同 key，用于避免清理
+线程等待自身 tombstone 或形成跨 key 的清理环。
+
+最后一个 Session 引用消失后，注册表仍保留该代次的清理标记，直到订阅、发送线程、lease 和
+自有总线完成同步或延迟清理；同一 key 的 `share()`、`lease()` 或 `borrow()` 会等待清理结束，
+不会提前发布替代 Session。接收/发送回调不能等待自身触发的清理，此时会抛 `ValidationError`；
+应从外部线程重试。
 
 ## 接收路由
 

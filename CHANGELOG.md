@@ -10,8 +10,9 @@
   修复生命周期及并发问题，并增加相应离线回归。
 - 增加 Windows x64 / MSVC 构建、原生测试 DLL、ZIP、构建来源与 SHA256、安装及
   中文空格路径解压接入验证。厂商 DLL、驱动及测试 DLL 不随发行包提供。
-- 增加 GitHub Linux amd64/ARM64 Debug/Release 离线 CI、Session 恢复回归和
-  汇总生产行覆盖率至少 95% 的门槛；固定提交证据见 [验证记录](docs/zh/validation.md)。
+- 增加 GitHub Linux amd64/ARM64 Debug/Release 离线 CI、Session 恢复及 registry
+  active-generation/initializer handoff 重复回归和汇总生产行覆盖率至少 95% 的门槛；
+  增加 Clang 18 + libc++、ASan+UBSan 与 TSan 双架构质量矩阵。
 - 整理双语入口与中文指南，补齐 Linux/SocketCAN、构建选项、诊断、升级回滚和
   安装文档索引。历史实机转述集中标记，不作为当前硬件验收结论。
 - `0.3.x` 与 `linkerbot-hand-cpp 0.3.x` 配套，通信库版本不低于 hand 版本；
