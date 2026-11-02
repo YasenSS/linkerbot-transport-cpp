@@ -308,16 +308,25 @@ struct RegistryEntry {
     std::condition_variable changed;
     bool initializing = false;
     std::thread::id initializer;
+    uint64_t initialization_attempt = 0;
     bool active = false;
     uint64_t generation = 0;
 };
+// Registry entries are intentionally retained for the process lifetime.  Wait
+// edges and Session lifetimes hold node pointers, which stay stable across
+// insertions into std::map but would be invalidated by erasing a node.
 using SessionRegistry = std::map<const void *, RegistryEntry>;
 SessionRegistry bus_sessions;
 SessionRegistry borrowed_sessions;
 // A thread can initialize several independent backends recursively, but can
 // wait for at most one other initializer at a time. Guard this wait-for graph
 // with registry_mutex and reject an edge that would close a cycle.
-std::map<std::thread::id, std::thread::id> registry_waits;
+struct RegistryWaitEdge {
+    RegistryEntry *entry;
+    std::thread::id initializer;
+    uint64_t initialization_attempt;
+};
+std::map<std::thread::id, RegistryWaitEdge> registry_waits;
 
 bool wait_would_cycle(std::thread::id waiter, std::thread::id initializer) {
     auto current = initializer;
@@ -327,7 +336,14 @@ bool wait_would_cycle(std::thread::id waiter, std::thread::id initializer) {
         const auto next = registry_waits.find(current);
         if (next == registry_waits.end())
             return false;
-        current = next->second;
+        const auto &edge = next->second;
+        // Publication or abandonment satisfies this dependency before the
+        // notified waiter necessarily reacquires registry_mutex.  A new
+        // attempt, even by the same thread, is a different dependency.
+        if (!edge.entry->initializing || edge.entry->initializer != edge.initializer ||
+            edge.entry->initialization_attempt != edge.initialization_attempt)
+            return false;
+        current = edge.initializer;
     }
     // The existing graph should always be acyclic. Refuse to extend it if a
     // stale or corrupted cycle is ever observed rather than waiting forever.
@@ -336,8 +352,13 @@ bool wait_would_cycle(std::thread::id waiter, std::thread::id initializer) {
 
 class RegistryWait {
   public:
-    RegistryWait(std::thread::id waiter, std::thread::id initializer) : waiter_(waiter) {
-        const auto inserted = registry_waits.emplace(waiter, initializer).second;
+    RegistryWait(std::thread::id waiter, RegistryEntry *entry, std::thread::id initializer,
+                 uint64_t initialization_attempt)
+        : waiter_(waiter) {
+        const auto inserted =
+            registry_waits
+                .emplace(waiter, RegistryWaitEdge{entry, initializer, initialization_attempt})
+                .second;
         if (!inserted)
             throw can::ValidationError("Session initializer already waits for another backend");
     }
@@ -385,15 +406,19 @@ RegistryReservation reserve_session(SessionRegistry &registry, const void *key) 
         if (!entry.initializing) {
             entry.initializing = true;
             entry.initializer = std::this_thread::get_id();
+            ++entry.initialization_attempt;
+            if (entry.initialization_attempt == 0)
+                ++entry.initialization_attempt;
             return {&entry, {}};
         }
         if (entry.initializer == std::this_thread::get_id())
             throw can::ValidationError("recursive Session initialization for the same backend");
         const auto waiter = std::this_thread::get_id();
         const auto initializer = entry.initializer;
+        const auto initialization_attempt = entry.initialization_attempt;
         if (wait_would_cycle(waiter, initializer))
             throw can::ValidationError("cyclic Session backend initialization");
-        RegistryWait waiting(waiter, initializer);
+        RegistryWait waiting(waiter, &entry, initializer, initialization_attempt);
         // A completed attempt is the event this wait consumes.  If a new
         // attempt overtakes us before mutex reacquisition, leave this scope to
         // remove the old wait-for edge, then bind to the new initializer on

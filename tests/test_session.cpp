@@ -10,6 +10,7 @@
 #include <linkerbot/transport/session.hpp>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
 #include <vector>
 #if defined(__linux__)
@@ -1135,6 +1136,147 @@ TEST_CASE("Session shared registry rejects cross-backend initialization cycles",
     REQUIRE(session_b->health().open);
     session_a->close();
     session_b->close();
+}
+
+TEST_CASE("Session registry ignores waits for a published initialization attempt",
+          "[session][lifecycle][registry]") {
+    struct PublisherResult {
+        std::shared_ptr<transport::Session> session_a;
+        std::shared_ptr<transport::Session> session_b;
+        bool rejected = false;
+        std::string rejection;
+    };
+
+    std::shared_ptr<can::ManagedCANBus> bus_a;
+    std::shared_ptr<can::ManagedCANBus> bus_b;
+    std::atomic<int> a_factory_calls{0};
+    std::atomic<int> b_factory_calls{0};
+    std::shared_ptr<transport::Session> nested_b;
+    std::promise<void> b_factory_entered;
+    auto b_factory_ready = b_factory_entered.get_future();
+    std::promise<void> release_b_factory;
+    auto b_factory_release = release_b_factory.get_future().share();
+    std::promise<void> a_factory_entered;
+    auto a_factory_ready = a_factory_entered.get_future();
+    std::promise<void> allow_a_to_wait_for_b;
+    auto a_wait_allowed = allow_a_to_wait_for_b.get_future().share();
+
+    bus_b = std::make_shared<can::ManagedCANBus>([&] {
+        ++b_factory_calls;
+        b_factory_entered.set_value();
+        if (b_factory_release.wait_for(5s) != std::future_status::ready)
+            throw can::TimeoutError("test B publication gate expired");
+        return std::make_unique<can::FakeTransport>();
+    });
+    bus_a = std::make_shared<can::ManagedCANBus>([&] {
+        ++a_factory_calls;
+        a_factory_entered.set_value();
+        if (a_wait_allowed.wait_for(5s) != std::future_status::ready)
+            throw can::TimeoutError("test A dependency gate expired");
+        nested_b = transport::Session::share(bus_b);
+        return std::make_unique<can::FakeTransport>();
+    });
+
+    std::packaged_task<PublisherResult()> publisher_task([&] {
+        pin_to_first_available_cpu();
+        PublisherResult result;
+        result.session_b = transport::Session::share(bus_b);
+        try {
+            // B is already published, so A's temporary wait on B is no longer
+            // a live dependency even if that waiter has not run again yet.
+            result.session_a = transport::Session::share(bus_a);
+        } catch (const can::ValidationError &error) {
+            result.rejected = true;
+            result.rejection = error.what();
+        }
+        return result;
+    });
+    auto publisher = publisher_task.get_future();
+    std::thread publisher_thread(std::move(publisher_task));
+    if (b_factory_ready.wait_for(2s) != std::future_status::ready)
+        std::abort();
+
+    std::packaged_task<std::shared_ptr<transport::Session>()> waiter_task([&] {
+        pin_to_first_available_cpu();
+        return transport::Session::share(bus_a);
+    });
+    auto waiter = waiter_task.get_future();
+    std::thread waiter_thread;
+    try {
+        waiter_thread = std::thread(std::move(waiter_task));
+    } catch (...) {
+        const auto launch_failure = std::current_exception();
+        allow_a_to_wait_for_b.set_value();
+        release_b_factory.set_value();
+        if (publisher.wait_for(5s) != std::future_status::ready)
+            std::abort();
+        publisher_thread.join();
+        try {
+            (void)publisher.get();
+        } catch (...) {
+        }
+        std::rethrow_exception(launch_failure);
+    }
+    if (a_factory_ready.wait_for(2s) != std::future_status::ready)
+        std::abort();
+
+    allow_a_to_wait_for_b.set_value();
+    // The public API does not expose wait-edge installation. Keep both
+    // workers on one Linux CPU and allow the A initializer to block on B
+    // before publishing B and immediately requesting A on the publisher.
+    std::this_thread::sleep_for(20ms);
+    release_b_factory.set_value();
+
+    const auto completion_deadline = std::chrono::steady_clock::now() + 5s;
+    const auto ready_by_deadline = [&](auto &future) {
+        const auto now = std::chrono::steady_clock::now();
+        return now < completion_deadline &&
+               future.wait_for(completion_deadline - now) == std::future_status::ready;
+    };
+    if (!ready_by_deadline(publisher) || !ready_by_deadline(waiter))
+        std::abort();
+    publisher_thread.join();
+    waiter_thread.join();
+
+    PublisherResult published;
+    std::shared_ptr<transport::Session> outer_a;
+    std::exception_ptr failure;
+    try {
+        published = publisher.get();
+    } catch (...) {
+        failure = std::current_exception();
+    }
+    try {
+        outer_a = waiter.get();
+    } catch (...) {
+        if (!failure)
+            failure = std::current_exception();
+    }
+
+    const bool same_a = published.session_a && published.session_a == outer_a;
+    const bool same_b = published.session_b && published.session_b == nested_b;
+    const bool a_open = outer_a && outer_a->health().open;
+    const bool b_open = nested_b && nested_b->health().open;
+    if (published.session_a)
+        published.session_a->close();
+    if (outer_a)
+        outer_a->close();
+    if (published.session_b)
+        published.session_b->close();
+    nested_b.reset();
+    bus_a->stop();
+    bus_b->stop();
+
+    if (failure)
+        std::rethrow_exception(failure);
+    INFO("unexpected validation error: " << published.rejection);
+    REQUIRE_FALSE(published.rejected);
+    REQUIRE(a_factory_calls == 1);
+    REQUIRE(b_factory_calls == 1);
+    REQUIRE(same_a);
+    REQUIRE(same_b);
+    REQUIRE(a_open);
+    REQUIRE(b_open);
 }
 
 TEST_CASE("Session registry rebinds a waiter to a replacement initialization attempt",
