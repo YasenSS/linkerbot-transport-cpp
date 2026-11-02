@@ -274,3 +274,13 @@ TEST_CASE("SLCAN CANable Classic keeps FD disabled without requiring serial ACKs
     serial->chunks={"d1230\r"};
     REQUIRE_THROWS_AS(transport.read(),TransportIOError);
 }
+
+TEST_CASE("SLCAN rejects malformed device paths and unknown profiles at codec entry points",
+          "[slcan][validation]") {
+    for (const auto &port :
+         {std::string{}, std::string{"COM\n10"}, std::string{"/dev/"}, std::string{"/dev/tty/"}})
+        REQUIRE_THROWS_AS(slcan_port_name(port), ValidationError);
+    const auto unknown = static_cast<SlcanProtocol>(99);
+    REQUIRE_THROWS_AS(encode_slcan_frame(frame(), unknown), ValidationError);
+    REQUIRE_THROWS_AS(decode_slcan_frame("t1230", unknown), ValidationError);
+}

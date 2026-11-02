@@ -1042,3 +1042,77 @@ TEST_CASE("vendor send timeout has a finite upper bound", "[vendor_canfd][stop]"
     CHECK(lib.init_calls == 0);
     CHECK(lib.open_calls == 0);
 }
+
+TEST_CASE("vendor lifecycle validates API identity and symmetric initialization",
+          "[vendor_canfd][validation]") {
+    using namespace linkerbot::can;
+    LifecycleGuard guard;
+    REQUIRE_THROWS_AS(life::acquire(nullptr), ValidationError);
+    auto empty = std::make_shared<VendorCanFdApi>();
+    REQUIRE_THROWS_AS(life::acquire(empty), ValidationError);
+    FakeLib lib;
+    auto api = make_api(lib);
+    api->lib_exit = nullptr;
+    REQUIRE_THROWS_AS(life::acquire(api), ValidationError);
+    REQUIRE_NOTHROW(life::release(""));
+    REQUIRE_NOTHROW(life::release("unowned library"));
+    REQUIRE_THROWS_AS(VendorCanFdTransport({}, nullptr), ValidationError);
+    api = make_api(lib);
+    api->receive = nullptr;
+    REQUIRE_THROWS_AS(VendorCanFdTransport({}, api), ValidationError);
+    VendorCanFdTransport::Config config;
+    config.send_timeout_ms = -1;
+    REQUIRE_THROWS_AS(VendorCanFdTransport(config, make_api(lib)), ValidationError);
+}
+
+TEST_CASE("vendor rejects open failure wrong channel type and overreported receive counts",
+          "[vendor_canfd][faults]") {
+    using namespace linkerbot::can;
+    LifecycleGuard guard;
+    FakeLib lib;
+    auto api = make_api(lib);
+    lib.open_result = -7;
+    REQUIRE_THROWS_AS(VendorCanFdTransport({}, api), TransportIOError);
+    REQUIRE(life::snapshot().empty());
+    lib.open_result = 0;
+    api->channel_type = [](unsigned, unsigned) { return 0; };
+    REQUIRE_THROWS_AS(VendorCanFdTransport({}, api), TransportIOError);
+    REQUIRE(life::snapshot().empty());
+    api->channel_type = nullptr;
+    api->receive = [](unsigned, unsigned, CanFDMsg *, unsigned count, int) {
+        return int(count + 1);
+    };
+    VendorCanFdTransport transport({}, api);
+    REQUIRE(transport.prefers_write_batch());
+    REQUIRE_THROWS_AS(transport.read(), TransportIOError);
+    transport.close();
+}
+
+TEST_CASE("vendor classifies API exceptions and ignores remote-only receives",
+          "[vendor_canfd][faults]") {
+    using namespace linkerbot::can;
+    LifecycleGuard guard;
+    FakeLib lib;
+    auto api = make_api(lib);
+    api->scan_device = []() -> int { throw ValidationError("injected invalid scan"); };
+    REQUIRE_THROWS_AS(VendorCanFdTransport({}, api), ValidationError);
+    api->scan_device = []() -> int { throw 42; };
+    REQUIRE_THROWS_AS(VendorCanFdTransport({}, api), TransportIOError);
+    api = make_api(lib);
+    CanFDMsg remote{};
+    remote.RemoteFlag = 1;
+    lib.rx_frames = {remote};
+    VendorCanFdTransport transport({}, api);
+    REQUIRE_FALSE(transport.read());
+    transport.close();
+    auto report = enumerate_vendor_canfd_channels(api, {{2, 0, {}}});
+    REQUIRE(report.channels.empty());
+    REQUIRE_FALSE(report.failures.empty());
+    api->native_channel_numbers = true;
+    api->device_level_type = true;
+    REQUIRE_THROWS_AS(enumerate_vendor_canfd_channels(api, {{0, 1, {}}}), ValidationError);
+    api->native_channel_numbers = false;
+    report = enumerate_vendor_canfd_channels(api, {{0, 1, {}}});
+    REQUIRE(report.channels.empty());
+    REQUIRE_FALSE(report.failures.empty());
+}

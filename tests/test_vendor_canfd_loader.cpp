@@ -360,3 +360,44 @@ TEST_CASE("native Linux adapter preserves both device and channel indices", "[ve
     CHECK(fixture.get(0) == 1);
 }
 #endif
+
+TEST_CASE("native loader factory entry points honor the explicit environment library",
+          "[vendor_loader]") {
+    Fixture fixture;
+    const auto configured = fixture_path();
+    const char *value = std::getenv(kVendorCanFdLibEnv);
+    const auto previous = value ? std::optional<std::string>{value} : std::nullopt;
+    struct RestoreEnvironment {
+        std::optional<std::string> previous;
+        ~RestoreEnvironment() {
+#if defined(_WIN32)
+            _putenv_s(kVendorCanFdLibEnv, previous ? previous->c_str() : "");
+#else
+            if (previous)
+                setenv(kVendorCanFdLibEnv, previous->c_str(), 1);
+            else
+                unsetenv(kVendorCanFdLibEnv);
+#endif
+        }
+    } restore{previous};
+#if defined(_WIN32)
+    REQUIRE(_putenv_s(kVendorCanFdLibEnv, configured.c_str()) == 0);
+#else
+    REQUIRE(setenv(kVendorCanFdLibEnv, configured.c_str(), 1) == 0);
+#endif
+    {
+        auto transport = make_vendor_canfd_transport();
+        REQUIRE(transport->prefers_write_batch());
+        transport->close();
+    }
+    VendorCanFdTransport::Config config;
+    config.library_path = configured;
+    {
+        auto transport = make_vendor_canfd_transport(config);
+        REQUIRE(transport->device_index() == 0);
+        transport->close();
+    }
+    const auto channels =
+        enumerate_vendor_canfd_channels(std::optional<std::string>{configured}, {{0, 0, {}}});
+    REQUIRE(channels.channels.size() == 1);
+}
