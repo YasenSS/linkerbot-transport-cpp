@@ -374,7 +374,12 @@ RegistryReservation reserve_session(SessionRegistry &registry, const void *key) 
             if (current_writer || can::CANDispatcher::is_any_receive_thread())
                 throw can::ValidationError(
                     "Session backend cleanup is still active on this callback thread");
-            entry.changed.wait(lock, [&] { return !entry.active; });
+            // Every active-lifetime transition notifies this per-entry CV
+            // while holding registry_mutex.  Consume the event rather than
+            // waiting for a particular sampled value: another caller may
+            // already have published the next active generation before this
+            // waiter reacquires registry_mutex.
+            entry.changed.wait(lock);
             continue;
         }
         if (!entry.initializing) {
@@ -385,10 +390,16 @@ RegistryReservation reserve_session(SessionRegistry &registry, const void *key) 
         if (entry.initializer == std::this_thread::get_id())
             throw can::ValidationError("recursive Session initialization for the same backend");
         const auto waiter = std::this_thread::get_id();
-        if (wait_would_cycle(waiter, entry.initializer))
+        const auto initializer = entry.initializer;
+        if (wait_would_cycle(waiter, initializer))
             throw can::ValidationError("cyclic Session backend initialization");
-        RegistryWait waiting(waiter, entry.initializer);
-        entry.changed.wait(lock, [&] { return !entry.initializing; });
+        RegistryWait waiting(waiter, initializer);
+        // A completed attempt is the event this wait consumes.  If a new
+        // attempt overtakes us before mutex reacquisition, leave this scope to
+        // remove the old wait-for edge, then bind to the new initializer on
+        // the next loop iteration.  Spurious wakes are safe for the same
+        // reason.
+        entry.changed.wait(lock);
     }
 }
 

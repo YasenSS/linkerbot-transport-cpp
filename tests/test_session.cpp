@@ -1,5 +1,7 @@
+#include <algorithm>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <condition_variable>
 #include <cstdlib>
 #include <functional>
@@ -10,9 +12,32 @@
 #include <optional>
 #include <thread>
 #include <vector>
+#if defined(__linux__)
+#include <pthread.h>
+#include <sched.h>
+#endif
 using namespace std::chrono_literals;
 using namespace linkerbot;
 namespace {
+#if defined(__linux__)
+void pin_to_first_available_cpu() {
+    cpu_set_t available;
+    CPU_ZERO(&available);
+    if (pthread_getaffinity_np(pthread_self(), sizeof(available), &available) != 0)
+        return;
+    for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
+        if (!CPU_ISSET(cpu, &available)) continue;
+        cpu_set_t selected;
+        CPU_ZERO(&selected);
+        CPU_SET(cpu, &selected);
+        (void)pthread_setaffinity_np(pthread_self(), sizeof(selected), &selected);
+        return;
+    }
+}
+#else
+void pin_to_first_available_cpu() {}
+#endif
+
 struct SessionRig {
     can::FakeTransport *fake;
     std::shared_ptr<transport::Session> session;
@@ -809,9 +834,9 @@ TEST_CASE("Session registry waits for deferred shared cleanup before replacement
     std::atomic<int> factory_calls{0};
     can::FakeTransport *raw = nullptr;
     auto bus = std::make_shared<can::ManagedCANBus>([&] {
-        ++factory_calls;
         auto fake = std::make_unique<can::FakeTransport>();
-        raw = fake.get();
+        if (++factory_calls == 1)
+            raw = fake.get();
         return fake;
     });
     auto session = transport::Session::share(bus);
@@ -846,6 +871,139 @@ TEST_CASE("Session registry waits for deferred shared cleanup before replacement
     bus->unsubscribe(subscription);
     current->close();
     bus->stop();
+}
+
+TEST_CASE("Session registry waiters recheck a replacement active generation",
+          "[session][lifecycle][registry]") {
+    std::atomic<int> factory_calls{0};
+    can::FakeTransport *raw = nullptr;
+    auto bus = std::make_shared<can::ManagedCANBus>([&] {
+        auto fake = std::make_unique<can::FakeTransport>();
+        if (++factory_calls == 1)
+            raw = fake.get();
+        return fake;
+    });
+    auto session = transport::Session::share(bus);
+
+    raw->arm_tx_gate();
+    auto receipt = session->submit({{frame(0x28, 0x34)}});
+    const bool writer_entered = raw->wait_until_tx_entered(2s);
+    if (!writer_entered) {
+        raw->release_tx_gate();
+        FAIL("Session writer did not reach the cleanup test gate");
+    }
+
+    std::promise<void> released;
+    auto release_observed = released.get_future();
+    const auto subscription = bus->subscribe([&](const can::Message &) {
+        session.reset();
+        released.set_value();
+    });
+    raw->inject(frame(0x29, 0x44));
+    const auto release_status = release_observed.wait_for(2s);
+    if (release_status != std::future_status::ready) {
+        raw->release_tx_gate();
+        bus->unsubscribe(subscription);
+        FAIL("Session callback did not enqueue deferred cleanup");
+    }
+
+    // Queue several callers behind the active cleanup tombstone. Once the
+    // tombstone is released, one caller can publish the replacement before a
+    // later waiter reacquires registry_mutex. Every waiter must consume the
+    // old lifetime transition and recheck the new weak Session generation.
+    constexpr size_t caller_count = 16;
+    std::promise<void> start;
+    auto start_gate = start.get_future().share();
+    std::atomic<size_t> callers_started{0};
+    std::vector<std::future<std::shared_ptr<transport::Session>>> callers;
+    try {
+        callers.reserve(caller_count);
+        for (size_t i = 0; i < caller_count; ++i) {
+            callers.push_back(std::async(std::launch::async, [&, bus, start_gate] {
+                pin_to_first_available_cpu();
+                start_gate.wait();
+                ++callers_started;
+                return transport::Session::share(bus);
+            }));
+        }
+    } catch (...) {
+        const auto launch_failure = std::current_exception();
+        start.set_value();
+        raw->release_tx_gate();
+        const auto cleanup_deadline = std::chrono::steady_clock::now() + 5s;
+        for (auto &caller : callers) {
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= cleanup_deadline ||
+                caller.wait_for(cleanup_deadline - now) != std::future_status::ready)
+                std::abort();
+        }
+        for (auto &caller : callers) {
+            try {
+                (void)caller.get();
+            } catch (...) {
+            }
+        }
+        std::rethrow_exception(launch_failure);
+    }
+    start.set_value();
+    const auto start_deadline = std::chrono::steady_clock::now() + 2s;
+    while (callers_started != caller_count && std::chrono::steady_clock::now() < start_deadline)
+        std::this_thread::yield();
+    const bool all_started = callers_started == caller_count;
+    std::this_thread::sleep_for(50ms);
+    bool all_blocked = true;
+    for (auto &caller : callers)
+        all_blocked = all_blocked && caller.wait_for(0ms) == std::future_status::timeout;
+
+    raw->release_tx_gate();
+    const auto completion_deadline = std::chrono::steady_clock::now() + 5s;
+    for (auto &caller : callers) {
+        const auto now = std::chrono::steady_clock::now();
+        // A timed Catch failure would destroy blocking async futures and hang
+        // the test process. Abort at the hard bound so CTest reports the
+        // deadlock without relying on stack unwinding.
+        if (now >= completion_deadline ||
+            caller.wait_for(completion_deadline - now) != std::future_status::ready)
+            std::abort();
+    }
+
+    std::exception_ptr failure;
+    std::shared_ptr<transport::Session> current;
+    std::vector<std::shared_ptr<transport::Session>> results;
+    results.reserve(callers.size());
+    for (auto &caller : callers) {
+        try {
+            auto result = caller.get();
+            if (!current)
+                current = result;
+            results.push_back(std::move(result));
+        } catch (...) {
+            if (!failure)
+                failure = std::current_exception();
+        }
+    }
+
+    transport::Session::drain_deferred_cleanup();
+    const bool same_session = current &&
+                              std::all_of(results.begin(), results.end(),
+                                          [&](const auto &result) { return result == current; });
+    const bool receipt_completed = receipt.completed();
+    const bool current_open = current && current->health().open;
+    const int observed_factory_calls = factory_calls;
+    bus->unsubscribe(subscription);
+    for (auto &result : results)
+        if (result)
+            result->close();
+    bus->stop();
+
+    if (failure)
+        std::rethrow_exception(failure);
+    REQUIRE(all_started);
+    REQUIRE(all_blocked);
+    REQUIRE(observed_factory_calls == 1);
+    REQUIRE(same_session);
+    REQUIRE(receipt_completed);
+    REQUIRE(current_open);
 }
 
 TEST_CASE("Session registry waits for deferred borrowed cleanup before replacement",
@@ -960,6 +1118,148 @@ TEST_CASE("Session shared registry rejects cross-backend initialization cycles",
     REQUIRE(session_b->health().open);
     session_a->close();
     session_b->close();
+}
+
+TEST_CASE("Session registry rebinds a waiter to a replacement initialization attempt",
+          "[session][lifecycle][registry]") {
+    std::shared_ptr<can::ManagedCANBus> bus_a;
+    std::shared_ptr<can::ManagedCANBus> bus_b;
+    std::atomic<int> b_factory_calls{0};
+    std::atomic<int> rejections{0};
+    std::promise<void> first_b_entered;
+    auto first_b_ready = first_b_entered.get_future();
+    std::promise<void> release_first_b;
+    auto first_b_release = release_first_b.get_future().share();
+    std::promise<void> a_factory_entered;
+    auto a_factory_ready = a_factory_entered.get_future();
+
+    bus_b = std::make_shared<can::ManagedCANBus>([&] {
+        const int call = ++b_factory_calls;
+        if (call == 1) {
+            first_b_entered.set_value();
+            if (first_b_release.wait_for(5s) != std::future_status::ready)
+                throw can::TimeoutError("test first B initialization gate expired");
+            throw can::TransportIOError("injected first B initialization failure");
+        }
+        try {
+            (void)transport::Session::share(bus_a);
+        } catch (const can::ValidationError &) {
+            ++rejections;
+        }
+        return std::make_unique<can::FakeTransport>();
+    });
+    bus_a = std::make_shared<can::ManagedCANBus>([&] {
+        a_factory_entered.set_value();
+        try {
+            (void)transport::Session::share(bus_b);
+        } catch (const can::ValidationError &) {
+            ++rejections;
+        }
+        return std::make_unique<can::FakeTransport>();
+    });
+
+    auto first_b = std::async(std::launch::async, [&] {
+        pin_to_first_available_cpu();
+        return transport::Session::share(bus_b);
+    });
+    const auto first_entered = first_b_ready.wait_for(2s);
+    if (first_entered != std::future_status::ready) {
+        release_first_b.set_value();
+        if (first_b.wait_for(5s) != std::future_status::ready)
+            std::abort();
+        FAIL("first B initialization did not reach the test gate");
+    }
+
+    // This caller waits on the first B attempt before A's initializer does,
+    // making it the replacement-attempt contender after the injected failure.
+    std::future<std::shared_ptr<transport::Session>> replacement_b;
+    std::future<std::shared_ptr<transport::Session>> outer_a;
+    try {
+        replacement_b = std::async(std::launch::async, [&] {
+            pin_to_first_available_cpu();
+            return transport::Session::share(bus_b);
+        });
+        std::this_thread::sleep_for(20ms);
+        outer_a = std::async(std::launch::async, [&] {
+            pin_to_first_available_cpu();
+            return transport::Session::share(bus_a);
+        });
+    } catch (...) {
+        const auto launch_failure = std::current_exception();
+        release_first_b.set_value();
+        const auto cleanup_deadline = std::chrono::steady_clock::now() + 5s;
+        for (auto *future : {&first_b, &replacement_b}) {
+            if (!future->valid())
+                continue;
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= cleanup_deadline ||
+                future->wait_for(cleanup_deadline - now) != std::future_status::ready)
+                std::abort();
+        }
+        for (auto *future : {&first_b, &replacement_b}) {
+            if (!future->valid())
+                continue;
+            try {
+                (void)future->get();
+            } catch (...) {
+            }
+        }
+        std::rethrow_exception(launch_failure);
+    }
+    const auto a_entered = a_factory_ready.wait_for(2s);
+    std::this_thread::sleep_for(20ms);
+    release_first_b.set_value();
+
+    const auto completion_deadline = std::chrono::steady_clock::now() + 5s;
+    const auto ready_by_deadline = [&](auto &future) {
+        const auto now = std::chrono::steady_clock::now();
+        return now < completion_deadline &&
+               future.wait_for(completion_deadline - now) == std::future_status::ready;
+    };
+    if (!ready_by_deadline(first_b) || !ready_by_deadline(outer_a) ||
+        !ready_by_deadline(replacement_b))
+        std::abort();
+
+    bool first_failed = false;
+    std::exception_ptr failure;
+    try {
+        (void)first_b.get();
+    } catch (const can::TransportIOError &) {
+        first_failed = true;
+    } catch (...) {
+        failure = std::current_exception();
+    }
+    std::shared_ptr<transport::Session> session_a;
+    std::shared_ptr<transport::Session> session_b;
+    try {
+        session_a = outer_a.get();
+    } catch (...) {
+        if (!failure)
+            failure = std::current_exception();
+    }
+    try {
+        session_b = replacement_b.get();
+    } catch (...) {
+        if (!failure)
+            failure = std::current_exception();
+    }
+
+    const bool session_a_open = session_a && session_a->health().open;
+    const bool session_b_open = session_b && session_b->health().open;
+    if (session_a)
+        session_a->close();
+    if (session_b)
+        session_b->close();
+
+    if (failure)
+        std::rethrow_exception(failure);
+
+    REQUIRE(a_entered == std::future_status::ready);
+    REQUIRE(first_failed);
+    REQUIRE(b_factory_calls == 2);
+    REQUIRE(rejections == 1);
+    REQUIRE(session_a_open);
+    REQUIRE(session_b_open);
 }
 
 TEST_CASE("Session shared registry rolls back failed initialization for retry",

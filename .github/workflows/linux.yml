@@ -49,6 +49,12 @@ jobs:
         run: |
           ctest --test-dir build -R '^Session recover' --repeat until-fail:20 \
             --output-on-failure --no-tests=error --timeout 60 --output-log recovery-results.log
+      - name: Repeat Session registry handoff regressions
+        run: |
+          ctest --test-dir build \
+            -R '^(Session registry waiters recheck a replacement active generation|Session registry rebinds a waiter to a replacement initialization attempt)$' \
+            --repeat until-fail:20 --output-on-failure --no-tests=error --timeout 60 \
+            --output-log registry-handoff-results.log
       - name: Run shared-bus example
         run: ./build/comm-example
       - name: Install and test a standalone consumer
@@ -68,6 +74,7 @@ jobs:
           path: |
             test-results.log
             recovery-results.log
+            registry-handoff-results.log
             consumer-results.log
             coverage-summary.json
             build/CMakeCache.txt
