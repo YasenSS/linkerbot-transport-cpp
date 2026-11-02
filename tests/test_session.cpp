@@ -914,17 +914,29 @@ TEST_CASE("Session registry waiters recheck a replacement active generation",
     constexpr size_t caller_count = 16;
     std::promise<void> start;
     auto start_gate = start.get_future().share();
-    std::atomic<size_t> callers_started{0};
+    std::mutex callers_started_mutex;
+    std::condition_variable callers_started_changed;
+    size_t callers_started = 0;
+    std::vector<std::thread> caller_threads;
     std::vector<std::future<std::shared_ptr<transport::Session>>> callers;
     try {
+        caller_threads.reserve(caller_count);
         callers.reserve(caller_count);
         for (size_t i = 0; i < caller_count; ++i) {
-            callers.push_back(std::async(std::launch::async, [&, bus, start_gate] {
-                pin_to_first_available_cpu();
-                start_gate.wait();
-                ++callers_started;
-                return transport::Session::share(bus);
-            }));
+            std::packaged_task<std::shared_ptr<transport::Session>()> task(
+                [&, bus, start_gate] {
+                    pin_to_first_available_cpu();
+                    start_gate.wait();
+                    {
+                        std::lock_guard<std::mutex> lock(callers_started_mutex);
+                        ++callers_started;
+                    }
+                    callers_started_changed.notify_one();
+                    return transport::Session::share(bus);
+                });
+            auto result = task.get_future();
+            caller_threads.emplace_back(std::move(task));
+            callers.push_back(std::move(result));
         }
     } catch (...) {
         const auto launch_failure = std::current_exception();
@@ -937,6 +949,9 @@ TEST_CASE("Session registry waiters recheck a replacement active generation",
                 caller.wait_for(cleanup_deadline - now) != std::future_status::ready)
                 std::abort();
         }
+        for (auto &thread : caller_threads)
+            if (thread.joinable())
+                thread.join();
         for (auto &caller : callers) {
             try {
                 (void)caller.get();
@@ -946,10 +961,10 @@ TEST_CASE("Session registry waiters recheck a replacement active generation",
         std::rethrow_exception(launch_failure);
     }
     start.set_value();
-    const auto start_deadline = std::chrono::steady_clock::now() + 2s;
-    while (callers_started != caller_count && std::chrono::steady_clock::now() < start_deadline)
-        std::this_thread::yield();
-    const bool all_started = callers_started == caller_count;
+    std::unique_lock<std::mutex> start_lock(callers_started_mutex);
+    const bool all_started = callers_started_changed.wait_for(
+        start_lock, 5s, [&] { return callers_started == caller_count; });
+    start_lock.unlock();
     std::this_thread::sleep_for(50ms);
     bool all_blocked = true;
     for (auto &caller : callers)
@@ -959,13 +974,15 @@ TEST_CASE("Session registry waiters recheck a replacement active generation",
     const auto completion_deadline = std::chrono::steady_clock::now() + 5s;
     for (auto &caller : callers) {
         const auto now = std::chrono::steady_clock::now();
-        // A timed Catch failure would destroy blocking async futures and hang
-        // the test process. Abort at the hard bound so CTest reports the
-        // deadlock without relying on stack unwinding.
+        // A timed Catch failure would destroy joinable worker threads. Abort
+        // at the hard bound so CTest reports the deadlock without relying on
+        // stack unwinding.
         if (now >= completion_deadline ||
             caller.wait_for(completion_deadline - now) != std::future_status::ready)
             std::abort();
     }
+    for (auto &thread : caller_threads)
+        thread.join();
 
     std::exception_ptr failure;
     std::shared_ptr<transport::Session> current;
