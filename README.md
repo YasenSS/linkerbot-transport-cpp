@@ -23,6 +23,13 @@ support. SLCAN is experimental. Offline tests do not certify real adapters.
 
 ### Validated scope (0.3.0)
 
+The GitHub Linux workflow builds and runs offline tests on Ubuntu 24.04
+x86_64 and ARM64 in Debug and Release, including repeated Session recovery
+checks and an installed-package consumer. These jobs do not test CAN hardware.
+Both Linux Debug jobs require at least 95% aggregate production line coverage.
+The measurement includes `src/` and `include/` code compiled for Linux; it
+excludes tests and Catch2, and does not measure Windows-only code or hardware acceptance.
+
 The validation baseline is Ubuntu 24.04 x86_64 / GCC 13 and Windows 11 x64 /
 MSVC v143 14.44, using C++17. Windows Debug offline checks and Release engineering,
 installation and ZIP relocation checks have passed for recorded source revisions.
@@ -50,6 +57,19 @@ For an offline build, install Catch2 3 or set `Catch2_DIR`, then pass
 for top-level builds and OFF for subdirectory builds. Disable tests to build
 the library without Catch2. See [Windows builds (中文)](docs/zh/windows-build.md)
 for MSVC, runtime and ZIP instructions.
+
+To reproduce the Linux/GCC coverage gate, install `gcovr` and use a fresh build directory:
+
+```bash
+cmake -S . -B build-coverage -DCMAKE_BUILD_TYPE=Debug -DLINKERBOT_COMM_ENABLE_COVERAGE=ON
+cmake --build build-coverage --parallel 4
+ctest --test-dir build-coverage --output-on-failure --no-tests=error --timeout 60
+gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build-coverage/_deps' --fail-under-line 95 --txt build-coverage
+```
+
+Coverage requires tests to be enabled. Instrumented static libraries are for
+validation; standalone consumers of those libraries must also link with
+`--coverage`. Regular Release builds leave coverage disabled.
 
 ### Use from CMake
 
@@ -171,6 +191,13 @@ Linkerbot SDK 共用的 C++17 CAN / CAN FD 通信库，负责物理连接、共�
 Linux 上的 PCAN 测试动态库只验证 loader ABI。离线测试不代表真实适配器已通过验收。
 
 ### 0.3.0 验证范围
+
+GitHub Linux 工作流覆盖 Ubuntu 24.04 x86_64 与 ARM64 的 Debug / Release 构建、
+离线测试、重复 Session 恢复检查和安装包消费验证；这些任务不验证 CAN 实物。
+两个 Linux Debug 任务还要求生产代码的汇总行覆盖率至少达到 95%。统计包括 Linux 构建中
+编译到的 `src/` 与 `include/`，排除测试和 Catch2，不衡量 Windows 专用代码或实机验收。
+Linux/GCC 的本地复现命令见上方 [Build and test](#build-and-test)；覆盖率静态库仅用于验证，
+单独链接它的消费者也须加 `--coverage`，常规 Release 构建默认不启用覆盖率。
 
 基线为 Ubuntu 24.04 x86_64 / GCC 13 和 Windows 11 x64 / MSVC v143 14.44，使用 C++17。
 已有 Windows Debug 离线检查和 Release 工程、安装、ZIP 解压接入通过记录，均对应

@@ -22,6 +22,18 @@ endif()
 option(LINKERBOT_COMM_BUILD_TESTS "Build Catch2 unit tests" ${LINKERBOT_COMM_IS_TOP_LEVEL})
 option(LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS "Allow missing test dependencies to be fetched" ON)
 option(LINKERBOT_COMM_BUILD_EXAMPLES "Build example programs" ${LINKERBOT_COMM_IS_TOP_LEVEL})
+option(LINKERBOT_COMM_ENABLE_COVERAGE "Instrument Linux tests for gcovr line coverage" OFF)
+
+if(LINKERBOT_COMM_ENABLE_COVERAGE)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR "Coverage requires Linux and GCC")
+    endif()
+    if(NOT LINKERBOT_COMM_BUILD_TESTS)
+        message(FATAL_ERROR "Coverage requires LINKERBOT_COMM_BUILD_TESTS=ON")
+    endif()
+    add_compile_options(--coverage -O0 -g)
+    add_link_options(--coverage)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -98,6 +110,7 @@ if(LINKERBOT_COMM_BUILD_TESTS)
         tests/main.cpp
         tests/test_dispatcher.cpp
         tests/test_session.cpp
+        tests/test_fault_contracts.cpp
         tests/test_fake_transport.cpp
         tests/test_frame.cpp
         tests/test_managed_bus.cpp

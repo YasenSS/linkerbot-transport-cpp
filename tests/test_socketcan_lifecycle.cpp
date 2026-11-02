@@ -255,4 +255,104 @@ TEST_CASE("write() fails within the bounded send timeout instead of hanging",
     ::close(fds[1]);
 }
 
+TEST_CASE("SocketCAN FD accepts Classic and FD datagrams and rejects malformed lengths",
+          "[socketcan][frames]") {
+    auto fds = make_socketpair();
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], true});
+    REQUIRE_FALSE(transport.read());
+    canfd_frame fd{};
+    fd.can_id = CAN_EFF_FLAG | 0x1abcdef;
+    fd.len = 12;
+    fd.flags = CANFD_BRS;
+    fd.data[11] = 77;
+    REQUIRE(::write(fds[1], &fd, sizeof(fd)) == sizeof(fd));
+    const auto decoded = transport.read();
+    REQUIRE(decoded);
+    REQUIRE(decoded->is_fd);
+    REQUIRE(decoded->is_brs);
+    REQUIRE(decoded->is_extended);
+    REQUIRE(decoded->id == 0x1abcdef);
+    REQUIRE(decoded->data[11] == 77);
+    Message reply = *decoded;
+    transport.write(reply);
+    canfd_frame encoded{};
+    REQUIRE(::read(fds[1], &encoded, sizeof(encoded)) == sizeof(encoded));
+    REQUIRE(encoded.can_id == fd.can_id);
+    REQUIRE(encoded.flags == CANFD_BRS);
+    REQUIRE(encoded.data[11] == 77);
+    can_frame classic{};
+    classic.can_id = CAN_EFF_FLAG | 0x123456;
+    classic.can_dlc = 8;
+    REQUIRE(::write(fds[1], &classic, sizeof(classic)) == sizeof(classic));
+    const auto old = transport.read();
+    REQUIRE(old);
+    REQUIRE_FALSE(old->is_fd);
+    REQUIRE(old->is_extended);
+    REQUIRE(old->id == 0x123456);
+    for (auto flag : {CAN_ERR_FLAG, CAN_RTR_FLAG}) {
+        classic.can_id = flag;
+        REQUIRE(::write(fds[1], &classic, sizeof(classic)) == sizeof(classic));
+        REQUIRE_FALSE(transport.read());
+        fd.can_id = flag;
+        REQUIRE(::write(fds[1], &fd, sizeof(fd)) == sizeof(fd));
+        REQUIRE_FALSE(transport.read());
+    }
+    const char byte = 0;
+    REQUIRE(::write(fds[1], &byte, 1) == 1);
+    REQUIRE_THROWS_AS(transport.read(), TransportIOError);
+    ::close(fds[1]);
+    REQUIRE_FALSE(transport.read());
+    fd.len = 65;
+    REQUIRE_THROWS_AS(linkerbot::can::decode_socketcan_frame(fd), linkerbot::can::ValidationError);
+    reply.is_fd = false;
+    reply.is_brs = false;
+    reply.dlc = 8;
+    const auto classic_encoded =
+        linkerbot::can::encode_socketcan_frame(linkerbot::can::LinkKind::kClassic, reply);
+    REQUIRE((classic_encoded.classic_frame.can_id & CAN_EFF_FLAG) != 0);
+}
+
+TEST_CASE("SocketCAN adopted handles reject invalid descriptors and release failed setup",
+          "[socketcan][faults]") {
+    REQUIRE_THROWS_AS(SocketCANTransport(SocketCANTransport::AdoptFd{-1, false}),
+                      linkerbot::can::ValidationError);
+    std::array<int, 2> pipe_fds{};
+    REQUIRE(::pipe(pipe_fds.data()) == 0);
+    REQUIRE_THROWS_AS(SocketCANTransport(SocketCANTransport::AdoptFd{pipe_fds[0], false}),
+                      TransportIOError);
+    ::close(pipe_fds[1]);
+    for (bool fd_mode : {false, true}) {
+        auto fds = make_socketpair();
+        SocketCANTransport transport(
+            SocketCANTransport::AdoptFd{fds[0], fd_mode, [fd = fds[0]] { ::close(fd); }});
+        REQUIRE_THROWS_AS(transport.read(), TransportIOError);
+        REQUIRE_THROWS_AS(transport.close(), TransportIOError);
+        REQUIRE_NOTHROW(transport.close());
+        ::close(fds[1]);
+    }
+}
+
+TEST_CASE("SocketCAN unwinds an interrupted reservation and contains destructor close errors",
+          "[socketcan][faults]") {
+    auto fds = make_socketpair();
+    {
+        SocketCANTransport transport(SocketCANTransport::AdoptFd{
+            fds[0], false, [] { throw std::runtime_error("interrupted I/O"); }});
+        REQUIRE_THROWS_AS(transport.read(), std::runtime_error);
+        REQUIRE_NOTHROW(transport.close());
+    }
+    ::close(fds[1]);
+    auto short_fds = make_socketpair();
+    {
+        SocketCANTransport transport(SocketCANTransport::AdoptFd{short_fds[0], false});
+        char byte = 0;
+        REQUIRE(::write(short_fds[1], &byte, 1) == 1);
+        REQUIRE_THROWS_AS(transport.read(), TransportIOError);
+        // No descriptor is opened between invalidation and destruction: this
+        // tests the one-attempt close error contract without fd-number reuse.
+        ::close(short_fds[0]);
+    }
+    ::close(short_fds[1]);
+}
+
 #endif // defined(__linux__)

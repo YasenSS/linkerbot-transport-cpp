@@ -176,3 +176,41 @@ TEST_CASE("PCAN explicit Unicode module path and missing symbol do not fall back
     CHECK_THROWS_AS(load_pcan_api(path("LINKERBOT_TEST_PCAN_MISSING")),TransportIOError);
     CHECK_THROWS_AS(load_pcan_api(std::string{}),ValidationError);
 }
+
+TEST_CASE("PCAN validates every supported Classic bitrate and explicit loader configuration",
+          "[pcan][validation]") {
+    Fixture fixture;
+    const std::pair<uint32_t, uint16_t> rates[] = {
+        {1000000, 0x14},  {800000, 0x16},  {500000, 0x1c},  {250000, 0x11c}, {125000, 0x31c},
+        {100000, 0x432f}, {50000, 0x472f}, {20000, 0x532f}, {10000, 0x672f}, {5000, 0x7f7f}};
+    for (auto [rate, expected] : rates) {
+        auto api = std::make_shared<PcanApi>(*fixture.api);
+        auto initialize = api->initialize;
+        uint16_t actual = 0;
+        api->initialize = [&](uint16_t ch, uint16_t baud, uint8_t old1, uint32_t old2,
+                              uint16_t old3) {
+            actual = baud;
+            // The native fixture intentionally accepts only 1 Mbit/s. Keep
+            // its channel lifecycle while independently observing the ABI code.
+            return initialize(ch, 0x14, old1, old2, old3);
+        };
+        auto config = fixture.config();
+        config.nominal_bitrate = rate;
+        PcanTransport transport(config, api);
+        REQUIRE(actual == expected);
+        REQUIRE_NOTHROW(transport.write(Message{}));
+    }
+    { PcanTransport transport(fixture.config()); }
+    auto config = fixture.config();
+    config.nominal_bitrate = 123;
+    REQUIRE_THROWS_AS(validate_pcan_config(config), ValidationError);
+    config = fixture.config();
+    config.library_path = std::string{};
+    REQUIRE_THROWS_AS(validate_pcan_config(config), ValidationError);
+    config = fixture.config();
+    config.mode = static_cast<PcanMode>(99);
+    REQUIRE_THROWS_AS(validate_pcan_config(config), ValidationError);
+    REQUIRE_THROWS_AS(pcan_channel_handle("not-a-handle"), ValidationError);
+    REQUIRE_THROWS_AS(PcanTransport(fixture.config(), nullptr), ValidationError);
+    REQUIRE_FALSE(enumerate_pcan_channels(std::optional<std::string>{path()}).channels.empty());
+}
