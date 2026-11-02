@@ -98,7 +98,8 @@ namespace linkerbot::can {
                         auto it = entries_.find(key);
                         if (it != entries_.end()) {
                             if (it->second.close_failed) {
-                                throw FaultedError("physical close failed; retry the owning lease's close before acquiring");
+                                throw FaultedError("physical close failed; retry the owning "
+                                                   "lease's close before acquiring");
                             }
                             if (it->second.opening || it->second.closing) {
                                 state_cv_.wait(lock);
@@ -127,7 +128,8 @@ namespace linkerbot::can {
                                 "active configuration for the same physical channel");
                         }
 
-                        bus = std::make_shared<ManagedCANBus>(std::move(factory), std::move(options));
+                        bus =
+                            std::make_shared<ManagedCANBus>(std::move(factory), std::move(options));
                         auto [physical_it, physical_inserted] =
                             physical_active_.emplace(std::move(physical), key);
                         if (!physical_inserted) {
@@ -219,8 +221,8 @@ namespace linkerbot::can {
             }
 
             // Retry only the physical stop; retain the last lease until success.
-            auto retry_close(const CANBusKey &key, const std::shared_ptr<ManagedCANBus> &bus)
-                -> void {
+            auto retry_close(const CANBusKey &key,
+                             const std::shared_ptr<ManagedCANBus> &bus) -> void {
                 {
                     const std::scoped_lock lock(mutex_);
                     auto it = entries_.find(key);
@@ -234,8 +236,8 @@ namespace linkerbot::can {
             }
 
           private:
-            auto finish_stop_attempt(const CANBusKey &key, const std::shared_ptr<ManagedCANBus> &bus)
-                -> void {
+            auto finish_stop_attempt(const CANBusKey &key,
+                                     const std::shared_ptr<ManagedCANBus> &bus) -> void {
                 NotifyOnExit notify{state_cv_};
                 std::exception_ptr stop_error;
                 try {
@@ -538,7 +540,8 @@ namespace linkerbot::can {
         // closes the physical connection when it is the pool's last owner.
         [[nodiscard]] auto shared_bus() const -> std::shared_ptr<ManagedCANBus> {
             const std::scoped_lock lock(mutex_);
-            if (!bus_) throw ClosedError("CAN bus lease is closed");
+            if (!bus_)
+                throw ClosedError("CAN bus lease is closed");
             return bus_;
         }
 
@@ -548,10 +551,9 @@ namespace linkerbot::can {
             // fails fast instead of risking a deadlock against the very
             // receive-thread join a close() would otherwise perform.
             if (CANDispatcher::is_any_receive_thread()) {
-                throw ValidationError(
-                    "CAN bus lease cannot be closed synchronously from a CAN "
-                    "dispatcher's own receive or fault callback thread; defer "
-                    "close() to another thread");
+                throw ValidationError("CAN bus lease cannot be closed synchronously from a CAN "
+                                      "dispatcher's own receive or fault callback thread; defer "
+                                      "close() to another thread");
             }
 
             const std::scoped_lock close_lock(close_call_mutex_);

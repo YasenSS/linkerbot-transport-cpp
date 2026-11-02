@@ -233,9 +233,7 @@ TEST_CASE("late errors from a closed generation are ignored", "[managed_bus]") {
     bus.subscribe(collector.callback());
     bus.start();
     current->fail_reads("unplugged");
-    REQUIRE(wait_until([&] {
-        return bus.get_health().state == TransportState::kFaulted;
-    }));
+    REQUIRE(wait_until([&] { return bus.get_health().state == TransportState::kFaulted; }));
     REQUIRE(bus.get_health().generation == 1);
 
     bus.recover();
@@ -971,10 +969,13 @@ TEST_CASE("a failed lease close must be retried explicitly by the same lease", "
 
 TEST_CASE("a new acquire rejects a key whose owning lease still needs a close retry", "[pool]") {
     SharedCANBusPool pool;
-    CANBusKey key; key.backend = "fake";
+    CANBusKey key;
+    key.backend = "fake";
     FakeTransport *current = nullptr;
     auto factory = [&] {
-        auto transport = std::make_unique<FakeTransport>(); current = transport.get(); return transport;
+        auto transport = std::make_unique<FakeTransport>();
+        current = transport.get();
+        return transport;
     };
     auto first = pool.acquire(key, factory);
     current->fail_next_closes(1);

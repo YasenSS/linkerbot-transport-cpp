@@ -24,14 +24,14 @@ using linkerbot::can::TransportIOError;
 
 namespace {
 
-// One end (fds[0]) is handed to SocketCANTransport via AdoptFd; the other
-// (fds[1]) is the "peer" the test drives directly with raw read()/write() to
-// simulate link traffic (or its absence) without a real CAN interface.
-auto make_socketpair() -> std::array<int, 2> {
-    std::array<int, 2> fds{-1, -1};
-    REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) == 0);
-    return fds;
-}
+    // One end (fds[0]) is handed to SocketCANTransport via AdoptFd; the other
+    // (fds[1]) is the "peer" the test drives directly with raw read()/write() to
+    // simulate link traffic (or its absence) without a real CAN interface.
+    auto make_socketpair() -> std::array<int, 2> {
+        std::array<int, 2> fds{-1, -1};
+        REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) == 0);
+        return fds;
+    }
 
 } // namespace
 
@@ -47,7 +47,7 @@ TEST_CASE("AdoptFd round-trips a normal frame end-to-end", "[socketcan][lifecycl
     msg.data[2] = 3;
     REQUIRE_NOTHROW(transport.write(msg));
 
-    struct can_frame frame{};
+    struct can_frame frame {};
     REQUIRE(::read(fds[1], &frame, sizeof(frame)) == static_cast<ssize_t>(sizeof(frame)));
     // Echo it straight back so transport.read() has something to decode.
     REQUIRE(::write(fds[1], &frame, sizeof(frame)) == static_cast<ssize_t>(sizeof(frame)));
@@ -76,9 +76,9 @@ TEST_CASE("close() waits for an in-flight blocking read before releasing the fd"
     std::promise<void> release_read;
     auto release_read_future = release_read.get_future();
     SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, [&] {
-        in_flight.set_value();
-        release_read_future.wait();
-    }});
+                                                                 in_flight.set_value();
+                                                                 release_read_future.wait();
+                                                             }});
 
     std::promise<bool> read_threw;
     auto read_threw_future = read_threw.get_future();
@@ -106,13 +106,12 @@ TEST_CASE("close() waits for an in-flight blocking read before releasing the fd"
     // while the read is still held in flight by the seam, but this is not a
     // minimum-elapsed-time check, so it cannot be spuriously slow-CI-flaky.
     CHECK(close_done_future.wait_for(std::chrono::milliseconds(200)) ==
-            std::future_status::timeout);
+          std::future_status::timeout);
 
     release_read.set_value();
     closer.join();
     reader.join();
     REQUIRE(read_threw_future.get() == false);
-
 
     // Idempotent double close.
     REQUIRE_NOTHROW(transport.close());
@@ -120,17 +119,16 @@ TEST_CASE("close() waits for an in-flight blocking read before releasing the fd"
     ::close(fds[1]);
 }
 
-TEST_CASE("a second close() call waits for the first to fully complete",
-          "[socketcan][lifecycle]") {
+TEST_CASE("a second close() call waits for the first to fully complete", "[socketcan][lifecycle]") {
     auto fds = make_socketpair();
 
     std::promise<void> in_flight;
     std::promise<void> release_read;
     auto release_read_future = release_read.get_future();
     SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, [&] {
-        in_flight.set_value();
-        release_read_future.wait();
-    }});
+                                                                 in_flight.set_value();
+                                                                 release_read_future.wait();
+                                                             }});
 
     std::thread reader([&] {
         try {
@@ -150,7 +148,7 @@ TEST_CASE("a second close() call waits for the first to fully complete",
     });
     first_close_started.get_future().wait();
     CHECK(first_close_done_future.wait_for(std::chrono::milliseconds(200)) ==
-            std::future_status::timeout);
+          std::future_status::timeout);
 
     std::promise<void> second_close_started;
     std::promise<void> second_close_done;
@@ -167,24 +165,21 @@ TEST_CASE("a second close() call waits for the first to fully complete",
     // still waiting on in-flight I/O and had not actually released the fd
     // yet. Neither call may finish while the read is still held.
     CHECK(first_close_done_future.wait_for(std::chrono::milliseconds(200)) ==
-            std::future_status::timeout);
+          std::future_status::timeout);
     CHECK(second_close_done_future.wait_for(std::chrono::milliseconds(200)) ==
-            std::future_status::timeout);
+          std::future_status::timeout);
 
     release_read.set_value();
     reader.join();
     first_closer.join();
     second_closer.join();
     CHECK(first_close_done_future.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
-    CHECK(second_close_done_future.wait_for(std::chrono::seconds(1)) ==
-            std::future_status::ready);
-
+    CHECK(second_close_done_future.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
 
     ::close(fds[1]);
 }
 
-TEST_CASE("read()/write() throw ClosedError immediately after close()",
-          "[socketcan][lifecycle]") {
+TEST_CASE("read()/write() throw ClosedError immediately after close()", "[socketcan][lifecycle]") {
     auto fds = make_socketpair();
     SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false});
     transport.close();
@@ -202,7 +197,7 @@ TEST_CASE("read() filters raw CAN_ERR_FLAG frames instead of decoding them",
     auto fds = make_socketpair();
     SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false});
 
-    struct can_frame frame{};
+    struct can_frame frame {};
     frame.can_id = 0x123 | CAN_ERR_FLAG;
     frame.can_dlc = 8;
     REQUIRE(::write(fds[1], &frame, sizeof(frame)) == static_cast<ssize_t>(sizeof(frame)));
@@ -217,7 +212,7 @@ TEST_CASE("read() filters raw CAN_RTR_FLAG frames instead of decoding them",
     auto fds = make_socketpair();
     SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false});
 
-    struct can_frame frame{};
+    struct can_frame frame {};
     frame.can_id = 0x123 | CAN_RTR_FLAG;
     frame.can_dlc = 8; // requested length for an RTR frame, not real payload
     REQUIRE(::write(fds[1], &frame, sizeof(frame)) == static_cast<ssize_t>(sizeof(frame)));

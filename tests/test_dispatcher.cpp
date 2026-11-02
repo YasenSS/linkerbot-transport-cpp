@@ -11,18 +11,18 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <system_error>
-#include <stdexcept>
 #include <thread>
 #include <vector>
 
 using linkerbot::can::CANDispatcher;
-using linkerbot::can::FakeTransport;
-using linkerbot::can::Message;
 using linkerbot::can::ClosedError;
 using linkerbot::can::ErrorCode;
+using linkerbot::can::FakeTransport;
 using linkerbot::can::FaultedError;
+using linkerbot::can::Message;
 using linkerbot::can::TransportIOError;
 using linkerbot::can::TransportState;
 using linkerbot::can::ValidationError;
@@ -180,9 +180,7 @@ TEST_CASE("unsubscribe cancels a callback already copied into an in-flight snaps
     }
     cv.notify_all();
 
-    REQUIRE(wait_until([&] {
-        return dispatcher.get_health().state == TransportState::kOpen;
-    }));
+    REQUIRE(wait_until([&] { return dispatcher.get_health().state == TransportState::kOpen; }));
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     REQUIRE(later_calls.load() == 0);
 }
@@ -234,8 +232,7 @@ TEST_CASE("unsubscribe waits for an in-flight external callback to finish",
     releaser.join();
 }
 
-TEST_CASE("a subscriber can unsubscribe itself without deadlocking",
-          "[dispatcher][unsubscribe]") {
+TEST_CASE("a subscriber can unsubscribe itself without deadlocking", "[dispatcher][unsubscribe]") {
     auto transport = std::make_unique<FakeTransport>();
     auto *raw = transport.get();
     CANDispatcher dispatcher(std::move(transport));
@@ -344,22 +341,19 @@ TEST_CASE("a read that throws does not kill the receive thread", "[dispatcher]")
 TEST_CASE("dispatcher validates its fault policy", "[dispatcher][health]") {
     CANDispatcher::Options zero_threshold;
     zero_threshold.max_consecutive_errors = 0;
-    REQUIRE_THROWS_AS(
-        CANDispatcher(std::make_unique<FakeTransport>(), std::move(zero_threshold)),
-        ValidationError);
+    REQUIRE_THROWS_AS(CANDispatcher(std::make_unique<FakeTransport>(), std::move(zero_threshold)),
+                      ValidationError);
 
     CANDispatcher::Options invalid_backoff;
     invalid_backoff.error_backoff_base = std::chrono::milliseconds(10);
     invalid_backoff.error_backoff_max = std::chrono::milliseconds(5);
-    REQUIRE_THROWS_AS(
-        CANDispatcher(std::make_unique<FakeTransport>(), std::move(invalid_backoff)),
-        ValidationError);
+    REQUIRE_THROWS_AS(CANDispatcher(std::make_unique<FakeTransport>(), std::move(invalid_backoff)),
+                      ValidationError);
 
     CANDispatcher::Options zero_backoff;
     zero_backoff.error_backoff_base = std::chrono::milliseconds(0);
-    REQUIRE_THROWS_AS(
-        CANDispatcher(std::make_unique<FakeTransport>(), std::move(zero_backoff)),
-        ValidationError);
+    REQUIRE_THROWS_AS(CANDispatcher(std::make_unique<FakeTransport>(), std::move(zero_backoff)),
+                      ValidationError);
 }
 
 TEST_CASE("transient receive error backs off then recovers health", "[dispatcher][health]") {
@@ -404,8 +398,7 @@ TEST_CASE("transient receive error backs off then recovers health", "[dispatcher
     REQUIRE(health.last_successful_rx.has_value());
 }
 
-TEST_CASE("consecutive receive errors fault once and reject sends",
-          "[dispatcher][health]") {
+TEST_CASE("consecutive receive errors fault once and reject sends", "[dispatcher][health]") {
     class BrokenTransport final : public linkerbot::can::CANTransport {
       public:
         auto read() -> std::optional<Message> override {
@@ -438,9 +431,7 @@ TEST_CASE("consecutive receive errors fault once and reject sends",
     };
     CANDispatcher dispatcher(std::move(transport), options);
 
-    REQUIRE(wait_until([&] {
-        return dispatcher.get_health().state == TransportState::kFaulted;
-    }));
+    REQUIRE(wait_until([&] { return dispatcher.get_health().state == TransportState::kFaulted; }));
     const auto health = dispatcher.get_health();
     REQUIRE(health.consecutive_errors == 3);
     REQUIRE(health.last_error_code == ErrorCode::kTransportIo);
@@ -516,8 +507,8 @@ TEST_CASE("send preserves typed backend error details", "[dispatcher][errors]") 
         }
 
         auto write(const Message &) -> void override {
-            throw TransportIOError("USB transmit failed",
-                                   std::make_error_code(std::errc::io_error), -17);
+            throw TransportIOError("USB transmit failed", std::make_error_code(std::errc::io_error),
+                                   -17);
         }
 
         auto close() -> void override {}
@@ -548,9 +539,7 @@ TEST_CASE("stop from callback prevents later copied callbacks", "[dispatcher][st
     dispatcher.subscribe([&](const Message &) { ++later_calls; });
     raw->inject(make_frame(0x28, 0x35));
 
-    REQUIRE(wait_until([&] {
-        return dispatcher.get_health().state == TransportState::kClosed;
-    }));
+    REQUIRE(wait_until([&] { return dispatcher.get_health().state == TransportState::kClosed; }));
     REQUIRE(later_calls.load() == 0);
     REQUIRE_NOTHROW(dispatcher.stop());
 }
@@ -609,8 +598,7 @@ TEST_CASE("stop preserves close failure and a later stop can complete",
         dispatcher.stop();
         FAIL("first stop should preserve close failure");
     } catch (const TransportIOError &error) {
-        REQUIRE(error.system_error() ==
-                std::make_error_code(std::errc::device_or_resource_busy));
+        REQUIRE(error.system_error() == std::make_error_code(std::errc::device_or_resource_busy));
     }
     REQUIRE(dispatcher.get_health().state == TransportState::kFaulted);
     REQUIRE_NOTHROW(dispatcher.stop());
@@ -618,8 +606,7 @@ TEST_CASE("stop preserves close failure and a later stop can complete",
     REQUIRE(dispatcher.get_health().state == TransportState::kClosed);
 }
 
-TEST_CASE("stop rejects new sends while draining an in-flight send",
-          "[dispatcher][stop]") {
+TEST_CASE("stop rejects new sends while draining an in-flight send", "[dispatcher][stop]") {
     class BlockingSendTransport final : public linkerbot::can::CANTransport {
       public:
         auto read() -> std::optional<Message> override {
@@ -660,9 +647,7 @@ TEST_CASE("stop rejects new sends while draining an in-flight send",
     raw->wait_until_entered();
 
     std::thread stopper([&] { dispatcher.stop(); });
-    REQUIRE(wait_until([&] {
-        return dispatcher.get_health().state == TransportState::kStopping;
-    }));
+    REQUIRE(wait_until([&] { return dispatcher.get_health().state == TransportState::kStopping; }));
     const auto before = std::chrono::steady_clock::now();
     REQUIRE_THROWS_AS(dispatcher.send(make_frame(0x28, 0x38)), ClosedError);
     REQUIRE(std::chrono::steady_clock::now() - before < std::chrono::milliseconds(50));
@@ -717,7 +702,7 @@ TEST_CASE("stop's clear and a concurrent unsubscribe rendezvous on the same in-f
         // return before the callback has actually finished.
         dispatcher.unsubscribe(id);
         unsubscribe_saw_finished.store(callback_finished.load(std::memory_order_acquire),
-                                        std::memory_order_release);
+                                       std::memory_order_release);
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));

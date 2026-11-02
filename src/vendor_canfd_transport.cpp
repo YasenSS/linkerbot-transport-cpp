@@ -1,13 +1,13 @@
-#include <linkerbot/can/vendor_canfd_transport.hpp>
 #include <algorithm>
+#include <linkerbot/can/vendor_canfd_transport.hpp>
 
 #include <array>
 #include <cstring>
 #include <exception>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <set>
 
 namespace linkerbot::can {
     namespace {
@@ -57,13 +57,16 @@ namespace linkerbot::can {
             unsigned device = 0, channel = 0;
             bool device_closed = false;
         };
-        std::mutex &cleanup_mutex() { static std::mutex mutex; return mutex; }
+        std::mutex &cleanup_mutex() {
+            static std::mutex mutex;
+            return mutex;
+        }
         std::deque<DeferredCleanup> &deferred_cleanups() {
             static std::deque<DeferredCleanup> pending;
             return pending;
         }
-        void retain_cleanup(const std::shared_ptr<VendorCanFdApi> &api,
-                            unsigned device, unsigned channel, bool device_closed) noexcept {
+        void retain_cleanup(const std::shared_ptr<VendorCanFdApi> &api, unsigned device,
+                            unsigned channel, bool device_closed) noexcept {
             const std::lock_guard<std::recursive_mutex> coordination(coordination_mutex());
             try {
                 std::lock_guard<std::mutex> lock(cleanup_mutex());
@@ -73,13 +76,14 @@ namespace linkerbot::can {
                 // live resource. The existing lifecycle entry retains the API.
                 std::lock_guard<std::mutex> lock(lifecycle_mutex());
                 const auto it = lifecycle_table().find(api->lifecycle_key);
-                if (it != lifecycle_table().end()) it->second.unrecorded_cleanup_failure = true;
+                if (it != lifecycle_table().end())
+                    it->second.unrecorded_cleanup_failure = true;
             }
         }
 
-        [[noreturn]] auto throw_transport_error(std::string_view what,
-                                                std::optional<int> native_status = std::nullopt)
-            -> void {
+        [[noreturn]] auto
+        throw_transport_error(std::string_view what,
+                              std::optional<int> native_status = std::nullopt) -> void {
             throw TransportIOError(std::string(what), {}, native_status);
         }
 
@@ -133,15 +137,21 @@ namespace linkerbot::can {
             const std::scoped_lock lock(lifecycle_mutex());
             auto &entry = lifecycle_table()[api->lifecycle_key];
             if (entry.unrecorded_cleanup_failure)
-                throw FaultedError("vendor cleanup ownership could not be recorded; library is quarantined");
+                throw FaultedError(
+                    "vendor cleanup ownership could not be recorded; library is quarantined");
             if (entry.exiting) {
-                throw FaultedError("vendor Exit is incomplete; retry closing its owner before reopening");
+                throw FaultedError(
+                    "vendor Exit is incomplete; retry closing its owner before reopening");
             }
             if (entry.refcount == 0) {
                 if (api->lib_init != nullptr) {
                     int status;
-                    try { status = invoke_vendor("LibCANbus_Init", [&] { return api->lib_init(); }); }
-                    catch (...) { lifecycle_table().erase(api->lifecycle_key); throw; }
+                    try {
+                        status = invoke_vendor("LibCANbus_Init", [&] { return api->lib_init(); });
+                    } catch (...) {
+                        lifecycle_table().erase(api->lifecycle_key);
+                        throw;
+                    }
                     if (status != kStatusOk) {
                         lifecycle_table().erase(api->lifecycle_key);
                         throw_transport_error(
@@ -195,9 +205,8 @@ namespace linkerbot::can {
                 const int status =
                     invoke_vendor("LibCANbus_Exit", [&] { return entry.api->lib_exit(); });
                 if (status != kStatusOk) {
-                    throw_transport_error("LibCANbus_Exit failed with status " +
-                                              std::to_string(status),
-                                          status);
+                    throw_transport_error(
+                        "LibCANbus_Exit failed with status " + std::to_string(status), status);
                 }
             }
 
@@ -207,7 +216,8 @@ namespace linkerbot::can {
             // a pending retry.
             auto to_unload = std::move(entry.api);
             lifecycle_table().erase(it);
-            if (to_unload && !to_unload->library_owner && to_unload->unload != nullptr && to_unload->library_handle != nullptr) {
+            if (to_unload && !to_unload->library_owner && to_unload->unload != nullptr &&
+                to_unload->library_handle != nullptr) {
                 to_unload->unload(to_unload->library_handle);
                 to_unload->library_handle = nullptr;
             }
@@ -220,13 +230,19 @@ namespace linkerbot::can {
             const std::lock_guard<std::mutex> lock(cleanup_mutex());
             auto &pending = deferred_cleanups();
             for (auto it = pending.begin(); it != pending.end();) {
-                if (it->api->lifecycle_key != key) { ++it; continue; }
+                if (it->api->lifecycle_key != key) {
+                    ++it;
+                    continue;
+                }
                 if (!it->device_closed) {
                     const int status = invoke_vendor("CAN_CloseDevice deferred cleanup", [&] {
                         return it->api->close_device(it->device, it->channel);
                     });
                     if (status != kStatusOk)
-                        throw_transport_error("CAN_CloseDevice deferred cleanup failed with status " + std::to_string(status), status);
+                        throw_transport_error(
+                            "CAN_CloseDevice deferred cleanup failed with status " +
+                                std::to_string(status),
+                            status);
                     it->device_closed = true;
                 }
                 {
@@ -241,8 +257,9 @@ namespace linkerbot::can {
         }
         auto pending_cleanup_count(const std::string &key) -> size_t {
             const std::lock_guard<std::mutex> lock(cleanup_mutex());
-            return static_cast<size_t>(std::count_if(deferred_cleanups().begin(), deferred_cleanups().end(),
-                [&](const auto &entry) { return entry.api->lifecycle_key == key; }));
+            return static_cast<size_t>(
+                std::count_if(deferred_cleanups().begin(), deferred_cleanups().end(),
+                              [&](const auto &entry) { return entry.api->lifecycle_key == key; }));
         }
 
         auto snapshot() -> std::unordered_map<std::string, int> {
@@ -268,7 +285,8 @@ namespace linkerbot::can {
     auto enumerate_vendor_canfd_channels(const std::shared_ptr<VendorCanFdApi> &api,
                                          const std::vector<VendorCanFdChannel> &selected)
         -> VendorCanFdEnumeration {
-        if (!api || !api->scan_device) throw ValidationError("Vendor enumeration API is incomplete");
+        if (!api || !api->scan_device)
+            throw ValidationError("Vendor enumeration API is incomplete");
         if (api->native_channel_numbers)
             for (const auto &channel : selected)
                 if (channel.channel_index != 0)
@@ -277,17 +295,20 @@ namespace linkerbot::can {
         auto fail = [&](std::string stage, std::string code, std::string message,
                         std::optional<unsigned> dev = {}, std::optional<unsigned> ch = {},
                         std::optional<int> status = {}) {
-            result.failures.push_back({std::move(stage), std::move(code), std::move(message), dev, ch, status});
+            result.failures.push_back(
+                {std::move(stage), std::move(code), std::move(message), dev, ch, status});
         };
         const std::lock_guard<std::recursive_mutex> coordination(coordination_mutex());
-        try { vendor_canfd_lifecycle::retry_deferred_cleanup(api->lifecycle_key); }
-        catch (const CANError &error) {
+        try {
+            vendor_canfd_lifecycle::retry_deferred_cleanup(api->lifecycle_key);
+        } catch (const CANError &error) {
             fail("cleanup", "transport_io", error.what(), {}, {}, error.native_status());
             return result;
         }
         // Includes failed Exit with refcount 0 and failed physical closes.
         if (vendor_canfd_lifecycle::snapshot().count(api->lifecycle_key)) {
-            fail("busy", "backend_busy", "Close all live or pending-cleanup MiniCANFD connections before rescanning");
+            fail("busy", "backend_busy",
+                 "Close all live or pending-cleanup MiniCANFD connections before rescanning");
             return result;
         }
         bool acquired = false;
@@ -295,47 +316,65 @@ namespace linkerbot::can {
             vendor_canfd_lifecycle::acquire(api);
             acquired = true;
             const int count = invoke_vendor("CAN_ScanDevice", [&] { return api->scan_device(); });
-            if (count < 0) throw_transport_error("CAN_ScanDevice failed with status " + std::to_string(count), count);
+            if (count < 0)
+                throw_transport_error("CAN_ScanDevice failed with status " + std::to_string(count),
+                                      count);
             auto candidates = selected;
             if (api->native_channel_numbers && candidates.empty())
                 for (int dev = 0; dev < count; ++dev)
                     candidates.push_back({static_cast<unsigned>(dev), 0, {}});
             if (candidates.empty() && count > 0)
-                fail("layout", "channel_layout_required", "Linux device count does not identify channel layout; provide confirmed device/channel pairs");
+                fail("layout", "channel_layout_required",
+                     "Linux device count does not identify channel layout; provide confirmed "
+                     "device/channel pairs");
             std::set<std::pair<unsigned, unsigned>> inspected;
             for (auto channel : candidates) {
-                if (!inspected.insert({channel.device_index, channel.channel_index}).second) continue;
+                if (!inspected.insert({channel.device_index, channel.channel_index}).second)
+                    continue;
                 if (channel.device_index >= static_cast<unsigned>(count)) {
-                    fail("layout", "channel_not_found", "Configured MiniCANFD device was not enumerated", channel.device_index, channel.channel_index);
+                    fail("layout", "channel_not_found",
+                         "Configured MiniCANFD device was not enumerated", channel.device_index,
+                         channel.channel_index);
                     continue;
                 }
                 if (api->device_level_type && channel.channel_index != 0) {
-                    fail("layout", "channel_layout_required", "Device-level type query only verifies channel 0", channel.device_index, channel.channel_index);
+                    fail("layout", "channel_layout_required",
+                         "Device-level type query only verifies channel 0", channel.device_index,
+                         channel.channel_index);
                     continue;
                 }
                 if (!api->channel_type) {
-                    fail("type", "type_unavailable", "Vendor library cannot verify channel type", channel.device_index, channel.channel_index);
+                    fail("type", "type_unavailable", "Vendor library cannot verify channel type",
+                         channel.device_index, channel.channel_index);
                     continue;
                 }
                 try {
-                    const int type = invoke_vendor("CAN channel type", [&] { return api->channel_type(channel.device_index, channel.channel_index); });
+                    const int type = invoke_vendor("CAN channel type", [&] {
+                        return api->channel_type(channel.device_index, channel.channel_index);
+                    });
                     if (type != 1) {
-                        fail("type", type == 0 || type == 2 ? "unsupported_channel_type" : "type_query_failed",
-                             "MiniCANFD channel type is " + std::to_string(type) + " (FD requires 1)", channel.device_index, channel.channel_index, type);
+                        fail("type",
+                             type == 0 || type == 2 ? "unsupported_channel_type"
+                                                    : "type_query_failed",
+                             "MiniCANFD channel type is " + std::to_string(type) +
+                                 " (FD requires 1)",
+                             channel.device_index, channel.channel_index, type);
                         continue;
                     }
                     channel.library_path = api->lifecycle_key;
                     result.channels.push_back(std::move(channel));
                 } catch (const CANError &error) {
-                    fail("type", "type_query_failed", error.what(), channel.device_index, channel.channel_index, error.native_status());
+                    fail("type", "type_query_failed", error.what(), channel.device_index,
+                         channel.channel_index, error.native_status());
                 }
             }
         } catch (const CANError &error) {
             fail("scan", "transport_io", error.what(), {}, {}, error.native_status());
         }
         if (acquired) {
-            try { vendor_canfd_lifecycle::release(api->lifecycle_key); }
-            catch (const CANError &error) {
+            try {
+                vendor_canfd_lifecycle::release(api->lifecycle_key);
+            } catch (const CANError &error) {
                 retain_cleanup(api, 0, 0, true);
                 fail("cleanup", "transport_io", error.what(), {}, {}, error.native_status());
                 // Candidates cannot be consumed until the failed teardown is resolved.
@@ -353,14 +392,15 @@ namespace linkerbot::can {
     }
 
     namespace {
-        auto load_for_config(const VendorCanFdTransport::Config &config) -> std::shared_ptr<VendorCanFdApi> {
+        auto load_for_config(const VendorCanFdTransport::Config &config)
+            -> std::shared_ptr<VendorCanFdApi> {
 #if defined(_WIN32)
             if (config.channel_index != 0)
                 throw ValidationError("Windows MiniCANFD channel_index must be 0");
 #endif
             return load_vendor_canfd_api(config.library_path);
         }
-    }
+    } // namespace
 
     VendorCanFdTransport::VendorCanFdTransport() : VendorCanFdTransport(Config{}) {}
 
@@ -396,8 +436,9 @@ namespace linkerbot::can {
             open_device();
         } catch (...) {
             const auto original = std::current_exception();
-            try { close(); }
-            catch (...) {
+            try {
+                close();
+            } catch (...) {
                 retain_cleanup(api_, config_.device_index, config_.channel_index, device_closed_);
                 // Preserve the original initialization error; pending cleanup
                 // remains visible and retryable through lifecycle diagnostics.
@@ -419,7 +460,9 @@ namespace linkerbot::can {
         auto &entry = lifecycle_table().at(lifecycle_key_);
         if (!entry.scan_count) {
             const int count = invoke_vendor("CAN_ScanDevice", [&] { return api_->scan_device(); });
-            if (count < 0) throw_transport_error("CAN_ScanDevice failed with status " + std::to_string(count), count);
+            if (count < 0)
+                throw_transport_error("CAN_ScanDevice failed with status " + std::to_string(count),
+                                      count);
             entry.scan_count = count;
         }
         const int count = *entry.scan_count;
@@ -439,9 +482,13 @@ namespace linkerbot::can {
             throw FaultedError("MiniCANFD channel is already owned by this process");
         channel_reserved_ = true;
         if (api_->channel_type) {
-            const int type = invoke_vendor("CAN channel type", [&] { return api_->channel_type(config_.device_index, config_.channel_index); });
+            const int type = invoke_vendor("CAN channel type", [&] {
+                return api_->channel_type(config_.device_index, config_.channel_index);
+            });
             if (type != 1)
-                throw_transport_error("MiniCANFD channel is not confirmed CAN FD (type " + std::to_string(type) + ")", type);
+                throw_transport_error("MiniCANFD channel is not confirmed CAN FD (type " +
+                                          std::to_string(type) + ")",
+                                      type);
         }
 
         const int open_status = invoke_vendor("CAN_OpenDevice", [&] {
@@ -463,8 +510,8 @@ namespace linkerbot::can {
             return api_->canfd_init(config_.device_index, config_.channel_index, &cfg);
         });
         if (init_status != kStatusOk) {
-            throw_transport_error(
-                "CANFD_Init failed with status " + std::to_string(init_status), init_status);
+            throw_transport_error("CANFD_Init failed with status " + std::to_string(init_status),
+                                  init_status);
         }
 
         {
@@ -538,7 +585,8 @@ namespace linkerbot::can {
             for (int i = 0; i < received; ++i) {
                 try {
                     const auto &frame = rx_buffer_[static_cast<size_t>(i)];
-                    if (frame.RemoteFlag) continue; // RTR contains no application payload.
+                    if (frame.RemoteFlag)
+                        continue; // RTR contains no application payload.
                     rx_inbox_.push_back(frame_to_message(frame));
                 } catch (const ValidationError &) {
                     // The vendor Receive() has already consumed this batch from
@@ -636,12 +684,8 @@ namespace linkerbot::can {
 
             // Quiesce any read()/write() that is already past ensure_open_unlocked()
             // before touching the vendor handle.
-            {
-                const std::scoped_lock tx_lock(tx_mutex_);
-            }
-            {
-                const std::scoped_lock rx_lock(rx_mutex_);
-            }
+            { const std::scoped_lock tx_lock(tx_mutex_); }
+            { const std::scoped_lock rx_lock(rx_mutex_); }
 
             std::exception_ptr failure;
             try {
@@ -651,9 +695,9 @@ namespace linkerbot::can {
                         return api_->close_device(config_.device_index, config_.channel_index);
                     });
                     if (close_status != kStatusOk) {
-                        throw_transport_error(
-                            "CAN_CloseDevice failed with status " + std::to_string(close_status),
-                            close_status);
+                        throw_transport_error("CAN_CloseDevice failed with status " +
+                                                  std::to_string(close_status),
+                                              close_status);
                     }
                     // Once this succeeds the device is physically closed for
                     // good: a later retry (e.g. after an Exit failure below)
@@ -662,7 +706,9 @@ namespace linkerbot::can {
                 }
 
                 if (channel_reserved_) {
-                    lifecycle_table().at(lifecycle_key_).channels.erase({config_.device_index, config_.channel_index});
+                    lifecycle_table()
+                        .at(lifecycle_key_)
+                        .channels.erase({config_.device_index, config_.channel_index});
                     channel_reserved_ = false;
                 }
 
