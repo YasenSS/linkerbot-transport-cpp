@@ -43,19 +43,20 @@ ctest --test-dir build-release -R '^Session recover' --repeat until-fail:20 \
   --output-on-failure --no-tests=error --timeout 60
 ```
 
-GCC 的 amd64/ARM64 Debug/Release CI 还会分别重复两个 registry 生命周期交错回归：
+GCC 的 amd64/ARM64 Debug/Release CI 还会分别重复三个 registry 生命周期交错回归：
 
 ```bash
 ctest --test-dir build-release \
-  -R '^(Session registry waiters recheck a replacement active generation|Session registry rebinds a waiter to a replacement initialization attempt)$' \
+  -R '^(Session registry waiters recheck a replacement active generation|Session registry ignores waits for a published initialization attempt|Session registry rebinds a waiter to a replacement initialization attempt)$' \
   --repeat until-fail:20 --output-on-failure --no-tests=error --timeout 60 \
   --output-log registry-handoff-results.log
 ```
 
-前一个用例检查清理结束后已发布的新 active generation 不会被旧等待条件遗漏；后一个用例
-检查初始化失败并更换 initializer 后，等待边会绑定到新的初始化尝试。同步门固定清理和失败
-边界，但公共 API 不暴露内部等待边；重复运行只用于扩大 handoff 调度覆盖，硬超时用于防止
-回归挂死，不能把重复次数当作确定性证明。
+第一个用例检查清理结束后已发布的新 active generation 不会被旧等待条件遗漏；第二个用例
+检查已经发布的初始化尝试不会以陈旧等待边误报循环；第三个用例检查初始化失败并更换
+initializer 后，等待边会绑定到新的初始化尝试。同步门固定进入清理、发布和失败路径，但
+公共 API 不暴露内部等待边的安装和清除时刻；重复运行只用于扩大 handoff 调度覆盖，硬超时
+用于防止回归挂死，不能把重复次数当作确定性证明。
 
 ## 构建选项
 
