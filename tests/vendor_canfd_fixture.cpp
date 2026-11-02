@@ -37,10 +37,13 @@ namespace {
         uint8_t payload[64];
     };
     static_assert(sizeof(Configuration) == 20 && sizeof(Frame) == 80);
+    // Process-wide mutable state models one loaded vendor driver instance.
+    // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
     std::mutex mutex;
     std::array<int, 32> values{};
     std::array<std::array<bool, 2>, 6> opened{};
     std::array<std::array<std::deque<Frame>, 2>, 6> queues;
+    // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
     // Counters 0=scan 1=open 2=close 3=config 4=tx 5=rx 6=init 7=exit;
     // controls 8=fail close 9=fail config 10=fail open 11=IO delay;
     // observations 12=last dev 13=last count 14=last timeout 15=nominal 16=data;
@@ -50,21 +53,24 @@ namespace {
         values[19] = static_cast<int>(channel);
     }
 } // namespace
+// These names are the dynamic fixture ABI consumed by the loader tests.
+// NOLINTBEGIN(readability-identifier-naming)
 API Test_Get(unsigned key) {
     std::lock_guard<std::mutex> lock(mutex);
     return key < values.size() ? values[key] : -99;
 }
 API Test_Set(unsigned key, int value) {
     std::lock_guard<std::mutex> lock(mutex);
-    if (key >= values.size())
+    if (key >= values.size()) {
         return -99;
+    }
     values[key] = value;
     return 0;
 }
 API CAN_ScanDevice() {
     std::lock_guard<std::mutex> lock(mutex);
     ++values[0];
-    return values[17] ? values[17] : 6;
+    return (values[17] != 0) ? values[17] : 6;
 }
 #if !defined(_WIN32) && !defined(FIXTURE_LEGACY)
 API LibCANbus_Init() {
@@ -99,10 +105,12 @@ API CAN_OpenDevice(INDEX) {
     std::lock_guard<std::mutex> lock(mutex);
     ++values[1];
     observe(device, CHANNEL);
-    if (values[10])
+    if (values[10] != 0) {
         return values[10];
-    if (device >= 6 || opened[device][CHANNEL])
+    }
+    if (device >= 6 || opened[device][CHANNEL]) {
         return -2;
+    }
     opened[device][CHANNEL] = true;
     return 0;
 }
@@ -111,10 +119,12 @@ API CAN_CloseDevice(INDEX) {
     std::lock_guard<std::mutex> lock(mutex);
     ++values[2];
     observe(device, CHANNEL);
-    if (values[8])
+    if (values[8] != 0) {
         return values[8];
-    if (device >= 6 || !opened[device][CHANNEL])
+    }
+    if (device >= 6 || !opened[device][CHANNEL]) {
         return -3;
+    }
     opened[device][CHANNEL] = false;
     queues[device][CHANNEL].clear();
     return 0;
@@ -124,12 +134,14 @@ API CANFD_Init(INDEX, Configuration *config) {
     std::lock_guard<std::mutex> lock(mutex);
     ++values[3];
     observe(device, CHANNEL);
-    if (!config || device >= 6 || !opened[device][CHANNEL])
+    if ((config == nullptr) || device >= 6 || !opened[device][CHANNEL]) {
         return -4;
+    }
     values[15] = static_cast<int>(config->nominal);
     values[16] = static_cast<int>(config->data);
-    if (values[9])
+    if (values[9] != 0) {
         return values[9];
+    }
     return config->nominal == 1000000 && config->data == 5000000 && config->type == 1 ? 0 : -5;
 }
 #ifdef FIXTURE_DEPENDENT
@@ -146,12 +158,14 @@ API CANFD_Transmit(INDEX, Frame *frames, unsigned count, int timeout_ms) {
     if (fixture_dependency() != 42)
         return -50;
 #endif
-    if (!frames || device >= 6 || !opened[device][CHANNEL] || count > 100 || timeout_ms < 0 ||
-        timeout_ms > 100)
+    if ((frames == nullptr) || device >= 6 || !opened[device][CHANNEL] || count > 100 ||
+        timeout_ms < 0 || timeout_ms > 100) {
         return -6;
-    const auto sent = values[18] ? count - 1 : count;
-    for (unsigned i = 0; i < sent; ++i)
+    }
+    const auto sent = (values[18] != 0) ? count - 1 : count;
+    for (unsigned i = 0; i < sent; ++i) {
         queues[device][CHANNEL].push_back(frames[i]);
+    }
     const int delay = std::min(values[11], timeout_ms);
     lock.unlock();
     std::this_thread::sleep_for(std::chrono::milliseconds(delay));
@@ -165,9 +179,10 @@ API CANFD_Receive(INDEX, Frame *frames, unsigned count, int timeout_ms) {
     observe(device, CHANNEL);
     values[13] = static_cast<int>(count);
     values[14] = timeout_ms;
-    if (!frames || device >= 6 || !opened[device][CHANNEL] || count != 64 || timeout_ms < 0 ||
-        timeout_ms > 10)
+    if ((frames == nullptr) || device >= 6 || !opened[device][CHANNEL] || count != 64 ||
+        timeout_ms < 0 || timeout_ms > 10) {
         return -7;
+    }
     const auto size = std::min(count, static_cast<unsigned>(queues[device][CHANNEL].size()));
     for (unsigned i = 0; i < size; ++i) {
         frames[i] = queues[device][CHANNEL].front();
@@ -179,3 +194,4 @@ API CANFD_Receive(INDEX, Frame *frames, unsigned count, int timeout_ms) {
     return static_cast<int>(size);
 }
 #endif
+// NOLINTEND(readability-identifier-naming)

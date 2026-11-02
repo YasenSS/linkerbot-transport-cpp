@@ -947,8 +947,9 @@ TEST_CASE("vendor enumeration keeps type errors and valid neighbours",
     auto api = make_api(lib);
     api->native_channel_numbers = true;
     api->channel_type = [](unsigned dev, unsigned) {
-        if (dev == 3)
+        if (dev == 3) {
             throw std::runtime_error("type query threw");
+        }
         const int types[] = {1, 0, 2, 0, -7, 1};
         return types[dev];
     };
@@ -992,13 +993,49 @@ TEST_CASE("scan and Exit failures retain enumeration diagnostics and cleanup",
     CHECK(life::pending_cleanup_count(lib.name) == 0);
 }
 
+TEST_CASE("vendor enumeration rejects incomplete APIs and deduplicates selected channels",
+          "[vendor_canfd][enumeration]") {
+    LifecycleGuard guard;
+    REQUIRE_THROWS_AS(
+        linkerbot::can::enumerate_vendor_canfd_channels(std::shared_ptr<VendorCanFdApi>{}),
+        linkerbot::can::ValidationError);
+
+    FakeLib lib;
+    auto api = make_api(lib);
+    const auto report =
+        linkerbot::can::enumerate_vendor_canfd_channels(api, {{0, 0, {}}, {0, 0, {}}});
+    REQUIRE(report.channels.empty());
+    REQUIRE(report.failures.size() == 1);
+    CHECK(report.failures[0].stage == "type");
+    CHECK(report.failures[0].code == "type_unavailable");
+    CHECK(lib.scan_calls == 1);
+    CHECK(life::snapshot().empty());
+}
+
+TEST_CASE("vendor transport propagates a negative device scan status", "[vendor_canfd][scan]") {
+    LifecycleGuard guard;
+    FakeLib lib;
+    lib.scan_result = -7;
+    auto api = make_api(lib);
+    try {
+        VendorCanFdTransport transport({}, api);
+        FAIL("negative scan status accepted");
+    } catch (const linkerbot::can::TransportIOError &error) {
+        CHECK(error.native_status() == -7);
+    }
+    CHECK(lib.open_calls == 0);
+    CHECK(lib.exit_calls == 1);
+    CHECK(life::snapshot().empty());
+}
+
 TEST_CASE("enumeration serializes its busy check and scan against opening",
           "[vendor_canfd][enumeration]") {
     LifecycleGuard guard;
     FakeLib lib;
     auto api = make_api(lib);
     api->channel_type = [](unsigned, unsigned) { return 1; };
-    std::promise<void> entered, release;
+    std::promise<void> entered;
+    std::promise<void> release;
     auto gate = release.get_future().share();
     std::atomic<bool> first{true};
     api->scan_device = [&] {

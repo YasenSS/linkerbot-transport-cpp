@@ -108,8 +108,10 @@ namespace linkerbot::can {
         }
 #else
         std::optional<std::string> environment_path() {
-            if (const char *value = std::getenv(kVendorCanFdLibEnv); value && value[0])
+            if (const char *value = std::getenv(kVendorCanFdLibEnv);
+                (value != nullptr) && (value[0] != 0u)) {
                 return value;
+            }
             return std::nullopt;
         }
         void *symbol(void *handle, const char *name) {
@@ -117,18 +119,19 @@ namespace linkerbot::can {
         }
         std::shared_ptr<void> open_library(const std::string &candidate, bool) {
             void *handle = dlopen(candidate.c_str(), RTLD_NOW | RTLD_LOCAL);
-            if (!handle) {
+            if (handle == nullptr) {
                 const char *error = dlerror();
                 throw TransportIOError("dlopen " + candidate + ": " +
-                                       (error ? error : "unknown loader error"));
+                                       ((error != nullptr) ? error : "unknown loader error"));
             }
             return std::shared_ptr<void>(handle, [](void *module) { dlclose(module); });
         }
         std::string module_path(void *scan_symbol) {
             Dl_info info{};
-            if (dladdr(scan_symbol, &info) == 0 || !info.dli_fname)
+            if (dladdr(scan_symbol, &info) == 0 || (info.dli_fname == nullptr)) {
                 throw TransportIOError(
                     "Cannot resolve vendor module path; supply an absolute library_path");
+            }
             return std::filesystem::canonical(info.dli_fname).string();
         }
 #endif
@@ -211,8 +214,9 @@ namespace linkerbot::can {
             api->scan_device = required_symbol<FnCANScanDevice>(handle, "CAN_ScanDevice", path);
             api->lib_init = optional_symbol<FnLibCANbusInit>(handle, "LibCANbus_Init");
             api->lib_exit = optional_symbol<FnLibCANbusExit>(handle, "LibCANbus_Exit");
-            if (static_cast<bool>(api->lib_init) != static_cast<bool>(api->lib_exit))
+            if (static_cast<bool>(api->lib_init) != static_cast<bool>(api->lib_exit)) {
                 throw TransportIOError(path + " exports only one of LibCANbus_Init/Exit");
+            }
             api->open_device = required_symbol<FnCANOpenDevice>(handle, "CAN_OpenDevice", path);
             api->close_device = required_symbol<FnCANCloseDevice>(handle, "CAN_CloseDevice", path);
             api->canfd_init = required_symbol<FnCANFDInit>(handle, "CANFD_Init", path);
@@ -223,11 +227,12 @@ namespace linkerbot::can {
                     optional_symbol<int (*)(unsigned, unsigned)>(handle, "CAN_GetCHType");
             } else {
                 const auto type = optional_symbol<int (*)(unsigned)>(handle, "CAN_GetDevType");
-                if (type) {
+                if (type != nullptr) {
                     api->channel_type = [type](unsigned dev, unsigned ch) {
-                        if (ch != 0)
+                        if (ch != 0) {
                             throw ValidationError(
                                 "Device-level type query only verifies channel 0");
+                        }
                         return type(dev);
                     };
                     api->device_level_type = true;
@@ -243,10 +248,11 @@ namespace linkerbot::can {
         -> std::shared_ptr<VendorCanFdApi> {
         auto explicit_path = library_path ? library_path : environment_path();
         if (explicit_path) {
-            if (explicit_path->empty() || explicit_path->find('\0') != std::string::npos)
+            if (explicit_path->empty() || explicit_path->find('\0') != std::string::npos) {
                 throw ValidationError("Vendor library path must be non-empty and contain no NUL");
-                // Windows converts strict UTF-8 before resolving its absolute wide
-                // path, so invalid encoding retains the native conversion error.
+            }
+            // Windows converts strict UTF-8 before resolving its absolute wide
+            // path, so invalid encoding retains the native conversion error.
 #if defined(_WIN32)
             return bind_library(open_library(*explicit_path, true));
 #else

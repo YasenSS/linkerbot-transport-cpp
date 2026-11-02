@@ -6,6 +6,8 @@
 #include <string_view>
 #include <vector>
 
+// Public feature-test macros must remain usable in #if expressions.
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage,cppcoreguidelines-macro-to-enum,modernize-macro-to-enum)
 #define LINKERBOT_COMM_SLCAN_FD 1
 
 namespace linkerbot::can {

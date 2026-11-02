@@ -16,10 +16,13 @@ namespace linkerbot::can {
     namespace pcan_abi {
         using Status = uint32_t;
         using Handle = uint16_t;
+        // Preserve the 0.3 ABI helper names used by the optional validation consumer.
+        // NOLINTBEGIN(readability-identifier-naming)
         inline constexpr Status ok = 0, receive_empty = 0x20, caution = 0x02000000;
         inline constexpr uint8_t attached_count = 0x2a, attached_channels = 0x2b;
         inline constexpr uint8_t channel_features = 0x16, channel_condition = 0x0d;
         inline constexpr uint32_t fd_capable = 1, available = 1;
+        // NOLINTEND(readability-identifier-naming)
         struct ClassicMessage {
             uint32_t id;
             uint8_t type, length, data[8];

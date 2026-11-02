@@ -16,27 +16,27 @@ using namespace std::chrono_literals;
 using namespace linkerbot;
 
 namespace {
-    enum class Failure { none, io, standard, unknown, timeout, validation };
+    enum class Failure { kNone, kIo, kStandard, kUnknown, kTimeout, kValidation };
     void fail(Failure mode) {
         switch (mode) {
-        case Failure::io:
+        case Failure::kIo:
             throw can::TransportIOError("injected I/O failure");
-        case Failure::standard:
+        case Failure::kStandard:
             throw std::runtime_error("injected standard failure");
-        case Failure::unknown:
+        case Failure::kUnknown:
             throw 42;
-        case Failure::timeout:
+        case Failure::kTimeout:
             throw can::TimeoutError("injected timeout");
-        case Failure::validation:
+        case Failure::kValidation:
             throw can::ValidationError("injected invalid frame");
-        case Failure::none:
+        case Failure::kNone:
             break;
         }
     }
     struct FaultState {
-        std::atomic<Failure> read{Failure::none};
-        std::atomic<Failure> write{Failure::none};
-        std::atomic<Failure> close{Failure::none};
+        std::atomic<Failure> read{Failure::kNone};
+        std::atomic<Failure> write{Failure::kNone};
+        std::atomic<Failure> close{Failure::kNone};
         std::atomic<unsigned> writes{0};
         bool batch = false;
     };
@@ -52,7 +52,7 @@ namespace {
             fail(state_->write.load());
             ++state_->writes;
         }
-        bool prefers_write_batch() const override {
+        [[nodiscard]] bool prefers_write_batch() const override {
             return state_->batch;
         }
         void close() override {
@@ -64,8 +64,9 @@ namespace {
     };
     template <typename Predicate> bool await(Predicate predicate) {
         const auto deadline = std::chrono::steady_clock::now() + 2s;
-        while (!predicate() && std::chrono::steady_clock::now() < deadline)
+        while (!predicate() && std::chrono::steady_clock::now() < deadline) {
             std::this_thread::sleep_for(1ms);
+        }
         return predicate();
     }
     can::Message message() {
@@ -78,7 +79,7 @@ namespace {
 
 TEST_CASE("dispatcher classifies standard and nonstandard backend failures",
           "[dispatcher][faults]") {
-    for (auto mode : {Failure::io, Failure::standard, Failure::unknown}) {
+    for (auto mode : {Failure::kIo, Failure::kStandard, Failure::kUnknown}) {
         auto state = std::make_shared<FaultState>();
         auto backend = std::make_unique<FaultTransport>(state);
         can::CANDispatcher dispatcher(std::move(backend));
@@ -98,21 +99,21 @@ TEST_CASE("dispatcher classifies standard and nonstandard backend failures",
             REQUIRE(sent == 0);
             REQUIRE(uncertain);
         }
-        state->write = Failure::none;
+        state->write = Failure::kNone;
         dispatcher.send_batch({message(), message()});
         REQUIRE(state->writes == 2);
         REQUIRE_THROWS_AS(dispatcher.subscribe({}), can::ValidationError);
         state->close = mode;
         REQUIRE_THROWS_AS(dispatcher.stop(), can::CANError);
         REQUIRE(dispatcher.get_health().state == can::TransportState::kFaulted);
-        state->close = Failure::none;
+        state->close = Failure::kNone;
         REQUIRE_NOTHROW(dispatcher.stop());
     }
 }
 
 TEST_CASE("dispatcher receive exceptions preserve fault diagnostics and isolate fault callbacks",
           "[dispatcher][faults]") {
-    for (auto mode : {Failure::standard, Failure::unknown}) {
+    for (auto mode : {Failure::kStandard, Failure::kUnknown}) {
         auto state = std::make_shared<FaultState>();
         state->read = mode;
         can::CANDispatcher::Options options;
@@ -135,21 +136,21 @@ TEST_CASE("dispatcher receive exceptions preserve fault diagnostics and isolate 
 
 TEST_CASE("dispatcher excludes validation and timeout errors from fatal receive count",
           "[dispatcher][faults]") {
-    for (auto mode : {Failure::validation, Failure::timeout}) {
+    for (auto mode : {Failure::kValidation, Failure::kTimeout}) {
         auto state = std::make_shared<FaultState>();
         state->read = mode;
         can::CANDispatcher dispatcher(std::make_unique<FaultTransport>(state));
         REQUIRE(await([&] { return !dispatcher.get_health().last_error.empty(); }));
         REQUIRE(dispatcher.get_health().connected());
         REQUIRE(dispatcher.get_health().consecutive_errors == 0);
-        state->read = Failure::none;
+        state->read = Failure::kNone;
         dispatcher.stop();
     }
 }
 
 TEST_CASE("dispatcher self stop preserves close failures for external retry",
           "[dispatcher][faults]") {
-    for (auto mode : {Failure::standard, Failure::unknown}) {
+    for (auto mode : {Failure::kIo, Failure::kStandard, Failure::kUnknown}) {
         auto state = std::make_shared<FaultState>();
         // Fake replies put stop on the receive thread; the close operation is
         // deliberately supplied by a transport with an independent fault state.
@@ -177,7 +178,7 @@ TEST_CASE("dispatcher self stop preserves close failures for external retry",
         raw->fake.inject(message());
         REQUIRE(
             await([&] { return dispatcher.get_health().state == can::TransportState::kFaulted; }));
-        state->close = Failure::none;
+        state->close = Failure::kNone;
         REQUIRE_NOTHROW(dispatcher.stop());
     }
 }
@@ -188,14 +189,15 @@ TEST_CASE("dispatcher disables nonstandard throwing callbacks and destructor con
     auto *raw = backend.get();
     can::CANDispatcher dispatcher(std::move(backend));
     dispatcher.subscribe([](const can::Message &) { throw 42; });
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < 3; ++i) {
         raw->inject(message());
+    }
     REQUIRE(await([&] { return dispatcher.get_health().disabled_subscriber_count == 1; }));
     REQUIRE_FALSE(dispatcher.get_health().last_subscriber_error.empty());
     auto state = std::make_shared<FaultState>();
     {
         can::CANDispatcher closing(std::make_unique<FaultTransport>(state));
-        state->close = Failure::standard;
+        state->close = Failure::kStandard;
     }
 }
 
@@ -205,16 +207,19 @@ TEST_CASE("managed bus validates configuration and retains factory error categor
     REQUIRE_THROWS_AS(can::ManagedCANBus({}), can::ValidationError);
     for (int invalid = 0; invalid < 3; ++invalid) {
         can::ManagedCANBus::Options options;
-        if (invalid == 0)
+        if (invalid == 0) {
             options.send_queue_size = 0;
-        if (invalid == 1)
+        }
+        if (invalid == 1) {
             options.send_batch_max = 0;
-        if (invalid == 2)
+        }
+        if (invalid == 2) {
             options.send_interval = -1ms;
+        }
         REQUIRE_THROWS_AS(can::ManagedCANBus(factory, options), can::ValidationError);
     }
     REQUIRE_THROWS_AS(can::SendReceipt(nullptr), can::ValidationError);
-    for (auto mode : {Failure::standard, Failure::unknown}) {
+    for (auto mode : {Failure::kStandard, Failure::kUnknown}) {
         can::ManagedCANBus bus([=]() -> std::unique_ptr<can::CANTransport> {
             fail(mode);
             return {};
@@ -231,7 +236,7 @@ TEST_CASE("managed bus validates configuration and retains factory error categor
 TEST_CASE("managed receipt failures remain observable through timed and untimed waits",
           "[managed_bus][faults]") {
     auto state = std::make_shared<FaultState>();
-    state->write = Failure::standard;
+    state->write = Failure::kStandard;
     can::ManagedCANBus::Options options;
     options.send_interval = 1ms;
     can::ManagedCANBus bus([&] { return std::make_unique<FaultTransport>(state); }, options);
@@ -240,7 +245,7 @@ TEST_CASE("managed receipt failures remain observable through timed and untimed 
     REQUIRE_THROWS_AS(receipt.wait_for(2s), can::TransportIOError);
     REQUIRE(receipt.completed());
     REQUIRE_THROWS_AS(receipt.wait(), can::TransportIOError);
-    state->write = Failure::none;
+    state->write = Failure::kNone;
     auto success = bus.queue_send(message());
     REQUIRE_NOTHROW(success.wait_for(2s));
     REQUIRE(state->writes == 1);
@@ -260,6 +265,7 @@ TEST_CASE("pool lease move assignment closes the old owner and retains the new k
     a = std::move(b);
     REQUIRE(pool.lease_count(first) == 0);
     REQUIRE(pool.lease_count(second) == 1);
+    // NOLINTNEXTLINE(bugprone-use-after-move) -- the moved-from state is the contract under test.
     REQUIRE_THROWS_AS(b.bus(), can::ClosedError);
     a.close();
     REQUIRE(pool.active_keys().empty());
@@ -278,8 +284,9 @@ TEST_CASE("pool coordinates concurrent opens and retries after an initial factor
     auto factory = [&]() -> std::unique_ptr<can::CANTransport> {
         if (++opens == 1) {
             opening.set_value();
-            if (gate.wait_for(2s) != std::future_status::ready)
+            if (gate.wait_for(2s) != std::future_status::ready) {
                 throw can::TimeoutError("test open gate expired");
+            }
             throw can::TransportIOError("injected first open failure");
         }
         return std::make_unique<can::FakeTransport>();

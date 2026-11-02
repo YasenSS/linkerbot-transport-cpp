@@ -27,7 +27,7 @@ namespace linkerbot::transport {
         uint32_t id = 0;
         bool extended = false;
         friend bool operator<(const RouteKey &a, const RouteKey &b) noexcept {
-            return a.id < b.id || (a.id == b.id && a.extended < b.extended);
+            return a.id < b.id || (a.id == b.id && !a.extended && b.extended);
         }
         friend bool operator==(const RouteKey &a, const RouteKey &b) noexcept {
             return a.id == b.id && a.extended == b.extended;
@@ -58,7 +58,7 @@ namespace linkerbot::transport {
         RouteInbox &operator=(const RouteInbox &) = delete;
         std::optional<RoutedMessage> receive_until(Deadline deadline);
         std::optional<RoutedMessage> try_receive();
-        RouteHealth health() const;
+        [[nodiscard]] RouteHealth health() const;
         void close() noexcept;
 
       private:
@@ -68,8 +68,11 @@ namespace linkerbot::transport {
         std::shared_ptr<State> state_;
     };
 
+    // Preserve the 0.3 public enumerator spellings and numeric values.
+    // NOLINTBEGIN(readability-identifier-naming)
     enum class SendOutcome { pending, dispatched, superseded, cancelled, expired, failed };
     enum class SendPolicy { fifo, latest };
+    // NOLINTEND(readability-identifier-naming)
 
     struct MessageBatch {
         std::vector<can::Message> frames;
@@ -103,10 +106,10 @@ namespace linkerbot::transport {
     class SendReceipt {
       public:
         SendReceipt() = default;
-        SendResult result() const;
-        SendResult wait_until(Deadline deadline) const;
+        [[nodiscard]] SendResult result() const;
+        [[nodiscard]] SendResult wait_until(Deadline deadline) const;
         void wait() const;
-        bool completed() const;
+        [[nodiscard]] bool completed() const;
 
       private:
         friend class Session;

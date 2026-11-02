@@ -233,8 +233,9 @@ namespace linkerbot::can {
             auto wait(short events, std::chrono::steady_clock::time_point deadline,
                       bool after_cancel = false) -> bool {
                 for (;;) {
-                    if (cancelled_ && !after_cancel)
+                    if (cancelled_ && !after_cancel) {
                         throw ClosedError("SLCAN serial I/O cancelled");
+                    }
                     const auto left = std::chrono::ceil<std::chrono::milliseconds>(
                         deadline - std::chrono::steady_clock::now());
                     const auto timeout =
@@ -242,46 +243,59 @@ namespace linkerbot::can {
                     pollfd descriptors[2]{{fd_, events, 0}, {after_cancel ? -1 : wake_, POLLIN, 0}};
                     const int result = ::poll(descriptors, 2, timeout);
                     if (result < 0) {
-                        if (errno == EINTR)
+                        if (errno == EINTR) {
                             continue;
+                        }
                         posix_error("poll SLCAN serial");
                     }
-                    if (cancelled_ && !after_cancel)
+                    if (cancelled_ && !after_cancel) {
                         throw ClosedError("SLCAN serial I/O cancelled");
-                    if (!result)
+                    }
+                    if (result == 0) {
                         return false;
-                    if (descriptors[0].revents & (POLLERR | POLLNVAL))
+                    }
+                    if ((descriptors[0].revents & (POLLERR | POLLNVAL)) != 0) {
                         throw TransportIOError("SLCAN serial disconnected or invalid");
-                    if (descriptors[0].revents & events)
+                    }
+                    if ((descriptors[0].revents & events) != 0) {
                         return true;
-                    if (descriptors[0].revents & POLLHUP)
+                    }
+                    if ((descriptors[0].revents & POLLHUP) != 0) {
                         throw TransportIOError("SLCAN serial disconnected");
-                    if (std::chrono::steady_clock::now() >= deadline)
+                    }
+                    if (std::chrono::steady_clock::now() >= deadline) {
                         return false;
+                    }
                 }
             }
 
           public:
             explicit NativeSerial(const SlcanConfig &config) {
                 const auto path = slcan_port_name(config.port);
-                if (path.substr(0, 5) != "/dev/")
+                if (path.substr(0, 5) != "/dev/") {
                     throw ValidationError("Linux SLCAN requires an absolute /dev/... path");
+                }
                 try {
                     wake_ = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
-                    if (wake_ < 0)
+                    if (wake_ < 0) {
                         posix_error("eventfd SLCAN cancellation");
+                    }
                     fd_ = ::open(path.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
-                    if (fd_ < 0)
+                    if (fd_ < 0) {
                         posix_error("Open SLCAN serial");
+                    }
                     // flock also rejects same-process opens and aliases. TIOCEXCL
                     // additionally protects against serial clients that do not flock.
-                    if (::flock(fd_, LOCK_EX | LOCK_NB))
+                    if (::flock(fd_, LOCK_EX | LOCK_NB) != 0) {
                         posix_error("Lock SLCAN serial (exclusive)");
+                    }
                     termios2 settings{};
-                    if (::ioctl(fd_, TCGETS2, &settings))
+                    if (::ioctl(fd_, TCGETS2, &settings) != 0) {
                         posix_error("TCGETS2 SLCAN serial");
-                    if (::ioctl(fd_, TIOCEXCL))
+                    }
+                    if (::ioctl(fd_, TIOCEXCL) != 0) {
                         posix_error("TIOCEXCL SLCAN serial");
+                    }
                     exclusive_ = true;
                     settings.c_iflag = 0;
                     settings.c_oflag = 0;
@@ -291,14 +305,17 @@ namespace linkerbot::can {
                     settings.c_ospeed = config.serial_baud;
                     settings.c_cc[VMIN] = 0;
                     settings.c_cc[VTIME] = 0;
-                    if (::ioctl(fd_, TCSETS2, &settings))
+                    if (::ioctl(fd_, TCSETS2, &settings) != 0) {
                         posix_error("TCSETS2 SLCAN raw 8N1 baudrate");
-                    if (::ioctl(fd_, TCFLSH, 2))
+                    }
+                    if (::ioctl(fd_, TCFLSH, 2) != 0) {
                         posix_error("Flush SLCAN serial"); // TCIOFLUSH
+                    }
                 } catch (...) {
                     if (fd_ >= 0) {
-                        if (exclusive_)
+                        if (exclusive_) {
                             (void)::ioctl(fd_, TIOCNXCL);
+                        }
                         (void)::close(fd_);
                         fd_ = -1;
                     }
@@ -318,13 +335,16 @@ namespace linkerbot::can {
             auto read_some(size_t max_bytes,
                            std::chrono::milliseconds timeout) -> std::string override {
                 std::lock_guard<std::mutex> lock(read_mutex_);
-                if (fd_ < 0 || cancelled_)
+                if (fd_ < 0 || cancelled_) {
                     throw ClosedError("SLCAN serial closed or cancelled");
-                if (timeout.count() < 0)
+                }
+                if (timeout.count() < 0) {
                     throw ValidationError("Negative serial timeout");
+                }
                 std::string bytes(std::min(size_t{256}, max_bytes), '\0');
-                if (bytes.empty())
+                if (bytes.empty()) {
                     return {};
+                }
                 const auto deadline = std::chrono::steady_clock::now() + timeout;
                 while (wait(POLLIN, deadline)) {
                     const auto count = ::read(fd_, bytes.data(), bytes.size());
@@ -332,42 +352,52 @@ namespace linkerbot::can {
                         bytes.resize(static_cast<size_t>(count));
                         return bytes;
                     }
-                    if (!count)
+                    if (count == 0) {
                         throw TransportIOError("SLCAN serial end of stream");
-                    if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+                    }
+                    if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
                         posix_error("Read SLCAN serial");
-                    if (std::chrono::steady_clock::now() >= deadline)
+                    }
+                    if (std::chrono::steady_clock::now() >= deadline) {
                         break;
+                    }
                 }
                 return {};
             }
             auto write_all(std::string_view bytes,
                            std::chrono::milliseconds timeout) -> void override {
                 std::lock_guard<std::mutex> lock(write_mutex_);
-                if (fd_ < 0)
+                if (fd_ < 0) {
                     throw ClosedError("SLCAN serial closed");
+                }
                 const bool after_cancel =
                     cancelled_; // A new best-effort C during close is allowed.
                 const auto deadline = std::chrono::steady_clock::now() + timeout;
                 size_t offset = 0;
                 while (offset < bytes.size()) {
-                    if (cancelled_ && !after_cancel)
+                    if (cancelled_ && !after_cancel) {
                         throw ClosedError("SLCAN serial write cancelled");
-                    if (std::chrono::steady_clock::now() >= deadline)
+                    }
+                    if (std::chrono::steady_clock::now() >= deadline) {
                         throw TimeoutError("SLCAN serial write timed out; bytes may be partial");
+                    }
                     const auto count = ::write(fd_, bytes.data() + offset, bytes.size() - offset);
                     if (count > 0) {
                         offset += static_cast<size_t>(count);
                         continue;
                     }
-                    if (!count)
+                    if (count == 0) {
                         throw TransportIOError("SLCAN serial write made no progress");
-                    if (errno == EINTR)
+                    }
+                    if (errno == EINTR) {
                         continue;
-                    if (errno != EAGAIN && errno != EWOULDBLOCK)
+                    }
+                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
                         posix_error("Write SLCAN serial");
-                    if (!wait(POLLOUT, deadline, after_cancel))
+                    }
+                    if (!wait(POLLOUT, deadline, after_cancel)) {
                         throw TimeoutError("SLCAN serial write timed out; bytes may be partial");
+                    }
                 }
             }
             auto cancel() noexcept -> void override {
@@ -385,24 +415,28 @@ namespace linkerbot::can {
                 std::lock_guard<std::mutex> lock(state_mutex_);
                 int error = 0;
                 if (fd_ >= 0) {
-                    if (exclusive_)
+                    if (exclusive_) {
                         (void)::ioctl(fd_, TIOCNXCL);
+                    }
                     // On Linux close releases the descriptor even on EINTR/EIO.
                     // Never retry a numeric fd that another thread may have reused.
                     const int fd = fd_;
                     fd_ = -1;
                     exclusive_ = false;
-                    if (::close(fd))
+                    if (::close(fd) != 0) {
                         error = errno;
+                    }
                 }
                 if (wake_ >= 0) {
                     const int fd = wake_;
                     wake_ = -1;
-                    if (::close(fd) && !error)
+                    if ((::close(fd) != 0) && (error == 0)) {
                         error = errno;
+                    }
                 }
-                if (error)
+                if (error != 0) {
                     posix_error("Close SLCAN serial", error);
+                }
             }
         };
 
@@ -412,8 +446,9 @@ namespace linkerbot::can {
         validate_slcan_config(config);
 #if defined(_WIN32) || defined(__linux__)
         auto port = std::make_shared<NativeSerial>(config);
-        if (config.startup_delay.count())
+        if (config.startup_delay.count() != 0) {
             std::this_thread::sleep_for(config.startup_delay);
+        }
         return port;
 #else
         throw TransportIOError("Native SLCAN serial backend requires Windows or Linux");
@@ -424,12 +459,14 @@ namespace linkerbot::can {
         std::vector<std::string> normalized;
         for (const auto &name : allowlist) {
             const auto port = slcan_port_name(name);
-            if (std::find(normalized.begin(), normalized.end(), port) != normalized.end())
+            if (std::find(normalized.begin(), normalized.end(), port) != normalized.end()) {
                 throw ValidationError("Duplicate SLCAN allowed port");
+            }
             normalized.push_back(port);
         }
-        if (normalized.empty())
+        if (normalized.empty()) {
             return {};
+        }
 #ifdef _WIN32
         std::vector<std::string> ports;
         for (const auto &port : normalized) {
@@ -446,16 +483,19 @@ namespace linkerbot::can {
 #elif defined(__linux__)
         std::vector<std::string> ports;
         for (const auto &port : normalized) {
-            if (port.substr(0, 5) != "/dev/")
+            if (port.substr(0, 5) != "/dev/") {
                 throw ValidationError("Linux SLCAN requires /dev/... ports");
+            }
             struct stat info {};
             if (::stat(port.c_str(), &info) == 0) {
-                if (S_ISCHR(info.st_mode))
+                if (S_ISCHR(info.st_mode)) {
                     ports.push_back(port);
-                else
+                } else {
                     throw ValidationError("SLCAN port must be a character device");
-            } else if (errno != ENOENT && errno != ENOTDIR)
+                }
+            } else if (errno != ENOENT && errno != ENOTDIR) {
                 posix_error("stat SLCAN port");
+            }
         }
         return ports;
 #else

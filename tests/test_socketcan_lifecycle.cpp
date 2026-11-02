@@ -37,7 +37,7 @@ namespace {
 
 TEST_CASE("AdoptFd round-trips a normal frame end-to-end", "[socketcan][lifecycle]") {
     auto fds = make_socketpair();
-    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false});
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, {}});
 
     Message msg;
     msg.id = 0x123;
@@ -181,7 +181,7 @@ TEST_CASE("a second close() call waits for the first to fully complete", "[socke
 
 TEST_CASE("read()/write() throw ClosedError immediately after close()", "[socketcan][lifecycle]") {
     auto fds = make_socketpair();
-    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false});
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, {}});
     transport.close();
 
     Message msg;
@@ -195,7 +195,7 @@ TEST_CASE("read()/write() throw ClosedError immediately after close()", "[socket
 TEST_CASE("read() filters raw CAN_ERR_FLAG frames instead of decoding them",
           "[socketcan][lifecycle]") {
     auto fds = make_socketpair();
-    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false});
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, {}});
 
     struct can_frame frame {};
     frame.can_id = 0x123 | CAN_ERR_FLAG;
@@ -210,7 +210,7 @@ TEST_CASE("read() filters raw CAN_ERR_FLAG frames instead of decoding them",
 TEST_CASE("read() filters raw CAN_RTR_FLAG frames instead of decoding them",
           "[socketcan][lifecycle]") {
     auto fds = make_socketpair();
-    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false});
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, {}});
 
     struct can_frame frame {};
     frame.can_id = 0x123 | CAN_RTR_FLAG;
@@ -231,7 +231,7 @@ TEST_CASE("write() fails within the bounded send timeout instead of hanging",
     // hanging forever (R18).
     int small_sndbuf = 1024;
     REQUIRE(::setsockopt(fds[0], SOL_SOCKET, SO_SNDBUF, &small_sndbuf, sizeof(small_sndbuf)) == 0);
-    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false});
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, {}});
 
     Message msg;
     msg.id = 1;
@@ -253,7 +253,7 @@ TEST_CASE("write() fails within the bounded send timeout instead of hanging",
 TEST_CASE("SocketCAN FD accepts Classic and FD datagrams and rejects malformed lengths",
           "[socketcan][frames]") {
     auto fds = make_socketpair();
-    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], true});
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], true, {}});
     REQUIRE_FALSE(transport.read());
     canfd_frame fd{};
     fd.can_id = CAN_EFF_FLAG | 0x1abcdef;
@@ -309,11 +309,11 @@ TEST_CASE("SocketCAN FD accepts Classic and FD datagrams and rejects malformed l
 
 TEST_CASE("SocketCAN adopted handles reject invalid descriptors and release failed setup",
           "[socketcan][faults]") {
-    REQUIRE_THROWS_AS(SocketCANTransport(SocketCANTransport::AdoptFd{-1, false}),
+    REQUIRE_THROWS_AS(SocketCANTransport(SocketCANTransport::AdoptFd{-1, false, {}}),
                       linkerbot::can::ValidationError);
     std::array<int, 2> pipe_fds{};
     REQUIRE(::pipe(pipe_fds.data()) == 0);
-    REQUIRE_THROWS_AS(SocketCANTransport(SocketCANTransport::AdoptFd{pipe_fds[0], false}),
+    REQUIRE_THROWS_AS(SocketCANTransport(SocketCANTransport::AdoptFd{pipe_fds[0], false, {}}),
                       TransportIOError);
     ::close(pipe_fds[1]);
     for (bool fd_mode : {false, true}) {
@@ -339,7 +339,7 @@ TEST_CASE("SocketCAN unwinds an interrupted reservation and contains destructor 
     ::close(fds[1]);
     auto short_fds = make_socketpair();
     {
-        SocketCANTransport transport(SocketCANTransport::AdoptFd{short_fds[0], false});
+        SocketCANTransport transport(SocketCANTransport::AdoptFd{short_fds[0], false, {}});
         char byte = 0;
         REQUIRE(::write(short_fds[1], &byte, 1) == 1);
         REQUIRE_THROWS_AS(transport.read(), TransportIOError);

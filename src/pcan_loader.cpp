@@ -68,12 +68,16 @@ namespace linkerbot::can {
                 }
             }
 #else
-            if (!requested)
-                if (const auto value = std::getenv("LINKERBOT_PCAN_LIB"); value && *value)
+            if (!requested) {
+                if (auto *const value = std::getenv("LINKERBOT_PCAN_LIB");
+                    (value != nullptr) && (*value != 0u)) {
                     requested = value;
+                }
+            }
 #endif
-            if (requested && (requested->empty() || requested->find('\0') != std::string::npos))
+            if (requested && (requested->empty() || requested->find('\0') != std::string::npos)) {
                 throw ValidationError("PCAN library path must be nonempty and contain no NUL");
+            }
 #if defined(_WIN32)
             std::wstring path =
                 requested ? std::filesystem::absolute(std::filesystem::path(wide(*requested)))
@@ -117,15 +121,17 @@ namespace linkerbot::can {
                 requested ? std::filesystem::absolute(std::filesystem::u8path(*requested)).string()
                           : "libpcanbasic.so";
             void *handle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
-            if (!handle) {
+            if (handle == nullptr) {
                 const char *error = dlerror();
                 throw TransportIOError("PCAN dlopen " + path + ": " +
-                                       (error ? error : "unknown loader error"));
+                                       ((error != nullptr) ? error : "unknown loader error"));
             }
             auto owner = std::shared_ptr<void>(handle, [](void *module) { dlclose(module); });
             Dl_info info{};
-            if (!dladdr(dlsym(handle, "CAN_GetValue"), &info) || !info.dli_fname)
+            if ((dladdr(dlsym(handle, "CAN_GetValue"), &info) == 0) ||
+                (info.dli_fname == nullptr)) {
                 throw TransportIOError(path + " missing CAN_GetValue or unresolved module path");
+            }
             return {std::move(owner), std::filesystem::canonical(info.dli_fname).string()};
 #endif
         }
@@ -137,9 +143,10 @@ namespace linkerbot::can {
             if (!symbol && required)
                 win_error(module.path + " missing symbol " + name, code);
 #else
-            auto symbol = dlsym(module.owner.get(), name);
-            if (!symbol && required)
+            auto *symbol = dlsym(module.owner.get(), name);
+            if (!symbol && required) {
                 throw TransportIOError(module.path + " missing symbol " + name);
+            }
 #endif
             return reinterpret_cast<Fn>(symbol);
         }

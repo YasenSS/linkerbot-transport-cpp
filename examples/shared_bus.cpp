@@ -41,7 +41,7 @@ int main() {
         options.deadline = transport::Clock::now() + std::chrono::seconds{2};
         auto receipt =
             session->submit({{sense_request(kLeftHandId), sense_request(kRightHandId)}}, options);
-        receipt.wait_until(options.deadline);
+        (void)receipt.wait_until(options.deadline);
 
         const auto left_reply = left->receive_until(options.deadline);
         const auto right_reply = right->receive_until(options.deadline);

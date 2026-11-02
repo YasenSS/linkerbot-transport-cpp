@@ -126,6 +126,8 @@ namespace linkerbot::can {
         // in flight on `other` (same precondition the previous atomic-swap
         // implementation had); it is intended for transfer-of-ownership at
         // construction time, before a dispatcher thread is started.
+        // These assignments must occur after locking `other`; member initializers would race.
+        // NOLINTBEGIN(cppcoreguidelines-prefer-member-initializer)
         SocketCANTransport(SocketCANTransport &&other) noexcept {
             const std::scoped_lock lock(other.io_mutex_);
             fd_ = other.fd_;
@@ -136,6 +138,7 @@ namespace linkerbot::can {
             other.fd_ = -1;
             other.closed_ = true;
         }
+        // NOLINTEND(cppcoreguidelines-prefer-member-initializer)
 
         SocketCANTransport &operator=(SocketCANTransport &&other) noexcept {
             if (this == &other) {
@@ -283,12 +286,14 @@ namespace linkerbot::can {
                     fd_ = owner_.fd_;
                 }
                 try {
-                    if (owner_.on_io_in_flight_)
+                    if (owner_.on_io_in_flight_) {
                         owner_.on_io_in_flight_();
+                    }
                 } catch (...) {
                     const std::scoped_lock lock(owner_.io_mutex_);
-                    if (--owner_.in_flight_ == 0)
+                    if (--owner_.in_flight_ == 0) {
                         owner_.io_cv_.notify_all();
+                    }
                     throw;
                 }
             }

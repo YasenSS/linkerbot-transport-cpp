@@ -2,6 +2,7 @@
 #include <array>
 #include <atomic>
 #include <condition_variable>
+#include <cstddef>
 #include <deque>
 #include <filesystem>
 #include <linkerbot/can/frame.hpp>
@@ -13,23 +14,26 @@ namespace linkerbot::can {
     auto pending_native_slcan_cleanup() -> size_t;
     namespace {
         using Clock = std::chrono::steady_clock;
-        constexpr size_t max_frames = 256;
-        constexpr std::array<uint8_t, 16> lengths{0, 1,  2,  3,  4,  5,  6,  7,
-                                                  8, 12, 16, 20, 24, 32, 48, 64};
-        constexpr uint32_t canable_rates[]{10000,  20000,  50000,  100000,  125000,
+        constexpr size_t kMaxFrames = 256;
+        constexpr std::array<uint8_t, 16> kLengths{0, 1,  2,  3,  4,  5,  6,  7,
+                                                   8, 12, 16, 20, 24, 32, 48, 64};
+        constexpr uint32_t kCanableRates[]{10000,  20000,  50000,  100000,  125000,
                                            250000, 500000, 750000, 1000000, 83300};
-        constexpr uint32_t rates[] = {10000,  20000,  50000,  100000, 125000,
-                                      250000, 500000, 800000, 1000000};
+        constexpr uint32_t kRates[] = {10000,  20000,  50000,  100000, 125000,
+                                       250000, 500000, 800000, 1000000};
         char hex(unsigned value) {
             return "0123456789ABCDEF"[value & 15];
         }
         unsigned unhex(char c) {
-            if (c >= '0' && c <= '9')
+            if (c >= '0' && c <= '9') {
                 return static_cast<unsigned>(c - '0');
-            if (c >= 'a' && c <= 'f')
+            }
+            if (c >= 'a' && c <= 'f') {
                 return static_cast<unsigned>(c - 'a' + 10);
-            if (c >= 'A' && c <= 'F')
+            }
+            if (c >= 'A' && c <= 'F') {
                 return static_cast<unsigned>(c - 'A' + 10);
+            }
             throw ValidationError("Invalid SLCAN hex digit");
         }
         struct Cleanup {
@@ -37,7 +41,8 @@ namespace linkerbot::can {
             std::vector<std::shared_ptr<SlcanSerialPort>> ports;
         };
         auto cleanup() -> Cleanup & {
-            static auto *value = new Cleanup;
+            // Serial ports retained after a failed close must survive static destruction.
+            static auto *value = new Cleanup; // NOLINT(cppcoreguidelines-owning-memory)
             return *value;
         }
         void retain(std::shared_ptr<SlcanSerialPort> port) {
@@ -54,78 +59,98 @@ namespace linkerbot::can {
 
     auto slcan_port_name(std::string_view name) -> std::string {
         if (name.empty() || name.find_first_of("\r\n\t") != std::string_view::npos ||
-            name.find('\0') != std::string_view::npos)
+            name.find('\0') != std::string_view::npos) {
             throw ValidationError("Invalid SLCAN serial port");
+        }
         if (name.substr(0, 5) == "/dev/") {
             const auto path = std::filesystem::path(std::string{name});
-            for (const auto &part : path)
-                if (part == "..")
+            for (const auto &part : path) {
+                if (part == "..") {
                     throw ValidationError("SLCAN device path cannot contain ..");
+                }
+            }
             const auto normalized = path.lexically_normal().generic_string();
-            if (normalized.size() <= 5 || normalized.back() == '/')
+            if (normalized.size() <= 5 || normalized.back() == '/') {
                 throw ValidationError("SLCAN needs a device path under /dev");
+            }
             return normalized;
         }
-        if (name.substr(0, 4) == "\\\\.\\")
+        if (name.substr(0, 4) == R"(\\.\)") {
             name.remove_prefix(4);
+        }
         if (name.size() < 4 || name.size() > 8 ||
-            (name.substr(0, 3) != "COM" && name.substr(0, 3) != "com") || name[3] == '0')
+            (name.substr(0, 3) != "COM" && name.substr(0, 3) != "com") || name[3] == '0') {
             throw ValidationError("SLCAN port must be COM1..COM65535 or an absolute /dev/... path");
+        }
         uint32_t number = 0;
         for (size_t i = 3; i < name.size(); ++i) {
-            if (name[i] < '0' || name[i] > '9')
+            if (name[i] < '0' || name[i] > '9') {
                 throw ValidationError("Invalid SLCAN COM port");
+            }
             number = number * 10 + static_cast<unsigned>(name[i] - '0');
         }
-        if (!number || number > 65535)
+        if ((number == 0u) || number > 65535) {
             throw ValidationError("SLCAN COM port out of range");
+        }
         return "COM" + std::to_string(number);
     }
     auto validate_slcan_config(const SlcanConfig &config) -> void {
         (void)slcan_port_name(config.port);
         const bool canable = config.protocol == SlcanProtocol::kCanableFd;
         if ((!canable && config.protocol != SlcanProtocol::kLawicelClassic) ||
-            (!canable && (config.fd || config.brs)) || (config.brs && !config.fd))
+            (!canable && (config.fd || config.brs)) || (config.brs && !config.fd)) {
             throw ValidationError("FD/BRS requires the explicit CANable FD profile and fd=true");
-        const auto *begin = canable ? std::begin(canable_rates) : std::begin(rates);
-        const auto *end = canable ? std::end(canable_rates) : std::end(rates);
-        if (std::find(begin, end, config.nominal_bitrate) == end)
+        }
+        const auto *begin = canable ? std::begin(kCanableRates) : std::begin(kRates);
+        const auto *end = canable ? std::end(kCanableRates) : std::end(kRates);
+        if (std::find(begin, end, config.nominal_bitrate) == end) {
             throw ValidationError("Unsupported SLCAN CAN bitrate for selected firmware profile");
-        if (config.fd && config.data_bitrate != 2'000'000 && config.data_bitrate != 5'000'000)
+        }
+        if (config.fd && config.data_bitrate != 2'000'000 && config.data_bitrate != 5'000'000) {
             throw ValidationError("CANable FD data bitrate must be 2M or 5M");
-        if (config.serial_baud < 1200 || config.serial_baud > 3000000)
+        }
+        if (config.serial_baud < 1200 || config.serial_baud > 3000000) {
             throw ValidationError(
                 "SLCAN serial baud must be 1200..3000000 (independent of CAN bitrate)");
+        }
         if (config.receive_timeout.count() < 1 || config.receive_timeout.count() > 100 ||
             config.command_timeout.count() < 1 || config.command_timeout.count() > 5000 ||
-            config.startup_delay.count() < 0 || config.startup_delay.count() > 5000)
+            config.startup_delay.count() < 0 || config.startup_delay.count() > 5000) {
             throw ValidationError("Invalid SLCAN I/O timeout or startup delay");
+        }
     }
     auto encode_slcan_frame(const Message &message) -> std::string {
         return encode_slcan_frame(message, SlcanProtocol::kLawicelClassic);
     }
     auto encode_slcan_frame(const Message &message, SlcanProtocol protocol) -> std::string {
-        if (protocol != SlcanProtocol::kLawicelClassic && protocol != SlcanProtocol::kCanableFd)
+        if (protocol != SlcanProtocol::kLawicelClassic && protocol != SlcanProtocol::kCanableFd) {
             throw ValidationError("Unknown SLCAN firmware profile");
+        }
         validate_frame_flags(message.is_fd, message.is_brs);
         validate_arbitration_id(message.id, message.is_extended);
         validate_payload_length(message.dlc, message.is_fd ? LinkKind::kCanFd : LinkKind::kClassic);
-        if (message.is_fd && protocol != SlcanProtocol::kCanableFd)
+        if (message.is_fd && protocol != SlcanProtocol::kCanableFd) {
             throw ValidationError("FD frame requires CANable FD profile");
-        char kind = message.is_fd ? (message.is_brs ? 'b' : 'd') : 't';
-        if (message.is_extended)
+        }
+        char kind = 't';
+        if (message.is_fd) {
+            kind = message.is_brs ? 'b' : 'd';
+        }
+        if (message.is_extended) {
             kind = static_cast<char>(kind - 'a' + 'A');
+        }
         std::string result(1, kind);
         const auto digits = message.is_extended ? 8 : 3;
-        for (int i = digits - 1; i >= 0; --i)
+        for (int i = digits - 1; i >= 0; --i) {
             result += hex(message.id >> (i * 4));
+        }
         const auto dlc = message.is_fd
                              ? static_cast<unsigned>(
-                                   std::lower_bound(lengths.begin(), lengths.end(), message.dlc) -
-                                   lengths.begin())
+                                   std::lower_bound(kLengths.begin(), kLengths.end(), message.dlc) -
+                                   kLengths.begin())
                              : message.dlc;
         result += hex(dlc);
-        const auto bytes = message.is_fd ? lengths[dlc] : message.dlc;
+        const auto bytes = message.is_fd ? kLengths[dlc] : message.dlc;
         for (size_t i = 0; i < bytes; ++i) {
             const auto value = i < message.dlc ? message.data[i] : uint8_t{0};
             result += hex(value >> 4);
@@ -137,33 +162,41 @@ namespace linkerbot::can {
         return decode_slcan_frame(line, SlcanProtocol::kLawicelClassic);
     }
     auto decode_slcan_frame(std::string_view line, SlcanProtocol protocol) -> Message {
-        if (protocol != SlcanProtocol::kLawicelClassic && protocol != SlcanProtocol::kCanableFd)
+        if (protocol != SlcanProtocol::kLawicelClassic && protocol != SlcanProtocol::kCanableFd) {
             throw ValidationError("Unknown SLCAN firmware profile");
-        if (line.empty())
+        }
+        if (line.empty()) {
             throw ValidationError("Empty SLCAN frame");
+        }
         const auto kind = line[0];
         Message message;
         message.is_fd = kind == 'd' || kind == 'D' || kind == 'b' || kind == 'B';
         message.is_brs = kind == 'b' || kind == 'B';
         if ((kind != 't' && kind != 'T' && !message.is_fd) ||
-            (message.is_fd && protocol != SlcanProtocol::kCanableFd))
+            (message.is_fd && protocol != SlcanProtocol::kCanableFd)) {
             throw ValidationError("Unsupported SLCAN frame type for selected profile");
+        }
         message.is_extended = kind == 'T' || kind == 'D' || kind == 'B';
         const size_t digits = message.is_extended ? 8 : 3;
-        if (line.size() < digits + 2)
+        if (line.size() < digits + 2) {
             throw ValidationError("Incomplete SLCAN frame");
-        for (size_t i = 1; i <= digits; ++i)
+        }
+        for (size_t i = 1; i <= digits; ++i) {
             message.id = (message.id << 4) | unhex(line[i]);
+        }
         const auto dlc = unhex(line[digits + 1]);
-        if (!message.is_fd && dlc > 8)
+        if (!message.is_fd && dlc > 8) {
             throw ValidationError("Classic SLCAN payload exceeds 8 bytes");
-        message.dlc = message.is_fd ? lengths[dlc] : static_cast<uint8_t>(dlc);
+        }
+        message.dlc = message.is_fd ? kLengths[dlc] : static_cast<uint8_t>(dlc);
         validate_arbitration_id(message.id, message.is_extended);
-        if (line.size() != digits + 2 + message.dlc * 2)
+        if (line.size() != digits + 2 + static_cast<size_t>(message.dlc * 2)) {
             throw ValidationError("Invalid SLCAN payload length");
-        for (size_t i = 0; i < message.dlc; ++i)
+        }
+        for (size_t i = 0; i < message.dlc; ++i) {
             message.data[i] = static_cast<uint8_t>((unhex(line[digits + 2 + i * 2]) << 4) |
                                                    unhex(line[digits + 3 + i * 2]));
+        }
         return message;
     }
     auto retry_slcan_cleanup() -> void {
@@ -177,13 +210,15 @@ namespace linkerbot::can {
                 (*it)->close();
                 it = store.ports.erase(it);
             } catch (...) {
-                if (!error)
+                if (!error) {
                     error = std::current_exception();
+                }
                 ++it;
             }
         }
-        if (error)
+        if (error) {
             std::rethrow_exception(error);
+        }
     }
     auto pending_slcan_cleanup() -> size_t {
         auto &store = cleanup();
@@ -206,30 +241,36 @@ namespace linkerbot::can {
 
         void check_fault() {
             std::lock_guard<std::mutex> lock(fault_mutex);
-            if (fault)
+            if (fault) {
                 std::rethrow_exception(fault);
+            }
         }
         void remember_fault() {
             std::lock_guard<std::mutex> lock(fault_mutex);
-            if (!fault)
+            if (!fault) {
                 fault = std::current_exception();
+            }
         }
         void ingest(std::string_view bytes) {
-            if (bytes.size() > 256)
+            if (bytes.size() > 256) {
                 throw TransportIOError("SLCAN serial exceeded requested read bound");
+            }
             for (char c : bytes) {
-                if (c == '\a')
+                if (c == '\a') {
                     throw TransportIOError("SLCAN adapter rejected command (BEL)");
+                }
                 if (c == '\r') {
-                    if (line.empty() || line == "z" || line == "Z")
+                    if (line.empty() || line == "z" || line == "Z") {
                         ++acknowledgements;
-                    else {
-                        if (frames.size() >= max_frames)
+                    } else {
+                        if (frames.size() >= kMaxFrames) {
                             throw QueueFullError("SLCAN receive queue overflow");
+                        }
                         try {
                             auto message = decode_slcan_frame(line, config.protocol);
-                            if (message.is_fd && !config.fd)
+                            if (message.is_fd && !config.fd) {
                                 throw ValidationError("FD received on Classic SLCAN connection");
+                            }
                             frames.push_back(message);
                         } catch (const ValidationError &error) {
                             throw TransportIOError(error.what());
@@ -241,8 +282,9 @@ namespace linkerbot::can {
                         static_cast<unsigned char>(c) > 0x7e ||
                         line.size() >= (config.protocol == SlcanProtocol::kCanableFd && config.fd
                                             ? 138U
-                                            : 26U))
+                                            : 26U)) {
                         throw TransportIOError("Invalid or overlong SLCAN ASCII line");
+                    }
                     line += c;
                 }
             }
@@ -262,13 +304,16 @@ namespace linkerbot::can {
             serial->write_all(command, remaining(deadline));
             // CANable 2 deliberately has no serial ACK/NACK. Completion means
             // only that every byte reached the serial driver, never CAN bus ACK.
-            if (config.protocol == SlcanProtocol::kCanableFd)
+            if (config.protocol == SlcanProtocol::kCanableFd) {
                 return;
+            }
             while (acknowledgements == previous) {
-                if (closing)
+                if (closing) {
                     throw ClosedError("SLCAN is closing");
-                if (Clock::now() >= deadline)
+                }
+                if (Clock::now() >= deadline) {
                     throw TimeoutError("SLCAN adapter acknowledgement timeout");
+                }
                 pump(std::min(config.receive_timeout, remaining(deadline)));
             }
         }
@@ -278,8 +323,9 @@ namespace linkerbot::can {
         : SlcanTransport(config, open_slcan_serial(config)) {}
     SlcanTransport::SlcanTransport(SlcanConfig config, std::shared_ptr<SlcanSerialPort> serial) {
         validate_slcan_config(config);
-        if (!serial)
+        if (!serial) {
             throw ValidationError("SLCAN serial port is null");
+        }
         state_ = std::make_unique<State>();
         auto &s = *state_;
         s.config = std::move(config);
@@ -287,12 +333,13 @@ namespace linkerbot::can {
         try {
             s.command("C\r");
             const bool canable = s.config.protocol == SlcanProtocol::kCanableFd;
-            const auto *begin = canable ? std::begin(canable_rates) : std::begin(rates);
-            const auto *end = canable ? std::end(canable_rates) : std::end(rates);
+            const auto *begin = canable ? std::begin(kCanableRates) : std::begin(kRates);
+            const auto *end = canable ? std::end(kCanableRates) : std::end(kRates);
             const auto index = std::find(begin, end, s.config.nominal_bitrate) - begin;
             s.command(std::string{"S"} + static_cast<char>('0' + index) + '\r');
-            if (s.config.fd)
+            if (s.config.fd) {
                 s.command(s.config.data_bitrate == 2'000'000 ? "Y2\r" : "Y5\r");
+            }
             s.command("O\r");
         } catch (...) {
             s.serial->cancel();
@@ -314,8 +361,9 @@ namespace linkerbot::can {
         try {
             close();
         } catch (...) {
-            if (state_ && !state_->released)
+            if (state_ && !state_->released) {
                 retain(state_->serial);
+            }
         }
     }
     auto SlcanTransport::read() -> std::optional<Message> {
@@ -324,26 +372,31 @@ namespace linkerbot::can {
         s.parser_ready.wait(gate, [&] { return !s.ack_writer || s.closing; });
         std::lock_guard<std::mutex> lock(s.reader);
         gate.unlock();
-        if (s.closing)
+        if (s.closing) {
             throw ClosedError("SLCAN is closed");
+        }
         s.check_fault();
-        if (s.frames.empty())
+        if (s.frames.empty()) {
             s.pump(s.config.receive_timeout);
-        if (s.frames.empty())
+        }
+        if (s.frames.empty()) {
             return {};
+        }
         auto frame = s.frames.front();
         s.frames.pop_front();
         return frame;
     }
     auto SlcanTransport::write(const Message &message) -> void {
         auto &s = *state_;
-        if (message.is_fd && !s.config.fd)
+        if (message.is_fd && !s.config.fd) {
             throw ValidationError("FD frame requires fd=true");
+        }
         const auto encoded = encode_slcan_frame(message, s.config.protocol);
         std::lock_guard<std::mutex> writer(s.writer);
         const auto send = [&] {
-            if (s.closing)
+            if (s.closing) {
                 throw ClosedError("SLCAN is closed");
+            }
             s.check_fault();
             try {
                 s.command(encoded);
@@ -377,8 +430,9 @@ namespace linkerbot::can {
     auto SlcanTransport::close() -> void {
         auto &s = *state_;
         std::lock_guard<std::mutex> lifecycle(s.lifecycle);
-        if (s.released)
+        if (s.released) {
             return;
+        }
         s.closing = true;
         s.parser_ready.notify_all();
         s.serial->cancel();
@@ -399,7 +453,8 @@ namespace linkerbot::can {
         } catch (...) {
             throw;
         } // Keep ownership so explicit close can retry.
-        if (error)
+        if (error) {
             std::rethrow_exception(error);
+        }
     }
 } // namespace linkerbot::can

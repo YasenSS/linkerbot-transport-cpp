@@ -21,8 +21,9 @@ namespace linkerbot::transport {
             return state_ && state_->load(std::memory_order_acquire);
         }
         void throw_if_cancelled() const {
-            if (cancelled())
+            if (cancelled()) {
                 throw CancelledError("operation cancelled");
+            }
         }
 
       private:

@@ -16,32 +16,42 @@ namespace {
         std::string acknowledgement = "\r";
         bool ack = true, bell = false, fail_write = false, fail_close = false;
         bool closed = false, cancelled = false, block = false, entered = false;
+        bool cancel_returns_empty = false, ignore_read_limit = false;
         size_t closes = 0;
         auto read_some(size_t limit, std::chrono::milliseconds timeout) -> std::string override {
             std::unique_lock<std::mutex> lock(mutex);
             entered = true;
             changed.notify_all();
-            if (block)
+            if (block) {
                 changed.wait_for(lock, timeout, [&] { return cancelled || !chunks.empty(); });
-            if (cancelled)
+            }
+            if (cancelled && !cancel_returns_empty) {
                 throw ClosedError("cancelled");
-            if (chunks.empty())
+            }
+            if (cancelled) {
                 return {};
-            auto result = chunks.front().substr(0, limit);
+            }
+            if (chunks.empty()) {
+                return {};
+            }
+            auto result = ignore_read_limit ? chunks.front() : chunks.front().substr(0, limit);
             chunks.front().erase(0, result.size());
-            if (chunks.front().empty())
+            if (chunks.front().empty()) {
                 chunks.pop_front();
+            }
             return result;
         }
         auto write_all(std::string_view bytes, std::chrono::milliseconds) -> void override {
             std::lock_guard<std::mutex> lock(mutex);
-            if (fail_write)
+            if (fail_write) {
                 throw TransportIOError("unplugged");
+            }
             sent.emplace_back(bytes);
-            if (bell)
+            if (bell) {
                 chunks.emplace_back("\a");
-            else if (ack)
+            } else if (ack) {
                 chunks.emplace_back(acknowledgement);
+            }
         }
         auto cancel() noexcept -> void override {
             std::lock_guard<std::mutex> lock(mutex);
@@ -50,8 +60,9 @@ namespace {
         }
         auto close() -> void override {
             ++closes;
-            if (fail_close)
+            if (fail_close) {
                 throw TransportIOError("close failed");
+            }
             closed = true;
         }
     };
@@ -75,8 +86,9 @@ TEST_CASE("SLCAN validates ports UART and CAN profiles before I/O", "[slcan]") {
     REQUIRE(slcan_port_name("\\\\.\\COM123") == "COM123");
     REQUIRE(slcan_port_name("com65535") == "COM65535");
     for (const auto *name : {"COM0", "COM01", "COM65536", "COM-1", "COM1x", "/tmp/ttyS0",
-                             "/dev/../tmp/ttyS0", "COM1\\x"})
+                             "/dev/../tmp/ttyS0", "COM1\\x"}) {
         REQUIRE_THROWS_AS(slcan_port_name(name), ValidationError);
+    }
     REQUIRE(slcan_port_name("/dev/ttyACM0") == "/dev/ttyACM0");
     REQUIRE(slcan_port_name("/dev/serial/by-id/adapter") == "/dev/serial/by-id/adapter");
     auto c = config();
@@ -103,6 +115,7 @@ TEST_CASE("SLCAN validates ports UART and CAN profiles before I/O", "[slcan]") {
     REQUIRE_THROWS_AS(validate_slcan_config(c), ValidationError);
     REQUIRE(enumerate_slcan_ports({}).empty());
     REQUIRE_THROWS_AS(enumerate_slcan_ports({"COM10", "com10"}), ValidationError);
+    REQUIRE_THROWS_AS(SlcanTransport(config(), {}), ValidationError);
 }
 #ifdef _WIN32
 TEST_CASE("SLCAN native missing COM port preserves system diagnostics", "[slcan]") {
@@ -140,8 +153,10 @@ TEST_CASE("SLCAN Classic codecs preserve IDs and exact payloads", "[slcan]") {
     REQUIRE_FALSE(decoded.is_brs);
     REQUIRE(encode_slcan_frame(Message{}) == "t0000\r");
     for (const auto *line : {"", "r1230", "d1230", "t8000", "T200000000", "t1239", "t1232AB",
-                             "t1231ABCD", "t12g0", "t1230FFFF"})
+                             "t1231ABCD", "t12g0", "t1230FFFF"}) {
         REQUIRE_THROWS_AS(decode_slcan_frame(line), ValidationError);
+    }
+    REQUIRE_THROWS_AS(decode_slcan_frame("t12"), ValidationError);
     m = frame();
     m.is_fd = true;
     REQUIRE_THROWS_AS(encode_slcan_frame(m), ValidationError);
@@ -210,6 +225,12 @@ TEST_CASE("SLCAN reports malformed ASCII and bounds partial lines and queues", "
     REQUIRE_FALSE(transport.read());
     serial->chunks = {"0\r"};
     REQUIRE(transport.read()->id == 0x123);
+
+    auto oversized = std::make_shared<Serial>();
+    SlcanTransport oversized_transport(config(), oversized);
+    oversized->ignore_read_limit = true;
+    oversized->chunks = {std::string(257, 'x')};
+    REQUIRE_THROWS_AS(oversized_transport.read(), TransportIOError);
 }
 TEST_CASE("SLCAN bounds queued frames while a command awaits ACK", "[slcan]") {
     auto serial = std::make_shared<Serial>();
@@ -217,8 +238,9 @@ TEST_CASE("SLCAN bounds queued frames while a command awaits ACK", "[slcan]") {
     c.command_timeout = 1000ms;
     SlcanTransport transport(c, serial);
     serial->ack = false;
-    for (int i = 0; i < 257; ++i)
+    for (int i = 0; i < 257; ++i) {
         serial->chunks.emplace_back("t1230\r");
+    }
     REQUIRE_THROWS_AS(transport.write(frame()), QueueFullError);
     REQUIRE_THROWS_AS(transport.read(), QueueFullError);
 }
@@ -252,6 +274,31 @@ TEST_CASE("SLCAN startup and TX failures never claim successful acceptance", "[s
         REQUIRE(serial->closed); // Failed C never prevents local release.
         REQUIRE_NOTHROW(transport.close());
     }
+    SECTION("write failure while unwinding startup") {
+        auto serial = std::make_shared<Serial>();
+        serial->fail_write = true;
+        REQUIRE_THROWS_AS(SlcanTransport(config(), serial), TransportIOError);
+        REQUIRE(serial->closed);
+        REQUIRE(serial->closes == 1);
+    }
+}
+TEST_CASE("SLCAN close stops an acknowledgement wait that returns no bytes", "[slcan]") {
+    auto serial = std::make_shared<Serial>();
+    SlcanTransport transport(config(), serial);
+    {
+        std::lock_guard<std::mutex> lock(serial->mutex);
+        serial->ack = false;
+        serial->block = true;
+        serial->entered = false;
+        serial->cancel_returns_empty = true;
+    }
+    auto writer = std::async(std::launch::async, [&] { transport.write(frame()); });
+    {
+        std::unique_lock<std::mutex> lock(serial->mutex);
+        REQUIRE(serial->changed.wait_for(lock, 100ms, [&] { return serial->entered; }));
+    }
+    REQUIRE_NOTHROW(transport.close());
+    REQUIRE_THROWS_AS(writer.get(), ClosedError);
 }
 TEST_CASE("SLCAN close interrupts a pending read", "[slcan]") {
     auto serial = std::make_shared<Serial>();
@@ -310,7 +357,7 @@ TEST_CASE("SLCAN constructor and destructor failures retain retryable resources"
 
 TEST_CASE("SLCAN CANable FD codecs preserve flags DLC padding and all payload lengths",
           "[slcan][fd]") {
-    for (const bool extended : {false, true})
+    for (const bool extended : {false, true}) {
         for (const bool brs : {false, true}) {
             for (unsigned length = 0; length <= 64; ++length) {
                 auto m = frame();
@@ -319,8 +366,9 @@ TEST_CASE("SLCAN CANable FD codecs preserve flags DLC padding and all payload le
                 m.is_fd = true;
                 m.is_brs = brs;
                 m.dlc = static_cast<uint8_t>(length);
-                for (size_t i = 0; i < length; ++i)
+                for (size_t i = 0; i < length; ++i) {
                     m.data[i] = static_cast<uint8_t>(i + 1);
+                }
                 const auto wire = encode_slcan_frame(m, SlcanProtocol::kCanableFd);
                 REQUIRE(wire[0] == (extended ? (brs ? 'B' : 'D') : (brs ? 'b' : 'd')));
                 const auto decoded = decode_slcan_frame(
@@ -330,10 +378,12 @@ TEST_CASE("SLCAN CANable FD codecs preserve flags DLC padding and all payload le
                 REQUIRE(decoded.is_fd);
                 REQUIRE(decoded.is_brs == brs);
                 REQUIRE(decoded.dlc >= length);
-                for (size_t i = 0; i < decoded.dlc; ++i)
+                for (size_t i = 0; i < decoded.dlc; ++i) {
                     REQUIRE(decoded.data[i] == (i < length ? i + 1 : 0));
+                }
             }
         }
+    }
     REQUIRE(encode_slcan_frame(frame(), SlcanProtocol::kCanableFd) == "t1232ABCD\r");
     REQUIRE_THROWS(decode_slcan_frame("d8000", SlcanProtocol::kCanableFd));
     REQUIRE_THROWS(decode_slcan_frame("D200000000", SlcanProtocol::kCanableFd));
@@ -403,8 +453,9 @@ TEST_CASE("SLCAN CANable Classic keeps FD disabled without requiring serial ACKs
 TEST_CASE("SLCAN rejects malformed device paths and unknown profiles at codec entry points",
           "[slcan][validation]") {
     for (const auto &port :
-         {std::string{}, std::string{"COM\n10"}, std::string{"/dev/"}, std::string{"/dev/tty/"}})
+         {std::string{}, std::string{"COM\n10"}, std::string{"/dev/"}, std::string{"/dev/tty/"}}) {
         REQUIRE_THROWS_AS(slcan_port_name(port), ValidationError);
+    }
     const auto unknown = static_cast<SlcanProtocol>(99);
     REQUIRE_THROWS_AS(encode_slcan_frame(frame(), unknown), ValidationError);
     REQUIRE_THROWS_AS(decode_slcan_frame("t1230", unknown), ValidationError);

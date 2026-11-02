@@ -23,31 +23,34 @@ using namespace linkerbot::can;
 namespace fs = std::filesystem;
 namespace {
     std::string fixture_path(const char *name = "LINKERBOT_TEST_VENDOR_LIBRARY") {
-        const auto value = std::getenv(name);
-        if (!value)
+        auto *const value = std::getenv(name);
+        if (value == nullptr) {
             throw std::runtime_error(std::string("CTest fixture path missing: ") + name);
+        }
         return value;
+    }
+    template <typename Function>
+    auto fixture_symbol(const std::shared_ptr<VendorCanFdApi> &api, const char *name) -> Function {
+#if defined(_WIN32)
+        return reinterpret_cast<Function>(
+            GetProcAddress(static_cast<HMODULE>(api->library_owner.get()), name));
+#else
+        return reinterpret_cast<Function>(dlsym(api->library_owner.get(), name));
+#endif
     }
     struct Fixture {
         std::shared_ptr<VendorCanFdApi> api = load_vendor_canfd_api(fixture_path());
         using Get = int(CALL *)(unsigned);
         using Set = int(CALL *)(unsigned, int);
-        Get get;
-        Set set;
+        Get get = fixture_symbol<Get>(api, "Test_Get");
+        Set set = fixture_symbol<Set>(api, "Test_Set");
         Fixture() {
-#if defined(_WIN32)
-            get = reinterpret_cast<Get>(
-                GetProcAddress(static_cast<HMODULE>(api->library_owner.get()), "Test_Get"));
-            set = reinterpret_cast<Set>(
-                GetProcAddress(static_cast<HMODULE>(api->library_owner.get()), "Test_Set"));
-#else
-            get = reinterpret_cast<Get>(dlsym(api->library_owner.get(), "Test_Get"));
-            set = reinterpret_cast<Set>(dlsym(api->library_owner.get(), "Test_Set"));
-#endif
-            if (!get || !set)
+            if ((get == nullptr) || (set == nullptr)) {
                 throw std::runtime_error("Fixture control symbols missing");
-            for (unsigned key = 0; key < 32; ++key)
+            }
+            for (unsigned key = 0; key < 32; ++key) {
                 set(key, 0);
+            }
         }
         ~Fixture() {
             set(8, 0);
@@ -74,8 +77,9 @@ namespace {
     };
     std::vector<VendorCanFdChannel> all_channels() {
         std::vector<VendorCanFdChannel> result;
-        for (unsigned i = 0; i < 6; ++i)
+        for (unsigned i = 0; i < 6; ++i) {
             result.push_back({i, 0, {}});
+        }
         return result;
     }
 } // namespace
@@ -121,7 +125,7 @@ TEST_CASE("native ABI transfers all payload lengths and frame flags", "[vendor_l
     CHECK(fixture.get(15) == 1000000);
     CHECK(fixture.get(16) == 5000000);
     CHECK_FALSE(transport.read());
-    for (const bool extended : {false, true})
+    for (const bool extended : {false, true}) {
         for (const bool brs : {false, true}) {
             std::vector<Message> messages;
             for (unsigned length = 0; length <= 64; ++length) {
@@ -131,8 +135,9 @@ TEST_CASE("native ABI transfers all payload lengths and frame flags", "[vendor_l
                 message.is_fd = true;
                 message.is_brs = brs; // Includes O30 standard/no BRS and L30 extended FD.
                 message.dlc = static_cast<uint8_t>(length);
-                for (unsigned i = 0; i < length; ++i)
+                for (unsigned i = 0; i < length; ++i) {
                     message.data[i] = static_cast<uint8_t>(i + length);
+                }
                 messages.push_back(message);
             }
             transport.write(messages.front());
@@ -153,6 +158,7 @@ TEST_CASE("native ABI transfers all payload lengths and frame flags", "[vendor_l
             }
             CHECK_FALSE(transport.read());
         }
+    }
     CanFDMsg classic{};
     classic.ID = 0x321;
     classic.DLC = 8;
@@ -221,8 +227,9 @@ TEST_CASE("native read write and close finish within configured waits", "[vendor
     auto reading = std::async(std::launch::async, [&] {
         ready.wait();
         try {
-            for (int i = 0; i < 100; ++i)
+            for (int i = 0; i < 100; ++i) {
                 (void)transport.read();
+            }
         } catch (const ClosedError &) {
         }
     });
@@ -231,16 +238,18 @@ TEST_CASE("native read write and close finish within configured waits", "[vendor
         try {
             Message message;
             message.id = 1;
-            for (int i = 0; i < 100; ++i)
+            for (int i = 0; i < 100; ++i) {
                 transport.write(message);
+            }
         } catch (const ClosedError &) {
         }
     });
     start.set_value();
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
     while ((fixture.get(4) == 0 || fixture.get(5) == 0) &&
-           std::chrono::steady_clock::now() < deadline)
+           std::chrono::steady_clock::now() < deadline) {
         std::this_thread::yield();
+    }
     CHECK(fixture.get(4) > 0);
     CHECK(fixture.get(5) > 0);
     const auto before = std::chrono::steady_clock::now();
@@ -283,14 +292,15 @@ TEST_CASE("explicit Unicode module paths resolve without fallback", "[vendor_loa
 #else
     const char *old = std::getenv("LINKERBOT_CANFD_LIB");
     const std::optional<std::string> previous =
-        old ? std::optional<std::string>(old) : std::nullopt;
+        (old != nullptr) ? std::optional<std::string>(old) : std::nullopt;
     setenv("LINKERBOT_CANFD_LIB", path.c_str(), 1);
     CHECK_THROWS_AS(load_vendor_canfd_api(absent), TransportIOError);
     CHECK(fs::equivalent(fs::u8path(load_vendor_canfd_api(std::nullopt)->lifecycle_key), path));
-    if (previous)
+    if (previous) {
         setenv("LINKERBOT_CANFD_LIB", previous->c_str(), 1);
-    else
+    } else {
         unsetenv("LINKERBOT_CANFD_LIB");
+    }
 #endif
     CHECK_THROWS_AS(load_vendor_canfd_api(std::string{}), ValidationError);
     CHECK_THROWS_AS(load_vendor_canfd_api(std::string("bad\0name", 8)), ValidationError);
@@ -371,6 +381,7 @@ TEST_CASE("Linux rejects incomplete lifecycle export pairs", "[vendor_loader]") 
     CHECK_FALSE(legacy->lib_init);
     CHECK_FALSE(legacy->lib_exit);
     CHECK(legacy->device_level_type);
+    CHECK_THROWS_AS(legacy->channel_type(0, 1), ValidationError);
     const auto result = enumerate_vendor_canfd_channels(legacy, {{0, 0, {}}, {0, 1, {}}});
     CHECK(result.channels.size() == 1);
     REQUIRE(result.failures.size() == 1);
@@ -436,17 +447,18 @@ TEST_CASE("native loader factory entry points honor the explicit environment lib
     Fixture fixture;
     const auto configured = fixture_path();
     const char *value = std::getenv(kVendorCanFdLibEnv);
-    const auto previous = value ? std::optional<std::string>{value} : std::nullopt;
+    const auto previous = (value != nullptr) ? std::optional<std::string>{value} : std::nullopt;
     struct RestoreEnvironment {
         std::optional<std::string> previous;
         ~RestoreEnvironment() {
 #if defined(_WIN32)
             _putenv_s(kVendorCanFdLibEnv, previous ? previous->c_str() : "");
 #else
-            if (previous)
+            if (previous) {
                 setenv(kVendorCanFdLibEnv, previous->c_str(), 1);
-            else
+            } else {
                 unsetenv(kVendorCanFdLibEnv);
+            }
 #endif
         }
     } restore{previous};

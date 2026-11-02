@@ -314,6 +314,7 @@ TEST_CASE("enqueue success is not physical send success", "[managed_bus][queue]"
     REQUIRE(current->wait_until_tx_entered(kTimeout));
     REQUIRE_FALSE(receipt.completed());
     REQUIRE(current->sent().empty());
+    REQUIRE_THROWS_AS(receipt.wait_for(std::chrono::milliseconds(1)), linkerbot::can::TimeoutError);
 
     current->release_tx_gate();
     REQUIRE_NOTHROW(receipt.wait_for(kTimeout));
@@ -620,6 +621,7 @@ TEST_CASE("synchronous recover from the fault callback is rejected, not fatal",
         } catch (const ValidationError &) {
             saw_validation_error.store(true, std::memory_order_release);
         }
+        throw std::runtime_error("fault observer failure must be isolated");
     };
 
     FakeTransport *raw = nullptr;
@@ -636,6 +638,8 @@ TEST_CASE("synchronous recover from the fault callback is rejected, not fatal",
     raw->fail_reads("boom");
     REQUIRE(wait_until([&] { return fault_seen.load(std::memory_order_acquire); }));
     REQUIRE(saw_validation_error.load(std::memory_order_acquire));
+    REQUIRE_THROWS_AS(bus.send(make_frame(0x28, 0x52)), FaultedError);
+    REQUIRE_THROWS_AS(bus.queue_send(make_frame(0x28, 0x53)), FaultedError);
 }
 
 TEST_CASE("an external stop is not blocked or terminated by a rejected self-stop callback",
@@ -656,6 +660,7 @@ TEST_CASE("an external stop is not blocked or terminated by a rejected self-stop
     bool entered = false;
     bool release_now = false;
     std::atomic<bool> saw_validation_error{false};
+    std::atomic<int> later_calls{0};
 
     bus.subscribe([&](const Message &) {
         try {
@@ -668,6 +673,7 @@ TEST_CASE("an external stop is not blocked or terminated by a rejected self-stop
         cv.notify_all();
         cv.wait(lock, [&] { return release_now; });
     });
+    bus.subscribe([&](const Message &) { ++later_calls; });
 
     raw->inject(make_frame(0x28, 0x51));
     {
@@ -679,6 +685,7 @@ TEST_CASE("an external stop is not blocked or terminated by a rejected self-stop
     // The external stop() blocks joining the receive thread until the
     // callback above releases it, but must complete without deadlock.
     std::thread external_stop([&] { bus.stop(); });
+    REQUIRE(wait_until([&] { return bus.get_health().state == TransportState::kStopping; }));
 
     {
         const std::scoped_lock lock(mutex);
@@ -688,6 +695,47 @@ TEST_CASE("an external stop is not blocked or terminated by a rejected self-stop
 
     external_stop.join();
     REQUIRE(bus.get_health().state == TransportState::kClosed);
+    REQUIRE(later_calls.load() == 0);
+}
+
+TEST_CASE("managed bus health reports a disabled throwing subscriber",
+          "[managed_bus][health][subscriber]") {
+    FakeTransport *raw = nullptr;
+    ManagedCANBus bus([&] {
+        auto transport = std::make_unique<FakeTransport>();
+        raw = transport.get();
+        return transport;
+    });
+    bus.start();
+
+    std::atomic<int> calls{0};
+    bus.subscribe([&](const Message &) {
+        ++calls;
+        throw std::runtime_error("managed subscriber failure");
+    });
+    for (int i = 0; i < 4; ++i) {
+        raw->inject(make_frame(0x28, static_cast<uint8_t>(i)));
+    }
+
+    REQUIRE(wait_until([&] { return bus.get_health().disabled_subscriber_count == 1; }));
+    const auto health = bus.get_health();
+    REQUIRE(calls.load() == 3);
+    REQUIRE(health.last_subscriber_error.find("managed subscriber failure") != std::string::npos);
+    bus.stop();
+}
+
+TEST_CASE("managed bus destructor contains a retryable transport close failure",
+          "[managed_bus][lifecycle]") {
+    FakeTransport *raw = nullptr;
+    {
+        ManagedCANBus bus([&] {
+            auto transport = std::make_unique<FakeTransport>();
+            raw = transport.get();
+            return transport;
+        });
+        bus.start();
+        raw->fail_next_closes(1);
+    }
 }
 
 TEST_CASE("pool shares one connection until the last lease closes", "[pool]") {
@@ -727,6 +775,7 @@ TEST_CASE("lease close is idempotent and access after close fails", "[pool]") {
     lease.close();
     lease.close();
     REQUIRE_THROWS_AS(lease.bus(), ClosedError);
+    REQUIRE_THROWS_AS(lease.shared_bus(), ClosedError);
 }
 
 TEST_CASE("lease move assignment preserves both owners when target close fails", "[pool]") {
@@ -752,6 +801,7 @@ TEST_CASE("lease move assignment preserves both owners when target close fails",
     // the only explicit retry owner for its failed close, and the source still
     // owns the lease that was going to replace it.
     REQUIRE_NOTHROW(first.bus());
+    // NOLINTNEXTLINE(bugprone-use-after-move) -- the throwing assignment preserves the source.
     REQUIRE_NOTHROW(second.bus());
     REQUIRE(pool.lease_count(first_key) == 1);
     REQUIRE(pool.lease_count(second_key) == 1);
@@ -777,6 +827,7 @@ TEST_CASE("lease move assignment closes the target before adopting the source", 
     REQUIRE(pool.lease_count(first_key) == 0);
     REQUIRE(pool.lease_count(second_key) == 1);
     REQUIRE(&first.bus() == second_bus);
+    // NOLINTNEXTLINE(bugprone-use-after-move) -- the moved-from state is the contract under test.
     REQUIRE_THROWS_AS(second.bus(), ClosedError);
 
     // Self-move remains a no-op and keeps the adopted lease usable.
@@ -1159,12 +1210,18 @@ TEST_CASE("last lease destruction in a receive callback is deferred safely", "[p
 
     std::atomic<bool> callback_returned{false};
     std::atomic<bool> drain_rejected_in_callback{false};
+    std::atomic<bool> retry_rejected_in_callback{false};
     lease->bus().subscribe([&](const Message &) {
         lease.reset();
         try {
             CANBusLease::drain_deferred_cleanup();
         } catch (const ValidationError &) {
             drain_rejected_in_callback.store(true, std::memory_order_release);
+        }
+        try {
+            CANBusLease::retry_deferred_cleanup();
+        } catch (const ValidationError &) {
+            retry_rejected_in_callback.store(true, std::memory_order_release);
         }
         callback_returned.store(true, std::memory_order_release);
     });
@@ -1174,6 +1231,7 @@ TEST_CASE("last lease destruction in a receive callback is deferred safely", "[p
     REQUIRE(wait_until([&] { return callback_returned.load(std::memory_order_acquire); }));
     REQUIRE_FALSE(lease.has_value());
     REQUIRE(drain_rejected_in_callback.load(std::memory_order_acquire));
+    REQUIRE(retry_rejected_in_callback.load(std::memory_order_acquire));
 
     if (close_failures != 0) {
         REQUIRE_THROWS_AS(CANBusLease::drain_deferred_cleanup(), FaultedError);

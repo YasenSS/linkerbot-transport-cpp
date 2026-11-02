@@ -159,7 +159,7 @@ namespace linkerbot::can {
                     op_error = std::current_exception();
                 }
 
-                NotifyOnExit notify{state_cv_};
+                NotifyOnExit notify{&state_cv_};
                 {
                     const std::scoped_lock lock(mutex_);
                     auto it = entries_.find(key);
@@ -238,7 +238,7 @@ namespace linkerbot::can {
           private:
             auto finish_stop_attempt(const CANBusKey &key,
                                      const std::shared_ptr<ManagedCANBus> &bus) -> void {
-                NotifyOnExit notify{state_cv_};
+                NotifyOnExit notify{&state_cv_};
                 std::exception_ptr stop_error;
                 try {
                     bus->stop();
@@ -279,9 +279,9 @@ namespace linkerbot::can {
             };
 
             struct NotifyOnExit {
-                std::condition_variable &cv;
+                std::condition_variable *cv;
                 ~NotifyOnExit() {
-                    cv.notify_all();
+                    cv->notify_all();
                 }
             };
 
@@ -330,7 +330,7 @@ namespace linkerbot::can {
             auto enqueue(DeferredLeaseCloseTask *task) noexcept -> void {
                 const std::scoped_lock lock(mutex_);
                 task->next = nullptr;
-                if (tail_) {
+                if (tail_ != nullptr) {
                     tail_->next = task;
                 } else {
                     head_ = task;
@@ -342,10 +342,10 @@ namespace linkerbot::can {
 
             auto retry_failed() noexcept -> void {
                 const std::scoped_lock lock(mutex_);
-                if (!failed_head_) {
+                if (failed_head_ == nullptr) {
                     return;
                 }
-                if (tail_) {
+                if (tail_ != nullptr) {
                     tail_->next = failed_head_;
                 } else {
                     head_ = failed_head_;
@@ -374,10 +374,9 @@ namespace linkerbot::can {
 
           private:
             static auto destroy_list(DeferredLeaseCloseTask *task) noexcept -> void {
-                while (task) {
-                    auto *next = task->next;
-                    delete task;
-                    task = next;
+                while (task != nullptr) {
+                    std::unique_ptr<DeferredLeaseCloseTask> owner(task);
+                    task = owner->next;
                 }
             }
 
@@ -386,13 +385,13 @@ namespace linkerbot::can {
                     DeferredLeaseCloseTask *task = nullptr;
                     {
                         std::unique_lock lock(mutex_);
-                        cv_.wait(lock, [&] { return stopping_ || head_; });
-                        if (!head_) {
+                        cv_.wait(lock, [&] { return stopping_ || (head_ != nullptr); });
+                        if (head_ == nullptr) {
                             return;
                         }
                         task = head_;
                         head_ = head_->next;
-                        if (!head_) {
+                        if (head_ == nullptr) {
                             tail_ = nullptr;
                         }
                         task->next = nullptr;
@@ -413,14 +412,14 @@ namespace linkerbot::can {
                     }
 
                     if (!failed) {
-                        delete task;
+                        std::unique_ptr<DeferredLeaseCloseTask> owner(task);
                         task = nullptr;
                     }
                     {
                         const std::scoped_lock lock(mutex_);
                         active_ = false;
                         if (failed) {
-                            if (failed_tail_) {
+                            if (failed_tail_ != nullptr) {
                                 failed_tail_->next = task;
                             } else {
                                 failed_head_ = task;
@@ -481,6 +480,7 @@ namespace linkerbot::can {
         // containers, but let move assignment report the close failure before
         // either lease is modified. This preserves the target as the explicit
         // retry owner instead of silently orphaning a faulted pool entry.
+        // NOLINTNEXTLINE(cppcoreguidelines-noexcept-move-operations,performance-noexcept-move-constructor)
         auto operator=(CANBusLease &&other) -> CANBusLease & {
             if (this != &other) {
                 close();
@@ -540,8 +540,9 @@ namespace linkerbot::can {
         // closes the physical connection when it is the pool's last owner.
         [[nodiscard]] auto shared_bus() const -> std::shared_ptr<ManagedCANBus> {
             const std::scoped_lock lock(mutex_);
-            if (!bus_)
+            if (!bus_) {
                 throw ClosedError("CAN bus lease is closed");
+            }
             return bus_;
         }
 
@@ -622,7 +623,7 @@ namespace linkerbot::can {
             // Every active lease owns a task allocated during construction.
             // A missing node would violate the move invariant and make safe
             // callback-time cleanup impossible.
-            if (!task) {
+            if (task == nullptr) {
                 std::terminate();
             }
             task->state = std::move(state_);

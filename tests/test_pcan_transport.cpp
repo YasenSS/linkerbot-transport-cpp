@@ -21,9 +21,10 @@ using namespace linkerbot::can;
 namespace fs = std::filesystem;
 namespace {
     std::string path(const char *key = "LINKERBOT_TEST_PCAN_LIBRARY") {
-        const auto value = std::getenv(key);
-        if (!value)
+        auto *const value = std::getenv(key);
+        if (value == nullptr) {
             throw std::runtime_error(std::string("Missing fixture path ") + key);
+        }
         return value;
     }
     template <typename F> F symbol(const std::shared_ptr<PcanApi> &api, const char *name) {
@@ -41,10 +42,12 @@ namespace {
         Get get = symbol<Get>(api, "Test_Get");
         Set set = symbol<Set>(api, "Test_Set");
         Fixture() {
-            if (!get || !set)
+            if ((get == nullptr) || (set == nullptr)) {
                 throw std::runtime_error("fixture controls missing");
-            for (unsigned i = 0; i < 32; ++i)
+            }
+            for (unsigned i = 0; i < 32; ++i) {
                 set(i, 0);
+            }
             using Clear = uint32_t(CALL *)();
             symbol<Clear>(api, "Test_ClearReplies")();
         }
@@ -59,7 +62,7 @@ namespace {
             } catch (...) {
             }
         }
-        PcanConfig config(PcanMode mode = PcanMode::kClassic) const {
+        [[nodiscard]] PcanConfig config(PcanMode mode = PcanMode::kClassic) const {
             PcanConfig value;
             value.mode = mode;
             value.channel = mode == PcanMode::kFd ? 0x52 : 0x51;
@@ -92,14 +95,15 @@ TEST_CASE("PCAN Classic initialization frames and bounded empty receive", "[pcan
     CHECK(fixture.get(1) == 0);
     CHECK(fixture.get(9) == 0x14);
     CHECK_FALSE(transport.read());
-    for (bool extended : {false, true})
+    for (bool extended : {false, true}) {
         for (unsigned length = 0; length <= 8; ++length) {
             Message message;
             message.id = extended ? 0x1abcdef : 0x321;
             message.is_extended = extended;
             message.dlc = uint8_t(length);
-            for (unsigned i = 0; i < length; ++i)
+            for (unsigned i = 0; i < length; ++i) {
                 message.data[i] = uint8_t(i + 3);
+            }
             transport.write(message);
             const auto received = transport.read();
             REQUIRE(received);
@@ -109,6 +113,7 @@ TEST_CASE("PCAN Classic initialization frames and bounded empty receive", "[pcan
             CHECK(received->dlc == length);
             CHECK(received->data == message.data);
         }
+    }
     CHECK(fixture.get(6) == 0);
     CHECK(fixture.get(4) == 0);
     Message bad;
@@ -134,8 +139,8 @@ TEST_CASE("PCAN FD uses FD API and explicit Classic FD BRS flags for every lengt
     REQUIRE(symbol<Copy>(fixture.api, "Test_CopyTiming")(timing, sizeof(timing)) == 0);
     CHECK(std::string(timing) == config.fd_timing.bitrate_string(1000000, 5000000));
     const unsigned lengths[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
-    for (bool extended : {false, true})
-        for (bool brs : {false, true})
+    for (bool extended : {false, true}) {
+        for (bool brs : {false, true}) {
             for (unsigned n = 0; n <= 64; ++n) {
                 Message message;
                 message.id = extended ? 0x1234567 : 0x123;
@@ -143,8 +148,9 @@ TEST_CASE("PCAN FD uses FD API and explicit Classic FD BRS flags for every lengt
                 message.is_fd = true;
                 message.is_brs = brs;
                 message.dlc = uint8_t(n);
-                for (unsigned i = 0; i < n; ++i)
+                for (unsigned i = 0; i < n; ++i) {
                     message.data[i] = uint8_t(i + n);
+                }
                 transport.write(message);
                 const auto received = transport.read();
                 REQUIRE(received);
@@ -156,6 +162,8 @@ TEST_CASE("PCAN FD uses FD API and explicit Classic FD BRS flags for every lengt
                       *std::lower_bound(std::begin(lengths), std::end(lengths), n));
                 CHECK(received->data == message.data);
             }
+        }
+    }
     Message classic;
     classic.id = 4;
     classic.dlc = 8;
@@ -302,6 +310,17 @@ TEST_CASE("PCAN caution rollback owns only the channel it initialized", "[pcan]"
     PcanTransport recovered(fixture.config(), fixture.api);
     CHECK(pending_pcan_cleanup(fixture.api) == 0);
 }
+TEST_CASE("PCAN caution rollback releases a successfully uninitialized channel", "[pcan]") {
+    Fixture fixture;
+    fixture.set(10, pcan_abi::caution);
+    REQUIRE_THROWS_AS(PcanTransport(fixture.config(), fixture.api), PcanTransportError);
+    CHECK(fixture.get(2) == 1);
+    CHECK(pending_pcan_cleanup(fixture.api) == 0);
+
+    fixture.set(10, 0);
+    PcanTransport recovered(fixture.config(), fixture.api);
+    recovered.close();
+}
 TEST_CASE("PCAN close interrupts empty polling and concurrent callers are idempotent", "[pcan]") {
     Fixture fixture;
     auto config = fixture.config();
@@ -314,8 +333,9 @@ TEST_CASE("PCAN close interrupts empty polling and concurrent callers are idempo
         }
     });
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-    while (!fixture.get(3) && std::chrono::steady_clock::now() < deadline)
+    while ((fixture.get(3) == 0u) && std::chrono::steady_clock::now() < deadline) {
         std::this_thread::yield();
+    }
     CHECK(fixture.get(3) > 0);
     const auto before = std::chrono::steady_clock::now();
     auto a = std::async(std::launch::async, [&] { transport.close(); });
@@ -327,11 +347,13 @@ TEST_CASE("PCAN close interrupts empty polling and concurrent callers are idempo
     CHECK(fixture.get(2) == 1);
 }
 TEST_CASE("PCAN channel names and exact FD timing validate without I O", "[pcan]") {
-    for (const auto handle : {uint16_t(0x51), uint16_t(0x509), uint16_t(0x41), uint16_t(0x801)})
+    for (const auto handle : {uint16_t(0x51), uint16_t(0x509), uint16_t(0x41), uint16_t(0x801)}) {
         CHECK(pcan_channel_handle(pcan_channel_name(handle)) == handle);
-    for (const auto bad :
-         {"PCAN_USBBUS0", "PCAN_USBBUS17", "PCAN_USBBUS-1", "0", "-1", "0x10000", " 81"})
+    }
+    for (const auto *const bad :
+         {"PCAN_USBBUS0", "PCAN_USBBUS17", "PCAN_USBBUS-1", "0", "-1", "0x10000", " 81"}) {
         CHECK_THROWS_AS(pcan_channel_handle(bad), ValidationError);
+    }
     PcanFdTiming timing;
     CHECK(timing.bitrate_string(1000000, 5000000).find("data_tseg1=11") != std::string::npos);
     timing.clock_hz = 0;
@@ -358,6 +380,151 @@ TEST_CASE("PCAN explicit Unicode module path and missing symbol do not fall back
     CHECK_THROWS_AS(load_pcan_api((directory / "missing.dll").u8string()), TransportIOError);
     CHECK_THROWS_AS(load_pcan_api(path("LINKERBOT_TEST_PCAN_MISSING")), TransportIOError);
     CHECK_THROWS_AS(load_pcan_api(std::string{}), ValidationError);
+}
+
+#if !defined(_WIN32)
+TEST_CASE("PCAN Linux loader honors the configured environment module", "[pcan][loader]") {
+    const char *const current = std::getenv("LINKERBOT_PCAN_LIB");
+    const std::optional<std::string> previous =
+        (current != nullptr) ? std::optional<std::string>{current} : std::nullopt;
+    struct RestoreEnvironment {
+        std::optional<std::string> previous;
+        ~RestoreEnvironment() {
+            if (previous) {
+                setenv("LINKERBOT_PCAN_LIB", previous->c_str(), 1);
+            } else {
+                unsetenv("LINKERBOT_PCAN_LIB");
+            }
+        }
+    } restore{previous};
+
+    REQUIRE(setenv("LINKERBOT_PCAN_LIB", path().c_str(), 1) == 0);
+    const auto api = load_pcan_api(std::nullopt);
+    CHECK(fs::equivalent(fs::u8path(api->library_path), fs::u8path(path())));
+}
+#endif
+
+TEST_CASE("PCAN enumeration rejects unsafe metadata and records per-channel failures",
+          "[pcan][enumeration]") {
+    Fixture fixture;
+    REQUIRE_THROWS_AS(retry_pcan_cleanup(nullptr), ValidationError);
+    REQUIRE_THROWS_AS(pending_pcan_cleanup(nullptr), ValidationError);
+    REQUIRE_THROWS_AS(enumerate_pcan_channels(std::make_shared<PcanApi>()), ValidationError);
+
+    auto zero = std::make_shared<PcanApi>(*fixture.api);
+    zero->get_value = [](uint16_t, uint8_t parameter, void *buffer, uint32_t) {
+        REQUIRE(parameter == pcan_abi::attached_count);
+        *static_cast<uint32_t *>(buffer) = 0;
+        return pcan_abi::ok;
+    };
+    CHECK(enumerate_pcan_channels(zero).channels.empty());
+
+    auto oversized = std::make_shared<PcanApi>(*fixture.api);
+    oversized->get_value = [](uint16_t, uint8_t parameter, void *buffer, uint32_t) {
+        REQUIRE(parameter == pcan_abi::attached_count);
+        *static_cast<uint32_t *>(buffer) = 4097;
+        return pcan_abi::ok;
+    };
+    REQUIRE_THROWS_AS(enumerate_pcan_channels(oversized), TransportIOError);
+
+    auto changing = std::make_shared<PcanApi>(*fixture.api);
+    unsigned attached_queries = 0;
+    changing->get_value = [&](uint16_t, uint8_t parameter, void *buffer, uint32_t) {
+        if (parameter == pcan_abi::attached_count) {
+            *static_cast<uint32_t *>(buffer) = 1;
+            return pcan_abi::ok;
+        }
+        REQUIRE(parameter == pcan_abi::attached_channels);
+        ++attached_queries;
+        return pcan_abi::Status{0x8000};
+    };
+    REQUIRE_THROWS_AS(enumerate_pcan_channels(changing), PcanTransportError);
+    CHECK(attached_queries == 3);
+
+    auto malformed = std::make_shared<PcanApi>(*fixture.api);
+    malformed->get_value = [](uint16_t channel, uint8_t parameter, void *buffer, uint32_t) {
+        if (parameter == pcan_abi::attached_count) {
+            *static_cast<uint32_t *>(buffer) = 3;
+            return pcan_abi::ok;
+        }
+        if (parameter == pcan_abi::attached_channels) {
+            auto *const records = static_cast<pcan_abi::ChannelInformation *>(buffer);
+            records[0] = {};
+            records[1] = {};
+            records[1].handle = 0x51;
+            records[2] = records[1];
+            return pcan_abi::ok;
+        }
+        if (parameter == pcan_abi::channel_features) {
+            REQUIRE(channel == 0x51);
+            *static_cast<uint32_t *>(buffer) = pcan_abi::fd_capable;
+            return pcan_abi::ok;
+        }
+        REQUIRE(parameter == pcan_abi::channel_condition);
+        REQUIRE(channel == 0x51);
+        return pcan_abi::Status{0x4000};
+    };
+    const auto report = enumerate_pcan_channels(malformed);
+    REQUIRE(report.channels.size() == 1);
+    CHECK(report.channels[0].handle == 0x51);
+    CHECK(report.channels[0].condition == 0);
+    REQUIRE(report.failures.size() == 3);
+    CHECK(report.failures[0].stage == "enumerate");
+    CHECK(report.failures[1].stage == "condition");
+    CHECK(report.failures[2].stage == "enumerate");
+}
+
+TEST_CASE("PCAN read rejects malformed frames and bounds non-data floods", "[pcan][read]") {
+    Fixture fixture;
+    auto api = std::make_shared<PcanApi>(*fixture.api);
+    auto config = fixture.config();
+    config.receive_timeout = std::chrono::milliseconds(100);
+    PcanTransport transport(config, api);
+
+    api->read = [](uint16_t, pcan_abi::ClassicMessage *frame, pcan_abi::Timestamp *) {
+        *frame = {};
+        frame->type = 0x40;
+        return pcan_abi::ok;
+    };
+    REQUIRE_THROWS_AS(transport.read(), TransportIOError);
+
+    api->read = [](uint16_t, pcan_abi::ClassicMessage *frame, pcan_abi::Timestamp *) {
+        *frame = {};
+        frame->type = 4;
+        return pcan_abi::ok;
+    };
+    REQUIRE_THROWS_AS(transport.read(), ValidationError);
+
+    api->read = [](uint16_t, pcan_abi::ClassicMessage *frame, pcan_abi::Timestamp *) {
+        *frame = {};
+        frame->length = 16;
+        return pcan_abi::ok;
+    };
+    REQUIRE_THROWS_AS(transport.read(), ValidationError);
+
+    unsigned inspected = 0;
+    api->read = [&](uint16_t, pcan_abi::ClassicMessage *frame, pcan_abi::Timestamp *) {
+        ++inspected;
+        *frame = {};
+        frame->type = 1;
+        return pcan_abi::ok;
+    };
+    CHECK_FALSE(transport.read());
+    CHECK(inspected == 256);
+    transport.close();
+
+    api = std::make_shared<PcanApi>(*fixture.api);
+    config.receive_timeout = std::chrono::milliseconds(0);
+    PcanTransport immediate(config, api);
+    inspected = 0;
+    api->read = [&](uint16_t, pcan_abi::ClassicMessage *frame, pcan_abi::Timestamp *) {
+        ++inspected;
+        *frame = {};
+        frame->type = 1;
+        return pcan_abi::ok;
+    };
+    CHECK_FALSE(immediate.read());
+    CHECK(inspected == 1);
 }
 
 TEST_CASE("PCAN validates every supported Classic bitrate and explicit loader configuration",

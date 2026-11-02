@@ -143,8 +143,9 @@ namespace linkerbot::can {
                 {
                     const std::unique_lock lock(mutex_);
                     to_cancel.reserve(slots_.size() + pending_.size());
-                    for (auto &[id, entry] : pending_)
+                    for (auto &[id, entry] : pending_) {
                         to_cancel.emplace_back(id, entry);
+                    }
                     for (auto &slot : slots_) {
                         to_cancel.emplace_back(slot.id, slot.entry);
                         pending_.emplace(slot.id, slot.entry);
@@ -261,6 +262,7 @@ namespace linkerbot::can {
                 entry.cv.wait(lock, [&] { return !entry.running; });
             }
 
+            // NOLINTNEXTLINE(readability-identifier-naming)
             static inline thread_local Entry *current_entry_ = nullptr;
 
             mutable std::shared_mutex mutex_;
@@ -428,14 +430,17 @@ namespace linkerbot::can {
                               bool &uncertain) -> void {
             sent = 0;
             uncertain = false;
-            if (gap.count() < 0 || initial_delay.count() < 0)
+            if (gap.count() < 0 || initial_delay.count() < 0) {
                 throw ValidationError("negative transmit pacing");
+            }
             const auto check = [&] {
                 require_open();
-                if (cancelled && cancelled())
+                if (cancelled && cancelled()) {
                     throw transport::CancelledError("physical batch cancelled");
-                if (std::chrono::steady_clock::now() >= deadline)
+                }
+                if (std::chrono::steady_clock::now() >= deadline) {
                     throw TimeoutError("physical batch deadline expired");
+                }
             };
             std::unique_lock<std::mutex> lock(send_mutex_, std::defer_lock);
             while (!lock.try_lock()) {
@@ -463,8 +468,9 @@ namespace linkerbot::can {
                     uncertain = false;
                 } else {
                     for (const auto &frame : frames) {
-                        if (sent)
+                        if (sent != 0u) {
                             pace(gap);
+                        }
                         check();
                         uncertain = true;
                         transport_->write(frame);
@@ -751,6 +757,7 @@ namespace linkerbot::can {
             health_.state = TransportState::kClosed;
         }
 
+        // NOLINTNEXTLINE(readability-identifier-naming)
         static inline thread_local const CANDispatcher *current_recv_dispatcher_ = nullptr;
 
         std::unique_ptr<CANTransport> transport_;
