@@ -2,49 +2,41 @@
 
 [English](CHANGELOG.en.md) · 简体中文
 
-## 0.3.0（未发布）
+## 0.3.0 — 2026-11-03
 
-- 逐项复核固定提交质量报告中的全部 156 条记录，区分确认的缺陷、分析器限制和有意保留的契约。新增双语复核说明及逐项记录，保留既有分析规则和评分方式。
-- 在安装后消费者的程序边界处理分配异常，避免进程中止；增加 Linux GNU/Clang 永久分配失败回归，保留正常行为及既有显式返回值。
-- 为 Cppcheck 建立项目使用的 Catch2 宏模型，不隐藏测试体或断言操作数；通过 17 个静态哨兵用例和两个运行探针验证模型。明确 optional 取值和生命周期契约，不改变公共 API、厂商 ABI 或清理所有权。
+### 传输层与 Session
 
-- 在订阅未变化时缓存分发所用的订阅者快照。ARM64 测量中，非空 registry 的稳态分发耗时降低，快照分配消除；订阅变化后的重建成本增加。新增 Linux 基准程序、分离的计时与分配模式、原始结果及 ARM64 CI 冒烟检查。不宣称空闲唤醒有所改善。
-- 退订记账准备阶段发生分配失败时保留有效订阅，并增加故障注入回归；取消和回调生命周期契约不变。
-- 快照缓存改变包含 registry 的类型布局。下游应用与库须一起重新编译，不得混用基于新旧头文件构建的对象文件。
+- 提供独立的 C++17 通信库，支持 SocketCAN、MiniCANFD、PCAN Classic/FD 和原生串口 SLCAN。SLCAN 支持 Lawicel Classic，以及显式选择的 CANable FD 配置；仍属实验性。
+- 提供 Session 所有权、共享总线、接收路由、有界发送队列、异步回执、截止时间、取消、健康状态和恢复能力。传输层接受、CAN 确认和业务确认是不同结果。
+- 仓库更名为 `linkerbot-transport-cpp` 后，保留 `linkerbot-comm` CMake 包名、`linkerbot::comm` 目标系列、库名及安装目录。
 
-- 在中英文 README 展示 `.github/cppreportcard/` 中的真实报告 badge，记录快照来源；
-  安装包保留 badge 及说明，CI 在同一目录生成最新报告附件。
+### 可靠性修复
 
-- 接入 Linux ARM64 C++ Report Card 完整分析，上传 JSON、Markdown 和 SVG 报告；
-  使用只读权限并保留既有严格质量门槛。
+- 修正 Session registry 的 generation 和初始化交接，包括 waiter 与 owner 替换、初始化失败重试之间的竞态；保留循环等待检测和清理所有权。
+- 修复静态 shared/borrowed Session owner 在进程退出时的析构顺序。延迟清理会保留 owner，直到完成清理；不能因失败而丢弃资源占用记录。
+- 保留取消屏障、自身退订及等待执行中回调的行为。退订记账准备阶段分配失败时，原订阅仍有效并可重试。
+- 物理关闭失败后保留可重试的所有权。恢复会使旧路由和未完成任务失效，不会重放执行结果不确定的命令。
+- 在安装后消费者的程序边界处理异常。注入分配失败后输出错误并以状态 1 退出，不再中止进程；正常消费者路径仍有测试。
 
-- 明确接收空结果与超时、过滤帧的区别，补充 Session 同步提交异常及 deadline 后完成语义；
-  提供可复现的 sanitizer 命令并标明静态检查对独立 quickstart 的覆盖范围。
+### 性能与质量
 
-- 补齐中英文详细指南、贡献说明、版本变更和支持政策，统一超时、回执、确认、恢复与清理术语。
+- 在订阅关系不变时缓存不可变成员快照。记录的 ARM64 工作负载消除了非空快照的稳态分配，计时中位数也更低；空 registry 和成员变化后的重建成本更高，不宣称空闲唤醒有所改善。保留原有复制型 `snapshot()` API 和生命周期语义。见[测量及原始证据](docs/zh/performance.md)。
+- 逐项复核基线报告的 156 条诊断，区分已确认的运行时失败、有意保留的契约和分析器限制。显式检查 optional 取值，保留厂商 ABI 参数和可抛异常的 lease 移动行为，并在不改变初始化顺序的前提下避免一次不必要的配置复制。
+- 为 Cppcheck 增加 Catch2 模型，配套 29 个静态探针、两个真实／模型运行对照和字面量注册检查；测试体与断言操作数继续参与分析。
+- CI 要求完整、零诊断的 A+ 报告，不降低规则组、评分或源码覆盖范围。已验证报告为 100/100；逐项依据见[诊断复核](docs/zh/quality-review.md)。
 
-- 拆分中英文 README，补充可独立构建和运行的安装包最小示例；澄清 CMake 3.16
-  接入与现代 CTest 命令的版本要求，完善 Session 回执、恢复和关闭的公共注释。
+### 构建、产物与文档
 
-- 仓库更名为 `linkerbot-transport-cpp`。为保持接入兼容，CMake 包名仍为
-  `linkerbot-comm`，链接目标仍为 `linkerbot::comm` 系列，库文件和安装目录名称保留。
-- 提供 SocketCAN、MiniCANFD、PCAN Classic / FD 及原生串口 SLCAN 后端。
-  SLCAN 支持 Lawicel Classic、显式 CANable FD 配置及 Linux / Windows 原生串口，仍属实验性。
-- 完善 Session、共享总线、接收路由、有界发送、超时、取消、关闭与恢复契约，
-  修复生命周期及并发问题，并增加相应离线回归。
-- 增加 Windows x64 / MSVC 构建、原生测试 DLL、ZIP、构建来源与 SHA256、安装及
-  中文空格路径解压接入验证。厂商 DLL、驱动及测试 DLL 不随发行包提供。
-- 增加 GitHub Linux amd64/ARM64 Debug/Release 离线 CI、Session 恢复及 registry
-  active-generation/completed-attempt/initializer handoff 重复回归和汇总生产行覆盖率至少 95% 的门槛；
-  增加 Clang 18 + libc++、ASan+UBSan 与 TSan 双架构质量矩阵。
-- 使用 Clang 18 统一格式，增加 Linux ARM64 clang-format/clang-tidy 门禁；libc++ 的
-  `-Wall -Wextra -Wpedantic -Werror` 覆盖生产库、测试、fixture、示例和安装后消费者，
-  GitHub Actions 依赖固定到完整提交 SHA，并使用 Node.js 24 action 版本。
-- 修复静态 `Session::share()`、`Session::lease()` 或 `Session::borrow()` owner 在进程退出时
-  受 registry 析构顺序影响的可靠性问题，并增加 shared/borrowed 独立进程退出回归。
-- `SendReceipt::result()`、`wait_until()`、`completed()` 与 `RouteInbox::health()` 标记为
-  `[[nodiscard]]`；启用 `-Werror` 的下游若有意忽略返回值，须显式转换为 `void`。
-- 整理双语入口与中文指南，补齐 Linux/SocketCAN、构建选项、诊断、升级回滚和
-  安装文档索引。历史实机转述集中标记，不作为当前硬件验收结论。
-- `0.3.x` 与 `linkerbot-hand-cpp 0.3.x` 配套，通信库版本不低于 hand 版本；
-  SDK 更新后配套重编译应用，不保证跨构建的二进制 ABI 兼容。
+- 增加 Linux amd64/ARM64 Debug/Release 回归、最低 CMake 接入检查、Clang 18/libc++、ASan/UBSan 和 TSan 矩阵、生命周期重复回归，以及至少 95% 的生产代码汇总行覆盖率门槛。本地 C++ 验证使用 ARM64 Linux。
+- 使用 CMake/CPack 生成 Linux Release TGZ 和 Windows x64 Debug/Release ZIP，配套 SHA256 文件与 `build-info.json`，记录源码提交、架构、编译器、配置和运行库；验证移动目录后的安装包消费者。不分发厂商驱动、厂商库或测试二进制。
+- Windows 使用 v143 14.44 工具集，Release 使用 `/MD`，Debug 使用 `/MDd`。Debug 包依赖开发运行库，不是面向最终用户的运行时包。
+- 拆分中英文 README，补齐持续维护的双语指南，并提供可直接运行的安装包最小示例。明确核心库要求 CMake 3.16+，测试要求 3.19+，使用 `ctest --test-dir` 的示例要求 3.20+。
+- GitHub Actions 固定到完整提交，分析任务保留只读权限；报告 badge 位于 `.github/cppreportcard/`，记录源码和运行来源。历史硬件陈述与当前离线证据明确区分。
+
+### 兼容性、升级与回滚
+
+- 使用匹配的头文件和库重新编译应用及上层 SDK。快照缓存改变包含 registry 的类布局，不承诺任意构建之间的二进制 ABI 兼容。回执和健康状态访问器的 `[[nodiscard]]` 标记，可能要求启用警告即错误的下游对有意忽略的结果显式转换为 `(void)`。
+- 与 `linkerbot-hand-cpp 0.3.x` 配套，通信库补丁版本不得低于 hand SDK 的补丁版本；选择二进制包时匹配架构、工具集和运行库。
+- 停止命令生产者，完成或人工核对执行中的结果，关闭原 owner，再切换整套已验证的应用、库和运行库组合。回滚同样需要匹配的重编译组合或原已验证产物，不能撤销设备已执行的动作。
+- 发布准备不引入持久化 schema 或新的日志字段迁移。保留应用诊断、历史日志和确认记录是既有运维要求，不是本次新增的清理步骤。库没有持久队列，重启后不会恢复内存回执；不得通过删除记录或更换键来掩盖不确定结果。
+- 离线测试和 A+ 报告不代表特定适配器、厂商驱动或固件已经通过验收。实际部署须另行验证，见[运行与回滚](docs/zh/operations.md)。
