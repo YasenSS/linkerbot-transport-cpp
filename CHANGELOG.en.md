@@ -12,6 +12,7 @@ English · [简体中文](CHANGELOG.md)
 
 ### Reliability fixes
 
+- Complete send-error diagnostics and health updates before publishing a Session receipt. This prevents concurrent access to the same exception by the writer and receipt consumers. Diagnostic allocation failure preserves the original outcome, exception, accepted-frame count and uncertainty; a gated-exception regression checks publication ordering.
 - Correct Session registry generation and initialization handoffs, including waiters racing replacement owners and failed initialization attempts. Keep cycle detection and cleanup ownership intact.
 - Fix process-exit destruction ordering for static shared/borrowed Session owners. Deferred cleanup retains the owner until cleanup completes; failures do not justify discarding resource claims.
 - Preserve cancellation barriers, self-unsubscribe behavior and in-flight callback waits. If preparing unsubscribe bookkeeping fails to allocate, the original subscription remains active and can be retried.
