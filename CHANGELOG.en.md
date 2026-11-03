@@ -2,6 +2,10 @@
 
 English · [简体中文](CHANGELOG.md)
 
+## Unreleased
+
+- Correct post-release support status, add bilingual 0.3.0 download and verification instructions, and link the README badge to the released commit's full report. These documentation changes do not replace the signed tag or published packages.
+
 ## 0.3.0 — 2026-11-03
 
 ### Transport and Session

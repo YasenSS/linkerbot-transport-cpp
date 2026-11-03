@@ -2,6 +2,8 @@
 
 [English](../en/windows-build.md) · [文档索引](../README.md) · [通用构建](build.md) · [验证记录](validation.md)
 
+已发布的 SDK 和校验说明见[发行指南](releases.md)。
+
 使用 Visual Studio 2022、v143 14.44、CMake 3.31.8 和 C++17，目标架构为 x64。
 当前 GitHub 工作流在 windows-2022 上执行 Debug/Release 离线回归、原生 ABI fixture、
 ZIP 与解压消费，固定提交的已通过记录见 [验证说明](validation.md)。后续源码仍须检查对应

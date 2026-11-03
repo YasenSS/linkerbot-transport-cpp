@@ -5,14 +5,38 @@
 [文档索引](../README.md) · [构建复现](build.md)
 
 本文将实现能力、离线验证和实机验收分开记录。源码版本在 CMake 中为 0.3.0。
-已发布的包和校验值见[上游 Releases](https://github.com/linker-bot/linkerbot-transport-cpp/releases)；
+已发布的包和校验说明见[发行指南](releases.md)；
 仅更新文档或通过 CI，不代表已经发布 SDK 包。
+
+<a id="release-030"></a>
+
+## 0.3.0 发行验证
+
+已发布的 [0.3.0](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.0)
+使用签名标签 `v0.3.0`，标签对象为 `ba02c06867a3014ad1c01f56ea4a5602bc07189a`，
+源码提交为 `a46177e86e403bbd18834aedb6e81ef3233c6c22`。
+上游仓库在该提交上的 16 项检查全部通过：
+
+- [Linux 回归与打包](https://github.com/linker-bot/linkerbot-transport-cpp/actions/runs/41636452844)：
+  amd64/ARM64、最低 CMake、libc++、ASan/UBSan、TSan、安装后消费者及 quickstart。
+- [Windows 回归与打包](https://github.com/linker-bot/linkerbot-transport-cpp/actions/runs/41636452738)：
+  x64 Debug/Release、原生 ABI fixture 及移动目录后的消费者。
+- [风格检查](https://github.com/linker-bot/linkerbot-transport-cpp/actions/runs/41636452851)与
+  [完整报告](https://github.com/linker-bot/linkerbot-transport-cpp/actions/runs/41636452744)：
+  完整 A+、100/100、零诊断，格式检查 54/54 文件，两个分析器各 37/37 编译单元。
+
+本地 ARM64 Linux 回归为 218/218 通过。新增回执发布顺序测试在旧 Session 实现上失败，
+应用修复后通过。上游 ARM64 生产代码行覆盖率为 3,673/3,838（95.7%）。
+发布后重新下载全部十个上传附件，校验值、大小、源码元数据及每个静态库的七个目标文件均匹配。
+四个 SDK 包分别包含相应的 Linux AArch64、Linux x86-64 和 Windows AMD64 目标文件。
+下载后的 ARM64 包在本地也通过了两个安装后消费者测试。
+这些是离线结果，不是物理适配器验收。
 
 ## 已执行的通信库验证
 
 截至 2026-11-03，下面的精确提交记录可在本仓库公开核对：
 
-最近补充的文档与最小接入回归已在 PR #9 合并提交
+此前补充的文档与最小接入回归已在 PR #9 合并提交
 `79f1731c355fbd46eeb63224d89aaa9039c2df27` 上通过
 [Linux](https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41559611149)、
 [ARM64 格式与静态检查](https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41559611240) 和
@@ -69,8 +93,8 @@ PCAN 头的 `validation/pcan_header_abi.cpp`。第一次本地 Release 配置因
 Catch2 包路径，在构建前停止；改用已缓存的固定 Catch2 3.8.1 源码后，完整 Release 构建和
 CTest 通过。通过、失败和跳过项不能相互替代。
 
-这些链接属于 `soulteary/linkerbot-transport-cpp` fork。在 parent
-`linker-bot/linkerbot-transport-cpp` 合并相同提交并重新运行前，不代表 parent main 的验证状态。
+本节较早的记录属于 `soulteary/linkerbot-transport-cpp` fork，单独使用不能证明上游 main 的状态。
+上方发行验证章节记录了后来在上游发布提交上完成的检查。
 仓库同时保留次级 Gitea workflow 配置，但当前没有可公开核对的 act_runner 运行链接；不能把
 该配置或 GitHub 上对 YAML 的检查当作 Gitea 已通过证据。
 
