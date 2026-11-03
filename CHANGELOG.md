@@ -15,7 +15,7 @@
   增加 Clang 18 + libc++、ASan+UBSan 与 TSan 双架构质量矩阵。
 - 使用 Clang 18 统一格式，增加 Linux ARM64 clang-format/clang-tidy 门禁；libc++ 的
   `-Wall -Wextra -Wpedantic -Werror` 覆盖生产库、测试、fixture、示例和安装后消费者，
-  GitHub Actions 依赖固定到完整提交 SHA。
+  GitHub Actions 依赖固定到完整提交 SHA，并使用 Node.js 24 action 版本。
 - 修复静态 `Session::share()`、`Session::lease()` 或 `Session::borrow()` owner 在进程退出时
   受 registry 析构顺序影响的可靠性问题，并增加 shared/borrowed 独立进程退出回归。
 - `SendReceipt::result()`、`wait_until()`、`completed()` 与 `RouteInbox::health()` 标记为
