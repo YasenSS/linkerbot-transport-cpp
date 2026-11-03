@@ -2,32 +2,41 @@
 
 English · [简体中文](CHANGELOG.md)
 
-## 0.3.0 (unreleased)
+## 0.3.0 — 2026-11-03
 
-- Review all 156 records in the fixed-commit quality report and document confirmed defects, analyzer limitations and intentional contracts. Add a bilingual review and a per-diagnostic ledger; retain the existing analysis rules and scoring.
-- Handle allocation exceptions at the installed consumer's program boundary instead of aborting. Add a permanent Linux GNU/Clang allocation-failure regression while preserving its normal behavior and existing explicit return values.
-- Model the project's Catch2 macros for Cppcheck without hiding test bodies or assertion operands. Verify the model with 17 static sentinels and two runtime probes; make optional access and lifecycle contracts explicit without changing public APIs, vendor ABIs or cleanup ownership.
+### Transport and Session
 
-- Cache subscriber snapshots for dispatch when subscriptions are unchanged. ARM64 measurements show lower steady-state dispatch time and no snapshot allocation for nonempty registries; rebuilding after subscription changes costs more. Add a Linux benchmark harness, separate timing/allocation modes, raw results, and an ARM64 CI smoke check. No idle-wakeup improvement is claimed.
-- Preserve the active subscription if allocation fails while preparing unsubscribe bookkeeping; add a regression that injects the failure. Cancellation and callback-lifetime contracts are unchanged.
-- The snapshot cache changes the layout of registry-containing types. Rebuild downstream applications and libraries together; do not mix objects built against the old and new headers.
+- Provide the standalone C++17 communication library with SocketCAN, MiniCANFD, PCAN Classic/FD and native serial SLCAN backends. SLCAN supports Lawicel Classic and an explicitly selected CANable FD profile; it remains experimental.
+- Add Session ownership, shared buses, receive routing, bounded outgoing queues, asynchronous receipts, deadlines, cancellation, health reporting and recovery. Transport acceptance, CAN acknowledgment and business acknowledgment are distinct outcomes.
+- Preserve the `linkerbot-comm` CMake package, `linkerbot::comm` target family, library names and installation directories after the repository rename to `linkerbot-transport-cpp`.
 
-- Display the generated `.github/cppreportcard/` badge in both READMEs with snapshot provenance. Install the badge and notes, and generate current CI report artifacts in the same directory.
+### Reliability fixes
 
-- Add full C++ Report Card analysis on Linux ARM64 with JSON, Markdown and SVG artifacts, read-only permissions, and the existing strict quality gates retained.
+- Correct Session registry generation and initialization handoffs, including waiters racing replacement owners and failed initialization attempts. Keep cycle detection and cleanup ownership intact.
+- Fix process-exit destruction ordering for static shared/borrowed Session owners. Deferred cleanup retains the owner until cleanup completes; failures do not justify discarding resource claims.
+- Preserve cancellation barriers, self-unsubscribe behavior and in-flight callback waits. If preparing unsubscribe bookkeeping fails to allocate, the original subscription remains active and can be retried.
+- Retain retryable ownership after physical close failures. Recovery invalidates old routes and unfinished work without replaying uncertain commands.
+- Handle exceptions at the installed-consumer program boundary. An injected allocation failure now reports an error and exits with status 1 instead of aborting; the normal consumer path remains tested.
 
-- Distinguish empty receive results from timeouts and filtered frames. Document synchronous Session submission errors and completion after a deadline. Add reproducible sanitizer commands and state the static-analysis scope for the independent quickstart.
+### Performance and quality
 
-- Complete the English and Chinese guides, contribution instructions, changelog and support policy. Align terminology for timeouts, receipts, acknowledgments, recovery and cleanup.
+- Cache immutable subscriber membership between changes. The recorded ARM64 workload eliminates the steady nonempty snapshot allocation and has lower measured timing medians. Empty registries and cold membership rebuilds cost more; no idle-wakeup improvement is claimed. Keep the original copying `snapshot()` API and lifecycle semantics. See the [measurements and raw evidence](docs/en/performance.md).
+- Review all 156 baseline report diagnostics, distinguishing confirmed runtime failures, intentional contracts and analyzer limitations. Make optional access explicit, preserve fixed vendor ABI signatures and throwing lease-move behavior, and avoid an unnecessary configuration copy without changing initialization order.
+- Add a Catch2 model for Cppcheck with 29 static probes, two real/model runtime comparisons and a literal-registration guard. Test bodies and assertion operands remain analyzed.
+- Require complete, finding-free A+ analysis in CI without lowering rule groups, scoring or source coverage. The verified report scores 100/100. Record individual decisions in the [diagnostic review](docs/en/quality-review.md).
 
-- Split the English and Chinese READMEs and add an independently buildable, runnable installed-package quickstart. Clarify CMake 3.16 consumption and modern CTest command requirements, and document Session receipt, recovery, and cleanup contracts beside the public declarations.
-- Rename the repository to `linkerbot-transport-cpp`. Preserve the `linkerbot-comm` CMake package, `linkerbot::comm` target family, library names, and installation directory names for integration compatibility.
-- Provide SocketCAN, MiniCANFD, PCAN Classic/FD, and native serial SLCAN backends. SLCAN supports Lawicel Classic, an explicit CANable FD profile, and native Linux/Windows serial I/O; it remains experimental.
-- Define Session, shared-bus, receive-routing, bounded-send, timeout, cancellation, close, and recovery contracts. Fix lifetime/concurrency issues and add offline regressions.
-- Add Windows x64/MSVC builds, native test DLLs, ZIP packages, build provenance and SHA256, installation, and consumption after extraction into paths containing Chinese characters and spaces. Vendor DLLs, drivers, and test DLLs are excluded from distributed runtime packages.
-- Add GitHub Linux amd64/ARM64 Debug/Release offline CI, repeated Session recovery and registry active-generation/completed-attempt/initializer handoff regressions, and an aggregate production line-coverage threshold of at least 95%. Add dual-architecture Clang 18/libc++, ASan+UBSan, and TSan jobs.
-- Format sources with Clang 18 and add Linux ARM64 clang-format/clang-tidy checks. libc++ `-Wall -Wextra -Wpedantic -Werror` applies to the production library, tests, fixtures, example, and installed consumer. Pin GitHub Actions dependencies to full commit SHAs and use Node.js 24 action versions.
-- Fix a process-exit reliability failure caused by registry destruction order when static owners retain `Session::share()`, `Session::lease()`, or `Session::borrow()`. Add independent shared/borrowed process-exit regressions.
-- Mark `SendReceipt::result()`, `wait_until()`, `completed()`, and `RouteInbox::health()` as `[[nodiscard]]`. Downstream code using `-Werror` must explicitly cast intentionally unused results to `void`.
-- Organize bilingual entry points and Chinese guides, including Linux/SocketCAN, build options, diagnostics, upgrades/rollback, and installed documentation navigation. Label historical hardware statements separately; they do not establish current hardware acceptance.
-- Pair `0.3.x` with `linkerbot-hand-cpp 0.3.x`; the comm version must not be older than the hand version. Rebuild the matching application when updating the SDK; binary ABI compatibility across arbitrary builds is not promised.
+### Builds, packages and documentation
+
+- Add Linux amd64/ARM64 Debug/Release regression, a minimum-CMake integration check, Clang 18/libc++, ASan/UBSan and TSan matrices, repeated lifecycle regressions, and an aggregate production line-coverage gate of at least 95%. Local C++ validation uses ARM64 Linux.
+- Generate Linux Release TGZ packages and Windows x64 Debug/Release ZIP packages through CMake/CPack, with adjacent SHA256 files and `build-info.json` recording the source commit, architecture, compiler, configuration and runtime. Verify relocated installed-package consumers. Vendor drivers, vendor libraries and test binaries are not distributed.
+- Use the Windows v143 14.44 toolset, `/MD` for Release and `/MDd` for Debug. Debug packages require the development runtime; they are not end-user runtime packages.
+- Split English and Chinese READMEs, complete the maintained bilingual guides, and include a directly runnable installed-package quickstart. Clarify that the core requires CMake 3.16+, tests require 3.19+, and examples using `ctest --test-dir` require 3.20+.
+- Pin GitHub Actions to full commits, retain read-only analysis permissions, and publish the report badge under `.github/cppreportcard/` with source/run provenance. Historical hardware statements remain explicitly separated from current offline evidence.
+
+### Compatibility, upgrade and rollback
+
+- Rebuild applications and dependent SDKs against matching headers and libraries. The snapshot cache changes registry-containing class layouts; arbitrary binary ABI compatibility is not promised. The `[[nodiscard]]` receipt and health accessors may require explicit `(void)` casts for intentionally ignored results in warning-as-error builds.
+- Pair this version with `linkerbot-hand-cpp 0.3.x`; the transport patch version must not be older than the hand SDK patch version. Match architecture, toolset and runtime when selecting a binary package.
+- Stop command producers, settle or manually reconcile in-flight outcomes, close the existing owners, then switch the complete validated application/library/runtime combination. Rollback likewise requires a matching rebuilt or previously validated combination; it cannot undo device actions.
+- There is no persistent schema migration or new log-field migration in the release preparation. Retaining application diagnostics, historical logs and acknowledgment records is an existing operational requirement, not a new cleanup step. The library has no durable queue and does not restore in-memory receipts after restart. Do not delete records or change keys to hide an uncertain outcome.
+- Offline tests and an A+ report do not certify a particular adapter, vendor driver or firmware. Validate the actual deployment separately. See [operation and rollback](docs/en/operations.md).

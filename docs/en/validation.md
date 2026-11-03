@@ -4,7 +4,7 @@ English · [简体中文](../zh/validation.md)
 
 [Documentation index](../README.md) · [Reproduce builds](build.md)
 
-This guide records implementation capabilities, offline validation, and hardware acceptance separately. CMake identifies the source as 0.3.0; the CHANGELOG still marks it unreleased. Documentation or CI updates do not publish a new SDK package.
+This guide records implementation capabilities, offline validation, and hardware acceptance separately. CMake identifies the source as 0.3.0. Published packages and their checksums are listed in the [upstream releases](https://github.com/linker-bot/linkerbot-transport-cpp/releases); a documentation update or successful CI run alone does not publish a package.
 
 ## Recorded transport validation
 

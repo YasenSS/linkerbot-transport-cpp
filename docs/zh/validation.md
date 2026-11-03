@@ -4,8 +4,9 @@
 
 [文档索引](../README.md) · [构建复现](build.md)
 
-本文将实现能力、离线验证和实机验收分开记录。源码版本在 CMake 中为 0.3.0，
-CHANGELOG 仍标记未发布。更新文档或 CI 不代表已经发布新的 SDK 包。
+本文将实现能力、离线验证和实机验收分开记录。源码版本在 CMake 中为 0.3.0。
+已发布的包和校验值见[上游 Releases](https://github.com/linker-bot/linkerbot-transport-cpp/releases)；
+仅更新文档或通过 CI，不代表已经发布 SDK 包。
 
 ## 已执行的通信库验证
 
