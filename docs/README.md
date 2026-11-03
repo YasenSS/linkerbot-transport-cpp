@@ -18,6 +18,7 @@ require parameters confirmed for the actual hardware; offline CI does not run th
   [PCAN](en/pcan.md), [SLCAN](en/slcan.md)
 - [Errors, diagnostics and troubleshooting](en/troubleshooting.md)
 - [Operations, upgrades and rollback](en/operations.md)
+- [Performance measurement and ARM64 results](en/performance.md)
 - [Validation evidence and limits](en/validation.md)
 - [Contributing](../CONTRIBUTING.md), [Changelog](../CHANGELOG.en.md),
   [support and sensitive reports](../SECURITY.md)
@@ -42,6 +43,7 @@ under `docs/archive/`, with a historical-status notice and a link to this index.
 - [术语与可观测行为](zh/terminology.md)：后端接受、CAN 确认、业务确认、超时和恢复的精确定义。
 - [构建、安装与 CMake 接入](zh/build.md)：依赖、选项、Debug/Release、覆盖率、安装消费。
 - [Windows 构建与独立通信包](zh/windows-build.md)：MSVC、运行库、ZIP、来源和校验。
+- [性能测量与 ARM64 结果](zh/performance.md)：计时、分配、空闲唤醒与优化取舍。
 - [验证记录与支持边界](zh/validation.md)：固定提交证据、CI 范围、历史实机陈述。
 
 ## API 与后端

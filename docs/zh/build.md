@@ -89,6 +89,8 @@ initializer 后，等待边会绑定到新的初始化尝试。同步门固定�
 | `LINKERBOT_COMM_BUILD_EXAMPLES` | 顶层 ON，子目录 OFF | 构建 `comm-example` |
 | `LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS` | ON | 缺少 Catch2 3 时允许下载 v3.8.1 |
 | `LINKERBOT_COMM_ENABLE_COVERAGE` | OFF | 仅 Linux/GCC；要求测试 ON；加入 `--coverage -O0 -g` |
+| `LINKERBOT_COMM_BUILD_BENCHMARKS` | OFF | 在根项目中构建仅支持 Linux 的性能测量程序 |
+| `LINKERBOT_PERF_COUNT_ALLOCATIONS` | OFF | 为基准程序启用 C++ 分配计数；启用基准子目录后可用 |
 | `Catch2_DIR` | 由 CMake 查找 | 已安装的 Catch2 3 CMake 配置目录 |
 | `CMAKE_INSTALL_PREFIX` | CMake 平台默认 | 安装前缀；也可在安装时用 `--prefix` |
 | `LINKERBOT_COMM_SOURCE_REVISION` | 自动读 Git；不可用时 unknown | 导出源码构建时人工提供完整来源 SHA |
@@ -108,6 +110,25 @@ cmake --build build-core --parallel 4
 
 需要离线运行测试时，先安装 Catch2 3，将 `-DCatch2_DIR=/absolute/path/to/lib/cmake/Catch2`
 加到完整回归的配置命令，并关闭下载。Catch2 2 不满足要求。
+
+## 性能基准
+
+在 Linux 上独立构建测量程序，无须 Catch2 或真实硬件：
+
+```bash
+cmake -S benchmarks -B build/perf -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/perf --parallel 4
+./build/perf/linkerbot-perf --iterations 200000 --idle-ms 500 --repetitions 5
+```
+
+也可在配置根项目时指定 `-DLINKERBOT_COMM_BUILD_BENCHMARKS=ON`，此时可执行文件位于
+`build/benchmarks/`。计时保持分配计数 OFF；分配次数使用独立构建，并指定
+`-DLINKERBOT_PERF_COUNT_ALLOCATIONS=ON`。测量边界、复现命令和已记录的 ARM64 结果见
+[性能指南](performance.md)。
+
+Linux CI 的 `benchmark-smoke` 任务在 ARM64 上使用 Clang 18/libc++ 构建两种分配计数模式，
+运行缩短的场景并保留 CSV 附件。它验证测量程序能够构建和运行（包括内部校验和检查），
+不设置性能阈值，也不能替代受控条件下的优化前后对比。
 
 ## 行覆盖率与可核对结果
 

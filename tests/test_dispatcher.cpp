@@ -85,6 +85,176 @@ TEST_CASE("dispatcher requires a transport", "[dispatcher]") {
     REQUIRE_THROWS_AS(CANDispatcher(nullptr), ValidationError);
 }
 
+TEST_CASE("subscriber snapshots reuse membership until a successful change",
+          "[dispatcher][snapshot]") {
+    using Registry = linkerbot::can::detail::SubscriberRegistry<std::function<void()>>;
+    Registry registry;
+    const auto empty = registry.snapshot_view();
+    REQUIRE(empty->empty());
+    REQUIRE(registry.snapshot_view() == empty);
+
+    const auto first_id = registry.subscribe([] {});
+    const auto first = registry.snapshot_view();
+    REQUIRE(first != empty);
+    REQUIRE(first->size() == 1);
+    REQUIRE(registry.snapshot_view() == first);
+    REQUIRE(empty->empty());
+
+    registry.subscribe([] {});
+    const auto second = registry.snapshot_view();
+    REQUIRE(second != first);
+    REQUIRE(second->size() == 2);
+    REQUIRE(first->size() == 1);
+
+    auto legacy = registry.snapshot();
+    legacy.clear();
+    REQUIRE(registry.snapshot_view() == second);
+    REQUIRE(second->size() == 2);
+    REQUIRE_FALSE(registry.unsubscribe(0));
+    REQUIRE(registry.snapshot_view() == second);
+
+    REQUIRE(registry.unsubscribe(first_id));
+    const auto remaining = registry.snapshot_view();
+    REQUIRE(remaining != second);
+    REQUIRE(remaining->size() == 1);
+    REQUIRE(remaining->front() == second->back());
+    registry.clear();
+    REQUIRE(registry.snapshot_view()->empty());
+    REQUIRE(registry.snapshot_view() != remaining);
+}
+
+TEST_CASE("failed subscription guards preserve cached membership", "[dispatcher][snapshot]") {
+    using Registry = linkerbot::can::detail::SubscriberRegistry<std::function<void()>>;
+    Registry registry;
+    registry.subscribe([] {});
+    const auto before = registry.snapshot_view();
+    REQUIRE_THROWS_AS(registry.subscribe_guarded([] {}, [] { throw ValidationError("guard"); }),
+                      ValidationError);
+    REQUIRE(registry.snapshot_view() == before);
+    REQUIRE(registry.size() == 1);
+}
+
+TEST_CASE("cached snapshots cannot invoke cancelled entries", "[dispatcher][snapshot]") {
+    using Registry = linkerbot::can::detail::SubscriberRegistry<std::function<void()>>;
+    Registry registry;
+    size_t calls = 0;
+    const auto first_id = registry.subscribe([&] { ++calls; });
+    registry.subscribe([&] { ++calls; });
+    const auto old = registry.snapshot_view();
+
+    REQUIRE(registry.unsubscribe(first_id));
+    REQUIRE_FALSE(Registry::invoke(*old->front()));
+    REQUIRE(Registry::invoke(*old->back()));
+    REQUIRE(calls == 1);
+    registry.clear();
+    REQUIRE_FALSE(Registry::invoke(*old->back()));
+    REQUIRE(calls == 1);
+}
+
+TEST_CASE("cached snapshots support self unsubscribe and subscription during dispatch",
+          "[dispatcher][snapshot]") {
+    using Registry = linkerbot::can::detail::SubscriberRegistry<std::function<void()>>;
+    Registry registry;
+    linkerbot::can::SubscriptionId self_id = 0;
+    size_t calls = 0;
+    bool unsubscribed = false;
+    self_id = registry.subscribe([&] {
+        unsubscribed = registry.unsubscribe(self_id);
+        registry.subscribe([&] { ++calls; });
+    });
+    const auto old = registry.snapshot_view();
+    REQUIRE(Registry::invoke(*old->front()));
+    REQUIRE(unsubscribed);
+    REQUIRE_FALSE(Registry::invoke(*old->front()));
+    REQUIRE(calls == 0);
+    const auto current = registry.snapshot_view();
+    REQUIRE(current->size() == 1);
+    REQUIRE(current->front() != old->front());
+    REQUIRE(Registry::invoke(*current->front()));
+    REQUIRE(calls == 1);
+}
+
+TEST_CASE("cached snapshots remain immutable during concurrent membership changes",
+          "[dispatcher][snapshot]") {
+    using Registry = linkerbot::can::detail::SubscriberRegistry<std::function<void()>>;
+    Registry registry;
+    registry.subscribe([] {});
+    std::atomic<bool> start{false};
+    std::atomic<bool> stop{false};
+    std::atomic<bool> first_change{false};
+    std::atomic<bool> valid{true};
+    std::atomic<unsigned> held_views{0};
+    std::atomic<unsigned> reads{0};
+
+    const auto reader = [&] {
+        while (!start.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        bool announced = false;
+        try {
+            const auto held = registry.snapshot_view();
+            held_views.fetch_add(1, std::memory_order_release);
+            announced = true;
+            while (!first_change.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+            if (held->size() != 1 || !held->front()) {
+                valid.store(false, std::memory_order_relaxed);
+            }
+            for (unsigned iteration = 0; iteration < 1000; ++iteration) {
+                const auto snapshot = registry.snapshot_view();
+                const auto size = snapshot->size();
+                if (size < 1 || size > 2) {
+                    valid.store(false, std::memory_order_relaxed);
+                }
+                for (const auto &entry : *snapshot) {
+                    if (!entry) {
+                        valid.store(false, std::memory_order_relaxed);
+                    }
+                }
+                std::this_thread::yield();
+                if (snapshot->size() != size) {
+                    valid.store(false, std::memory_order_relaxed);
+                }
+                reads.fetch_add(1, std::memory_order_relaxed);
+                if (stop.load(std::memory_order_acquire)) {
+                    break;
+                }
+            }
+        } catch (...) {
+            valid.store(false, std::memory_order_relaxed);
+            // Let the writer finish even if acquiring an initial view failed.
+            if (!announced) {
+                held_views.fetch_add(1, std::memory_order_release);
+            }
+        }
+    };
+    std::thread first_reader(reader);
+    std::thread second_reader(reader);
+    start.store(true, std::memory_order_release);
+    while (held_views.load(std::memory_order_acquire) < 2) {
+        std::this_thread::yield();
+    }
+    try {
+        for (unsigned iteration = 0; iteration < 1000; ++iteration) {
+            const auto id = registry.subscribe([] {});
+            if (!registry.unsubscribe(id)) {
+                valid.store(false, std::memory_order_relaxed);
+            }
+            first_change.store(true, std::memory_order_release);
+        }
+    } catch (...) {
+        valid.store(false, std::memory_order_relaxed);
+    }
+    first_change.store(true, std::memory_order_release);
+    stop.store(true, std::memory_order_release);
+    first_reader.join();
+    second_reader.join();
+    CHECK(valid.load());
+    CHECK(reads.load() >= 2);
+    CHECK(registry.size() == 1);
+}
+
 TEST_CASE("dispatcher delivers injected frames to a subscriber", "[dispatcher]") {
     auto transport = std::make_unique<FakeTransport>();
     auto *raw = transport.get();
