@@ -33,6 +33,7 @@ English · [简体中文](CHANGELOG.md)
 - Use the Windows v143 14.44 toolset, `/MD` for Release and `/MDd` for Debug. Debug packages require the development runtime; they are not end-user runtime packages.
 - Split English and Chinese READMEs, complete the maintained bilingual guides, and include a directly runnable installed-package quickstart. Clarify that the core requires CMake 3.16+, tests require 3.19+, and examples using `ctest --test-dir` require 3.20+.
 - Pin GitHub Actions to full commits, retain read-only analysis permissions, and publish the report badge under `.github/cppreportcard/` with source/run provenance. Historical hardware statements remain explicitly separated from current offline evidence.
+- Update C++ Report Card Action to v1.0.2 for its revised badge rendering; retain the full-analysis A+ gate and existing analyzer rules.
 
 ### Compatibility, upgrade and rollback
 

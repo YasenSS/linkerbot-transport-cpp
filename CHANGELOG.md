@@ -33,6 +33,7 @@
 - Windows 使用 v143 14.44 工具集，Release 使用 `/MD`，Debug 使用 `/MDd`。Debug 包依赖开发运行库，不是面向最终用户的运行时包。
 - 拆分中英文 README，补齐持续维护的双语指南，并提供可直接运行的安装包最小示例。明确核心库要求 CMake 3.16+，测试要求 3.19+，使用 `ctest --test-dir` 的示例要求 3.20+。
 - GitHub Actions 固定到完整提交，分析任务保留只读权限；报告 badge 位于 `.github/cppreportcard/`，记录源码和运行来源。历史硬件陈述与当前离线证据明确区分。
+- 升级 C++ Report Card Action 至 v1.0.2，采用更新后的 badge 渲染；保留完整分析的 A+ 门槛和既有分析规则。
 
 ### 兼容性、升级与回滚
 

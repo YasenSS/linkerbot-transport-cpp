@@ -56,7 +56,7 @@ jobs:
         # Keep diagnostic artifacts available when a model sentinel fails.
         # The failed sentinel still fails the job and prevents the A+ gate.
         if: ${{ !cancelled() && steps.analysis_inputs.outcome == 'success' }}
-        uses: soulteary/cppreportcard-action@e2bb7f8fe55af064fff1ddf110ea2e3786cfef34 # v1.0.1
+        uses: soulteary/cppreportcard-action@9458d052f286c576d557c34d8ad43096cedbf561 # v1.0.2
         with:
           mode: full
           config: .cppreportcard.json
