@@ -108,9 +108,16 @@ scope.
 
 ## Validation and report provenance
 
-The local review and failure reproducer use ARM64 Linux. The local Docker
-service later stopped responding, so pending final project-wide checks must be
-established by the GitHub ARM64 jobs rather than described as locally passed.
+The ARM64 [verified report](https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41616118928)
+for `92488be1ca20ec6cd03208cf2b105223be5ecbc5` is complete, **A+ (100/100)**,
+with zero diagnostics. It covers 54/54 files for clang-format and 37/37 compilation
+entries for each of Cppcheck and clang-tidy. The corresponding CI passed all 16
+checks, including the sanitizer matrix and the installed-consumer regression.
+ARM64 GCC production line coverage was 3,665/3,828 (95.7%).
+
+The failure reproducer, the model probes and a complete finding-free report were
+also checked locally on ARM64 Linux. A temporary local Docker outage interrupted
+some intermediate checks; those incomplete runs are not counted as passes.
 CI reports are tied to the commit they analyze. A result from an earlier commit
 does not certify later edits.
 
