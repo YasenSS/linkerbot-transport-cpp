@@ -228,7 +228,7 @@ env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_pa
 ### C++ Report Card
 
 The separate `C++ Report Card` workflow runs
-[cppreportcard-action](https://github.com/soulteary/cppreportcard-action) v1.0.1,
+[cppreportcard-action](https://github.com/soulteary/cppreportcard-action) v1.0.2,
 pinned to a full commit SHA, on Linux ARM64. It runs clang-format 18, clang-tidy 18
 and Cppcheck in `full` mode after building the project, quickstart and installed
 consumer. Their compilation databases are combined so both standalone examples

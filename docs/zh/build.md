@@ -209,7 +209,7 @@ env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_pa
 ### C++ Report Card
 
 独立的 `C++ Report Card` 工作流在 Linux ARM64 上运行固定完整提交 SHA 的
-[cppreportcard-action](https://github.com/soulteary/cppreportcard-action) v1.0.1。
+[cppreportcard-action](https://github.com/soulteary/cppreportcard-action) v1.0.2。
 构建项目、quickstart 和安装后消费者后，合并三份编译数据库，以 `full` 模式运行
 clang-format 18、clang-tidy 18 和 Cppcheck，覆盖主工程源码、测试及两个独立示例。
 

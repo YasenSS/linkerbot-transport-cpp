@@ -1657,3 +1657,77 @@ TEST_CASE("Session borrowed registry abandons each closed dispatcher initializat
     // instead of leaving this dispatcher key permanently reserved.
     REQUIRE_THROWS_AS(transport::Session::borrow(dispatcher), can::ClosedError);
 }
+
+TEST_CASE("Session finalizes diagnostics before publishing a failed receipt",
+          "[session][faults][regression]") {
+    struct DiagnosticGate {
+        std::mutex mutex;
+        std::condition_variable changed;
+        size_t calls = 0;
+        bool entered = false;
+        bool released = false;
+    };
+    class GatedError final : public can::CANError {
+      public:
+        explicit GatedError(std::shared_ptr<DiagnosticGate> gate)
+            : CANError(can::ErrorCode::kTransportIo, "gated diagnostic failure"),
+              gate_(std::move(gate)) {}
+
+        [[nodiscard]] const char *what() const noexcept override {
+            std::unique_lock<std::mutex> lock(gate_->mutex);
+            // The dispatcher records the first diagnostic. Gate the Session
+            // writer's second call so publication ordering is deterministic.
+            if (++gate_->calls == 2) {
+                gate_->entered = true;
+                gate_->changed.notify_all();
+                gate_->changed.wait(lock, [&] { return gate_->released; });
+            }
+            return "gated diagnostic failure";
+        }
+
+      private:
+        std::shared_ptr<DiagnosticGate> gate_;
+    };
+    class FailingTransport final : public can::CANTransport {
+      public:
+        explicit FailingTransport(std::shared_ptr<DiagnosticGate> gate) : gate_(std::move(gate)) {}
+        std::optional<can::Message> read() override {
+            std::this_thread::sleep_for(1ms);
+            return std::nullopt;
+        }
+        void write(const can::Message &) override {
+            throw GatedError(gate_);
+        }
+        void close() override {}
+
+      private:
+        std::shared_ptr<DiagnosticGate> gate_;
+    };
+
+    auto gate = std::make_shared<DiagnosticGate>();
+    auto session = transport::Session::own(std::make_unique<FailingTransport>(gate));
+    auto receipt = session->submit({{frame(0x28)}});
+    bool diagnostics_entered;
+    {
+        std::unique_lock<std::mutex> lock(gate->mutex);
+        diagnostics_entered = gate->changed.wait_for(lock, 2s, [&] { return gate->entered; });
+    }
+    const bool receipt_was_pending = !receipt.completed();
+    // Release before assertions, including on the old broken implementation,
+    // so failure never strands the writer during Session destruction.
+    {
+        std::lock_guard<std::mutex> lock(gate->mutex);
+        gate->released = true;
+    }
+    gate->changed.notify_all();
+
+    REQUIRE(diagnostics_entered);
+    REQUIRE(receipt_was_pending);
+    REQUIRE_THROWS_AS(receipt.wait_until(transport::Clock::now() + 2s), GatedError);
+    const auto result = receipt.result();
+    REQUIRE(result.outcome == transport::SendOutcome::failed);
+    REQUIRE(result.sent_frames == 0);
+    REQUIRE(result.current_frame_uncertain);
+    REQUIRE(session->health().last_error == "gated diagnostic failure");
+    session->close();
+}

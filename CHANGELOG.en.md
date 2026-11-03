@@ -12,6 +12,7 @@ English · [简体中文](CHANGELOG.md)
 
 ### Reliability fixes
 
+- Complete send-error diagnostics and health updates before publishing a Session receipt. This prevents concurrent access to the same exception by the writer and receipt consumers. Diagnostic allocation failure preserves the original outcome, exception, accepted-frame count and uncertainty; a gated-exception regression checks publication ordering.
 - Correct Session registry generation and initialization handoffs, including waiters racing replacement owners and failed initialization attempts. Keep cycle detection and cleanup ownership intact.
 - Fix process-exit destruction ordering for static shared/borrowed Session owners. Deferred cleanup retains the owner until cleanup completes; failures do not justify discarding resource claims.
 - Preserve cancellation barriers, self-unsubscribe behavior and in-flight callback waits. If preparing unsubscribe bookkeeping fails to allocate, the original subscription remains active and can be retried.
@@ -32,6 +33,7 @@ English · [简体中文](CHANGELOG.md)
 - Use the Windows v143 14.44 toolset, `/MD` for Release and `/MDd` for Debug. Debug packages require the development runtime; they are not end-user runtime packages.
 - Split English and Chinese READMEs, complete the maintained bilingual guides, and include a directly runnable installed-package quickstart. Clarify that the core requires CMake 3.16+, tests require 3.19+, and examples using `ctest --test-dir` require 3.20+.
 - Pin GitHub Actions to full commits, retain read-only analysis permissions, and publish the report badge under `.github/cppreportcard/` with source/run provenance. Historical hardware statements remain explicitly separated from current offline evidence.
+- Update C++ Report Card Action to v1.0.2 for its revised badge rendering; retain the full-analysis A+ gate and existing analyzer rules.
 
 ### Compatibility, upgrade and rollback
 

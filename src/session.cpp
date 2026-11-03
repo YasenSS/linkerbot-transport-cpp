@@ -320,6 +320,8 @@ namespace linkerbot::transport {
                     }
                     size_t sent = 0;
                     bool uncertain = false;
+                    auto outcome = SendOutcome::dispatched;
+                    std::exception_ptr error;
                     try {
                         auto cancelled = [&] {
                             return job->abort.token().cancelled() ||
@@ -341,15 +343,35 @@ namespace linkerbot::transport {
                         // would deny a transmission known to have reached the bus.
                         // Cancellation that arrives while frames remain surfaces
                         // from send_batch_until with the accepted count instead.
-                        finish(job, SendOutcome::dispatched, {}, sent, uncertain);
                     } catch (const CancelledError &) {
-                        finish(job, SendOutcome::cancelled, std::current_exception(), sent,
-                               uncertain);
+                        outcome = SendOutcome::cancelled;
+                        error = std::current_exception();
                     } catch (const can::TimeoutError &) {
-                        finish(job, SendOutcome::expired, std::current_exception(), sent,
-                               uncertain);
+                        outcome = SendOutcome::expired;
+                        error = std::current_exception();
                     } catch (...) {
-                        finish(job, SendOutcome::failed, std::current_exception(), sent, uncertain);
+                        outcome = SendOutcome::failed;
+                        error = std::current_exception();
+                    }
+                    // Extract diagnostics after leaving the backend catch, and
+                    // before publishing the same exception to receipt consumers.
+                    // No writer may inspect its payload after finish() wakes a
+                    // consumer which can immediately rethrow and release it.
+                    std::string diagnostic;
+                    if (error) {
+                        try {
+                            try {
+                                std::rethrow_exception(error);
+                            } catch (const std::exception &failure) {
+                                diagnostic = failure.what();
+                            } catch (...) {
+                                diagnostic = "non-standard send failure";
+                            }
+                        } catch (...) {
+                            // Diagnostic allocation is best-effort. Do not replace
+                            // the actual send outcome or partial-acceptance counts.
+                            diagnostic.clear();
+                        }
                     }
                     {
                         std::lock_guard<std::mutex> lock(mutex);
@@ -357,16 +379,10 @@ namespace linkerbot::transport {
                         for (size_t i = 0; i < sent; ++i) {
                             health.tx_bytes += job->batch.frames[i].dlc;
                         }
-                        auto r = SendReceipt(job->receipt).result();
-                        if (r.error) {
-                            try {
-                                std::rethrow_exception(r.error);
-                            } catch (const std::exception &error) {
-                                health.last_error = error.what();
-                            } catch (...) {
-                                health.last_error = "non-standard send failure";
-                            }
+                        if (error) {
+                            health.last_error = std::move(diagnostic);
                         }
+                        finish(job, outcome, std::move(error), sent, uncertain);
                         claimed.reset();
                         cv.notify_all();
                     }
