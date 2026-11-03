@@ -2,7 +2,7 @@ name: Offline comm tests
 
 on:
   push:
-    branches: [master]
+    branches: [main, master]
   pull_request:
 
 concurrency:
@@ -32,7 +32,8 @@ jobs:
           set -eu
           apt_get() { if [ "$(id -u)" -eq 0 ]; then apt-get "$@"; else sudo apt-get "$@"; fi; }
           apt_get update
-          apt_get install -y --no-install-recommends build-essential cmake git ca-certificates curl
+          apt_get install -y --no-install-recommends \
+            build-essential cmake git ca-certificates curl gcovr
       # Keep the test framework independent of the runner's Catch2 2.x/3.x package.
       - name: Install pinned Catch2
         run: |
@@ -87,9 +88,38 @@ jobs:
         run: |
           set -eu
           build="build-${{ matrix.build_type }}"
+          coverage=OFF
+          if [ '${{ matrix.build_type }}' = Debug ]; then
+            coverage=ON
+          fi
           cmake -S . -B "$build" -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DCatch2_DIR="${GITHUB_WORKSPACE}/.ci-deps/catch2/lib/cmake/Catch2" \
-            -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
-          cmake --build "$build" --target linkerbot-comm comm-tests vendor-loader-tests pcan-tests --parallel "$(nproc)"
-          ctest --test-dir "$build" --output-on-failure --no-tests=error
-          cmake --install "$build" --prefix "${GITHUB_WORKSPACE}/dist-${{ matrix.build_type }}"
+            -DLINKERBOT_COMM_BUILD_TESTS=ON \
+            -DLINKERBOT_COMM_BUILD_EXAMPLES=ON \
+            -DLINKERBOT_COMM_ENABLE_COVERAGE="$coverage" \
+            -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
+          # Build the default target set so new regression executables cannot be
+          # silently omitted from a later CTest run.
+          cmake --build "$build" --parallel "$(nproc)"
+          ctest --test-dir "$build" --output-on-failure --no-tests=error --timeout 90
+          if [ '${{ matrix.build_type }}' = Debug ]; then
+            gcovr --root . --filter '(src|include)/' \
+              --gcov-exclude-directories "$build/_deps" \
+              --fail-under-line 95 --txt \
+              --json-summary "$build/coverage-summary.json" "$build"
+          fi
+          "./$build/comm-example"
+
+          prefix="${GITHUB_WORKSPACE}/dist-${{ matrix.build_type }}"
+          consumer="consumer-${{ matrix.build_type }}"
+          consumer_flags=
+          if [ '${{ matrix.build_type }}' = Debug ]; then
+            consumer_flags=--coverage
+          fi
+          cmake --install "$build" --prefix "$prefix"
+          cmake -S "$prefix/share/linkerbot-comm/validation/installed-consumer" \
+            -B "$consumer" -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            "-DCMAKE_CXX_FLAGS=$consumer_flags" \
+            -DCMAKE_PREFIX_PATH="$prefix"
+          cmake --build "$consumer" --parallel "$(nproc)"
+          ctest --test-dir "$consumer" --output-on-failure --no-tests=error --timeout 60
