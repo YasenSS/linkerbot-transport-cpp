@@ -205,7 +205,10 @@ clang-format 18、clang-tidy 18 和 Cppcheck，覆盖主工程源码、测试及
 其他 Cppcheck 预处理和语法错误不会被抑制。
 
 从工作流下载 `cppreportcard-ubuntu-24.04-arm` 附件，可查看 `report.json`、`report.md`
-和 `badge.svg`，也可阅读 job summary。报告不会提交回仓库。工作流只读仓库，采用
+和 `badge.svg`，也可阅读 job summary。CI 将它们写入 `.github/cppreportcard/`。
+中英文 README 展示仓库中的 badge 快照，来源提交和运行记录见
+[快照说明](../../.github/cppreportcard/README.md)；更新时须在签名维护提交中同步修改 SVG 和说明。
+生成的 JSON、Markdown 报告保留为附件。工作流只读仓库，采用
 `fail_on: none` 且不设分数门槛：发现项供审查，分析不完整或工具执行失败仍会使任务失败。
 因此任务成功表示分析完整，不表示零发现或获得 A+。分数不代表测试覆盖率或实机验收。
 Cppcheck 来自 Ubuntu 包仓库，runner 更新可能改变其版本；比较报告时应核对记录的工具版本。

@@ -4,6 +4,9 @@
 
 ## 0.3.0（未发布）
 
+- 在中英文 README 展示 `.github/cppreportcard/` 中的真实报告 badge，记录快照来源；
+  安装包保留 badge 及说明，CI 在同一目录生成最新报告附件。
+
 - 接入 Linux ARM64 C++ Report Card 完整分析，上传 JSON、Markdown 和 SVG 报告；
   使用只读权限并保留既有严格质量门槛。
 

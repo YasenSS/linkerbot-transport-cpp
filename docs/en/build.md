@@ -227,8 +227,12 @@ headers, including project headers written with angle brackets. Other Cppcheck
 preprocessor and syntax errors are not suppressed.
 
 Download the `cppreportcard-ubuntu-24.04-arm` artifact from a workflow run for
-`report.json`, `report.md` and `badge.svg`, or read its job summary. Reports are
-not committed to the repository. The workflow has read-only repository access,
+`report.json`, `report.md` and `badge.svg`, or read its job summary. CI writes these
+files under `.github/cppreportcard/`. Both READMEs display the checked-in badge
+snapshot; its source commit and run are recorded in
+[the snapshot notes](../../.github/cppreportcard/README.md). Refresh the badge and
+notes together in a signed maintenance commit. Generated JSON and Markdown reports
+remain artifacts. The workflow has read-only repository access,
 uses `fail_on: none` and no score threshold: findings are reported for review,
 while incomplete analysis and tool failures still fail the job. A successful job
 therefore establishes complete analysis, not a finding-free report or an A+ grade.

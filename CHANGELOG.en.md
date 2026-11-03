@@ -4,6 +4,8 @@ English · [简体中文](CHANGELOG.md)
 
 ## 0.3.0 (unreleased)
 
+- Display the generated `.github/cppreportcard/` badge in both READMEs with snapshot provenance. Install the badge and notes, and generate current CI report artifacts in the same directory.
+
 - Add full C++ Report Card analysis on Linux ARM64 with JSON, Markdown and SVG artifacts, read-only permissions, and the existing strict quality gates retained.
 
 - Distinguish empty receive results from timeouts and filtered frames. Document synchronous Session submission errors and completion after a deadline. Add reproducible sanitizer commands and state the static-analysis scope for the independent quickstart.

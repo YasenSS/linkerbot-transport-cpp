@@ -3,6 +3,8 @@
 /linkerbot-python-sdk
 /.cache
 /.cppreportcard/
+/.github/cppreportcard/report.json
+/.github/cppreportcard/report.md
 /CLAUDE.md
 /AGENTS.md
 
