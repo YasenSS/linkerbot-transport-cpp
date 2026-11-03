@@ -14,6 +14,8 @@ identify the same source; the upstream Release is the binary download location.
 Later documentation commits on `main` do not move this tag or replace its packages.
 
 - Linux: `aarch64` (ARM64) and `x86_64` (amd64) Release TGZ packages.
+  Built on Ubuntu 24.04 with GCC 13/libstdc++; compatibility with older system
+  runtimes is not guaranteed.
 - Windows: x64 MSVC v143 14.44 Release (`MD`) and Debug (`MDd`) ZIP packages.
   Debug requires the Visual Studio development runtime; see the [Windows guide](windows-build.md).
 - Each archive has an adjacent `.sha256` file. `SHA256SUMS.txt` covers all nine

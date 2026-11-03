@@ -13,6 +13,7 @@
 `main` 上后续的文档提交不会移动该标签或替换发行包。
 
 - Linux：`aarch64`（ARM64）和 `x86_64`（amd64）的 Release TGZ 包。
+  使用 Ubuntu 24.04 和 GCC 13/libstdc++ 构建，不保证兼容更旧的系统运行库。
 - Windows：x64 MSVC v143 14.44 的 Release（`MD`）和 Debug（`MDd`）ZIP 包。
   Debug 依赖 Visual Studio 开发运行库，见 [Windows 指南](windows-build.md)。
 - 每个包附带 `.sha256` 文件。`SHA256SUMS.txt` 覆盖其余九个上传附件，包括
