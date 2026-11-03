@@ -122,8 +122,7 @@ TEST_CASE("SocketCAN encoding executes the shared TX vectors", "[frame][socketca
             continue;
         }
 
-        const SocketCANTxFrame encoded =
-            linkerbot::can::encode_socketcan_frame(row.link, message);
+        const SocketCANTxFrame encoded = linkerbot::can::encode_socketcan_frame(row.link, message);
         REQUIRE(encoded.is_fd == row.expect_is_fd);
         if (encoded.is_fd) {
             REQUIRE(encoded.size() == sizeof(struct canfd_frame));

@@ -82,8 +82,8 @@ namespace linkerbot::can {
         return flags;
     }
 
-    [[nodiscard]] inline auto resolve_tx_flags(LinkKind link, const Message &message)
-        -> FrameFlags {
+    [[nodiscard]] inline auto resolve_tx_flags(LinkKind link,
+                                               const Message &message) -> FrameFlags {
         validate_frame_flags(message.is_fd, message.is_brs);
         validate_arbitration_id(message.id, message.is_extended);
         validate_payload_length(message.dlc, link);

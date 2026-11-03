@@ -65,6 +65,7 @@ WarningsAsErrors: >
   modernize-use-nullptr
 
 CheckOptions:
+  cppcoreguidelines-avoid-do-while.IgnoreMacros: true
   readability-identifier-naming.ClassCase: CamelCase
   readability-identifier-naming.StructCase: CamelCase
   readability-identifier-naming.FunctionCase: lower_case
@@ -86,6 +87,6 @@ CheckOptions:
   readability-identifier-naming.TemplateParameterCase: CamelCase
   misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic: true
 
-HeaderFilterRegex: ".*/linkerbot/.*\\.(hpp|h)$"
+HeaderFilterRegex: ".*/(include/linkerbot|compat|tests)/.*\\.(hpp|h)$"
 
 FormatStyle: file

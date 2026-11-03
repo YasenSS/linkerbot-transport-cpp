@@ -1,8 +1,8 @@
 #pragma once
-#include <linkerbot/can/errors.hpp>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <linkerbot/can/errors.hpp>
 #include <optional>
 #include <string>
 namespace linkerbot::can {

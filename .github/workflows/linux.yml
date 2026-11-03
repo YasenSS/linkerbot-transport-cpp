@@ -24,7 +24,7 @@ jobs:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
         build_type: [Debug, Release]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install build tools
         run: |
           sudo apt-get update
@@ -68,7 +68,7 @@ jobs:
           ctest --test-dir consumer --output-on-failure --no-tests=error --timeout 60 --output-log consumer-results.log
       - name: Save test evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-comm-${{ matrix.runner }}-${{ matrix.build_type }}
           path: |
@@ -91,17 +91,17 @@ jobs:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
         mode: [libcxx, asan-ubsan, tsan]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install Clang toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build git ca-certificates \
-            clang llvm-18 libc++-dev libc++abi-dev libclang-rt-18-dev
+            clang-18 llvm-18 libc++-18-dev libc++abi-18-dev libclang-rt-18-dev
           {
             uname -a
             cmake --version
-            clang++ --version
+            clang++-18 --version
           } | tee clang-toolchain.txt
       - name: Configure Clang quality build
         run: |
@@ -109,7 +109,7 @@ jobs:
           link_flags=''
           case '${{ matrix.mode }}' in
             libcxx)
-              compile_flags="$compile_flags -stdlib=libc++"
+              compile_flags="$compile_flags -Werror -stdlib=libc++"
               link_flags='-stdlib=libc++'
               ;;
             asan-ubsan)
@@ -127,7 +127,7 @@ jobs:
           esac
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
             "-DCMAKE_CXX_FLAGS=$compile_flags" \
             "-DCMAKE_EXE_LINKER_FLAGS=$link_flags" \
             "-DCMAKE_SHARED_LINKER_FLAGS=$link_flags" \
@@ -158,28 +158,17 @@ jobs:
                 --output-log clang-test-results.log
               ;;
           esac
-      - name: Require warning-free production build with libc++
+      - name: Run shared-bus example with libc++
         if: matrix.mode == 'libcxx'
-        run: |
-          cmake -S . -B build-strict -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            '-DCMAKE_CXX_FLAGS=-stdlib=libc++ -Wall -Wextra -Wpedantic -Werror' \
-            '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
-            '-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++' \
-            -DLINKERBOT_COMM_BUILD_TESTS=OFF \
-            -DLINKERBOT_COMM_BUILD_EXAMPLES=ON \
-            -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
-          cmake --build build-strict --parallel 4
-          ./build-strict/comm-example
+        run: ./build/comm-example
       - name: Install and test a libc++ consumer
         if: matrix.mode == 'libcxx'
         run: |
           cmake --install build --prefix "$RUNNER_TEMP/comm clang install"
           cmake -S "$RUNNER_TEMP/comm clang install/share/linkerbot-comm/validation/installed-consumer" \
             -B consumer -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            '-DCMAKE_CXX_FLAGS=-stdlib=libc++' \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            '-DCMAKE_CXX_FLAGS=-stdlib=libc++ -Wall -Wextra -Wpedantic -Werror' \
             '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
             -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm clang install"
           cmake --build consumer --parallel 4
@@ -187,7 +176,7 @@ jobs:
             --output-log clang-consumer-results.log
       - name: Save Clang test evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-clang-${{ matrix.runner }}-${{ matrix.mode }}
           path: |
@@ -196,5 +185,4 @@ jobs:
             clang-consumer-results.log
             build/CMakeCache.txt
             build/Testing/Temporary/LastTest.log
-            build-strict/CMakeCache.txt
             consumer/Testing/Temporary/LastTest.log

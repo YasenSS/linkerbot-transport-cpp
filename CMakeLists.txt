@@ -124,6 +124,15 @@ if(LINKERBOT_COMM_BUILD_TESTS)
         set_target_properties(comm-tests PROPERTIES EXCLUDE_FROM_ALL TRUE)
     endif()
 
+    add_executable(session-static-exit tests/session_static_exit.cpp)
+    target_link_libraries(session-static-exit PRIVATE linkerbot-comm)
+    if(NOT LINKERBOT_COMM_IS_TOP_LEVEL)
+        set_target_properties(session-static-exit PROPERTIES EXCLUDE_FROM_ALL TRUE)
+    endif()
+    add_test(NAME session-static-share-exit COMMAND session-static-exit shared)
+    add_test(NAME session-static-borrow-exit COMMAND session-static-exit borrowed)
+    set_tests_properties(session-static-share-exit session-static-borrow-exit PROPERTIES TIMEOUT 30)
+
     include(Catch)
     catch_discover_tests(comm-tests)
 

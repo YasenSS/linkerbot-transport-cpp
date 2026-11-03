@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -14,7 +14,8 @@ namespace linkerbot::can {
     //
     // Field names deliberately keep the vendor's CamelCase so they can be diffed
     // against the vendor header; this is the one place in the repo that does.
-    // NOLINTBEGIN(readability-identifier-naming, cppcoreguidelines-avoid-c-arrays, modernize-avoid-c-arrays)
+    // NOLINTBEGIN(readability-identifier-naming, cppcoreguidelines-avoid-c-arrays,
+    // modernize-avoid-c-arrays)
 
     struct CanFDConfig {
         uint32_t NomBaud = 0;
@@ -50,7 +51,8 @@ namespace linkerbot::can {
     // docs/zh/minicanfd.md. Do not change packing globally.
     static_assert(sizeof(CanFDConfig) == 20 && alignof(CanFDConfig) == 4);
     static_assert(sizeof(int) == 4 && sizeof(unsigned) == 4);
-    static_assert(std::is_standard_layout_v<CanFDConfig> && std::is_trivially_copyable_v<CanFDConfig>);
+    static_assert(std::is_standard_layout_v<CanFDConfig> &&
+                  std::is_trivially_copyable_v<CanFDConfig>);
     static_assert(std::is_standard_layout_v<CanFDMsg> && std::is_trivially_copyable_v<CanFDMsg>);
     static_assert(offsetof(CanFDConfig, NomBaud) == 0 && offsetof(CanFDConfig, DatBaud) == 4);
     static_assert(offsetof(CanFDConfig, NomPre) == 8);
@@ -98,7 +100,7 @@ namespace linkerbot::can {
         std::function<int(unsigned, unsigned, CanFDMsg *, unsigned, int)> receive;
         std::function<int(unsigned, unsigned)> channel_type;
         bool native_channel_numbers = false; // Windows devNum, channel must be 0
-        bool device_level_type = false; // legacy Linux type query only verifies channel 0
+        bool device_level_type = false;      // legacy Linux type query only verifies channel 0
 
         // Stable key for process-level Init/Exit refcount (realpath or mock id).
         std::string lifecycle_key;
@@ -123,6 +125,7 @@ namespace linkerbot::can {
         std::shared_ptr<void> library_owner;
     };
 
-    // NOLINTEND(readability-identifier-naming, cppcoreguidelines-avoid-c-arrays, modernize-avoid-c-arrays)
+    // NOLINTEND(readability-identifier-naming, cppcoreguidelines-avoid-c-arrays,
+    // modernize-avoid-c-arrays)
 
 } // namespace linkerbot::can

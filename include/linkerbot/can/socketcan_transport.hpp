@@ -6,8 +6,8 @@
 #include <linkerbot/can/transport.hpp>
 
 #include <algorithm>
-#include <condition_variable>
 #include <cerrno>
+#include <condition_variable>
 #include <cstring>
 #include <functional>
 #include <mutex>
@@ -74,7 +74,7 @@ namespace linkerbot::can {
                 }
             }
 
-            struct ifreq ifr{};
+            struct ifreq ifr {};
             auto len = std::min(interface_name.size(), static_cast<size_t>(IFNAMSIZ - 1));
             std::memcpy(ifr.ifr_name, interface_name.data(), len);
             ifr.ifr_name[len] = '\0';
@@ -86,7 +86,7 @@ namespace linkerbot::can {
                                        std::error_code(saved_errno, std::generic_category()));
             }
 
-            struct sockaddr_can addr{};
+            struct sockaddr_can addr {};
             addr.can_family = AF_CAN;
             addr.can_ifindex = ifr.ifr_ifindex;
 
@@ -126,6 +126,8 @@ namespace linkerbot::can {
         // in flight on `other` (same precondition the previous atomic-swap
         // implementation had); it is intended for transfer-of-ownership at
         // construction time, before a dispatcher thread is started.
+        // These assignments must occur after locking `other`; member initializers would race.
+        // NOLINTBEGIN(cppcoreguidelines-prefer-member-initializer)
         SocketCANTransport(SocketCANTransport &&other) noexcept {
             const std::scoped_lock lock(other.io_mutex_);
             fd_ = other.fd_;
@@ -136,6 +138,7 @@ namespace linkerbot::can {
             other.fd_ = -1;
             other.closed_ = true;
         }
+        // NOLINTEND(cppcoreguidelines-prefer-member-initializer)
 
         SocketCANTransport &operator=(SocketCANTransport &&other) noexcept {
             if (this == &other) {
@@ -148,8 +151,8 @@ namespace linkerbot::can {
                 fd_ = other.fd_;
                 fd_mode_ = other.fd_mode_;
                 closed_ = other.closed_;
-            close_complete_ = other.close_complete_;
-            on_io_in_flight_ = std::move(other.on_io_in_flight_);
+                close_complete_ = other.close_complete_;
+                on_io_in_flight_ = std::move(other.on_io_in_flight_);
                 other.fd_ = -1;
                 other.closed_ = true;
             }
@@ -164,7 +167,7 @@ namespace linkerbot::can {
                 return read_fd();
             }
             const IoInFlightGuard guard(*this);
-            struct can_frame frame{};
+            struct can_frame frame {};
             auto nbytes = ::read(guard.fd(), &frame, sizeof(frame));
             if (nbytes != static_cast<ssize_t>(sizeof(frame))) {
                 if (nbytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -248,9 +251,9 @@ namespace linkerbot::can {
                 std::exception_ptr failure;
                 if (fd >= 0 && ::close(fd) < 0) {
                     const int saved_errno = errno;
-                    failure = std::make_exception_ptr(TransportIOError(
-                        "Failed to close SocketCAN socket",
-                        std::error_code(saved_errno, std::generic_category())));
+                    failure = std::make_exception_ptr(
+                        TransportIOError("Failed to close SocketCAN socket",
+                                         std::error_code(saved_errno, std::generic_category())));
                 }
 
                 lock.lock();
@@ -282,10 +285,15 @@ namespace linkerbot::can {
                     ++owner_.in_flight_;
                     fd_ = owner_.fd_;
                 }
-                try { if (owner_.on_io_in_flight_) owner_.on_io_in_flight_(); }
-                catch (...) {
+                try {
+                    if (owner_.on_io_in_flight_) {
+                        owner_.on_io_in_flight_();
+                    }
+                } catch (...) {
                     const std::scoped_lock lock(owner_.io_mutex_);
-                    if (--owner_.in_flight_ == 0) owner_.io_cv_.notify_all();
+                    if (--owner_.in_flight_ == 0) {
+                        owner_.io_cv_.notify_all();
+                    }
                     throw;
                 }
             }
@@ -310,7 +318,7 @@ namespace linkerbot::can {
         };
 
         static auto apply_timeouts(int fd) -> void {
-            struct timeval rcv_tv{};
+            struct timeval rcv_tv {};
             rcv_tv.tv_sec = 0;
             rcv_tv.tv_usec = kSocketCANReceiveTimeoutUs;
             if (::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rcv_tv, sizeof(rcv_tv)) < 0) {
@@ -320,7 +328,7 @@ namespace linkerbot::can {
                                        std::error_code(saved_errno, std::generic_category()));
             }
 
-            struct timeval snd_tv{};
+            struct timeval snd_tv {};
             snd_tv.tv_sec = 0;
             snd_tv.tv_usec = kSocketCANSendTimeoutUs;
             if (::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &snd_tv, sizeof(snd_tv)) < 0) {
@@ -333,7 +341,7 @@ namespace linkerbot::can {
 
         auto read_fd() -> std::optional<Message> {
             const IoInFlightGuard guard(*this);
-            struct canfd_frame frame{};
+            struct canfd_frame frame {};
             auto nbytes = ::read(guard.fd(), &frame, sizeof(frame));
             if (nbytes < 0) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -349,7 +357,7 @@ namespace linkerbot::can {
             }
 
             if (nbytes == static_cast<ssize_t>(sizeof(struct can_frame))) {
-                struct can_frame classic{};
+                struct can_frame classic {};
                 std::memcpy(&classic, &frame, sizeof(classic));
                 if (is_can_error_frame(classic.can_id) || is_can_remote_frame(classic.can_id)) {
                     return std::nullopt;

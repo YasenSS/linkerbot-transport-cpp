@@ -27,8 +27,8 @@ namespace linkerbot::can {
         }
     };
 
-    [[nodiscard]] inline auto encode_socketcan_frame(LinkKind link, const Message &message)
-        -> SocketCANTxFrame {
+    [[nodiscard]] inline auto encode_socketcan_frame(LinkKind link,
+                                                     const Message &message) -> SocketCANTxFrame {
         const auto flags = resolve_tx_flags(link, message);
         SocketCANTxFrame encoded;
         encoded.is_fd = flags.is_fd;
