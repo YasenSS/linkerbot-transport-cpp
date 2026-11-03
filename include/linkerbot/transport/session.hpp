@@ -105,10 +105,18 @@ namespace linkerbot::transport {
 
     class SendReceipt {
       public:
+        // Empty receipts have no state: result(), completed(), wait_until() and
+        // wait() throw can::ValidationError until assigned a valid receipt.
         SendReceipt() = default;
+        // Nonblocking snapshot; saved task errors are returned, not rethrown.
         [[nodiscard]] SendResult result() const;
+        // Wait on the steady-clock deadline. A wait timeout throws can::TimeoutError
+        // without cancelling the task; a claimed driver write may still complete.
+        // On task completion, rethrow its saved error or return its final result.
         [[nodiscard]] SendResult wait_until(Deadline deadline) const;
+        // Wait without a deadline, with the same saved-error behavior.
         void wait() const;
+        // True for any terminal outcome, including failure or cancellation.
         [[nodiscard]] bool completed() const;
 
       private:
@@ -159,15 +167,26 @@ namespace linkerbot::transport {
                                                      size_t capacity = 512);
         void update_routes(const std::shared_ptr<RouteInbox> &inbox,
                            const std::vector<RouteKey> &keys);
+        // Validate and enqueue without waiting for transmission. Capacity counts
+        // waiting batches, not the executing batch. Invalid input, closed state,
+        // prior cancellation, an expired deadline or a full queue throws here;
+        // later transmission errors are retained in the returned receipt.
         SendReceipt submit(MessageBatch batch, SendOptions options = {});
+        // Submit and wait until options.deadline; a wait timeout does not cancel.
         void send(MessageBatch batch, SendOptions options = {});
         void cancel_endpoint(const std::string &endpoint);
         SessionHealth health() const;
         // Legacy transport diagnostics projected through the Session boundary.
         can::TransportHealth transport_health() const;
-        // Concurrent callers presenting the same observed generation cause only
-        // one physical reopen; every old route/receipt is invalidated.
+        // Call from an external thread. Concurrent callers with the same observed
+        // generation reuse one successful recovery; failed attempts may be retried.
+        // Recovery closes old inboxes and aborts unfinished sends without replay;
+        // completed receipts remain readable. Re-register routes after success.
+        // Requires a recoverable managed bus; explicit close prevents recovery.
         uint64_t recover(uint64_t observed_generation);
+        // Call from an external thread. Close inboxes, abort unfinished sends and
+        // join the writer; in-flight driver calls may delay completion. Cleanup
+        // errors propagate and retained resources can be retried with close().
         void close();
 
       private:

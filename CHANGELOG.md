@@ -2,6 +2,9 @@
 
 ## 0.3.0（未发布）
 
+- 拆分中英文 README，补充可独立构建和运行的安装包最小示例；澄清 CMake 3.16
+  接入与现代 CTest 命令的版本要求，完善 Session 回执、恢复和关闭的公共注释。
+
 - 仓库更名为 `linkerbot-transport-cpp`。为保持接入兼容，CMake 包名仍为
   `linkerbot-comm`，链接目标仍为 `linkerbot::comm` 系列，库文件和安装目录名称保留。
 - 提供 SocketCAN、MiniCANFD、PCAN Classic / FD 及原生串口 SLCAN 后端。

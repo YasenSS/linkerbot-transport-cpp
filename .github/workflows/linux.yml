@@ -66,6 +66,15 @@ jobs:
             -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm install"
           cmake --build consumer --parallel 4
           ctest --test-dir consumer --output-on-failure --no-tests=error --timeout 60 --output-log consumer-results.log
+      - name: Build and run the installed quickstart
+        run: |
+          cmake -S "$RUNNER_TEMP/comm install/share/linkerbot-comm/examples/quickstart" \
+            -B quickstart -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_CXX_FLAGS=${{ matrix.build_type == 'Debug' && '--coverage' || '' }} \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm install"
+          cmake --build quickstart --parallel 4
+          ctest --test-dir quickstart --output-on-failure --no-tests=error --timeout 60 \
+            --output-log quickstart-results.log
       - name: Save test evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -76,10 +85,84 @@ jobs:
             recovery-results.log
             registry-handoff-results.log
             consumer-results.log
+            quickstart-results.log
             coverage-summary.json
             build/CMakeCache.txt
             build/Testing/Temporary/LastTest.log
             consumer/Testing/Temporary/LastTest.log
+            quickstart/Testing/Temporary/LastTest.log
+
+  minimum-cmake:
+    name: CMake 3.16.9 (ubuntu-24.04-arm)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build curl ca-certificates
+      - name: Build the minimum supported CMake from verified source
+        run: |
+          curl --fail --location --retry 3 \
+            https://cmake.org/files/v3.16/cmake-3.16.9.tar.gz \
+            --output "$RUNNER_TEMP/cmake-3.16.9.tar.gz"
+          printf '%s  %s\n' \
+            '1708361827a5a0de37d55f5c9698004c035abb1de6120a376d5d59a81630191f' \
+            "$RUNNER_TEMP/cmake-3.16.9.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/cmake-3.16.9.tar.gz" -C "$RUNNER_TEMP"
+          cmake -S "$RUNNER_TEMP/cmake-3.16.9" -B "$RUNNER_TEMP/cmake-minimum-build" \
+            -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_USE_OPENSSL=OFF -DBUILD_TESTING=OFF \
+            2>&1 | tee minimum-cmake-configure.log
+          cmake --build "$RUNNER_TEMP/cmake-minimum-build" --parallel 4 \
+            2>&1 | tee minimum-cmake-build.log
+          "$RUNNER_TEMP/cmake-minimum-build/bin/cmake" --version | tee minimum-cmake-version.txt
+      - name: Require an actionable error for tests on CMake 3.16.9
+        run: |
+          if "$RUNNER_TEMP/cmake-minimum-build/bin/cmake" -S . -B build-minimum-tests \
+            -G Ninja -DLINKERBOT_COMM_BUILD_TESTS=ON \
+            -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF > minimum-tests-rejection.log 2>&1; then
+            cat minimum-tests-rejection.log
+            echo 'Expected CMake 3.16.9 to reject Catch2 test discovery' >&2
+            exit 1
+          fi
+          cat minimum-tests-rejection.log
+          grep -F 'Tests require CMake 3.19' minimum-tests-rejection.log
+      - name: Configure, build and install with CMake 3.16.9
+        run: |
+          minimum_cmake="$RUNNER_TEMP/cmake-minimum-build/bin/cmake"
+          "$minimum_cmake" -S . -B build-minimum -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF \
+            -DLINKERBOT_COMM_BUILD_EXAMPLES=ON 2>&1 | tee minimum-project-configure.log
+          "$minimum_cmake" --build build-minimum --parallel 4 2>&1 | tee minimum-project-build.log
+          "$minimum_cmake" --install build-minimum --prefix "$RUNNER_TEMP/comm minimum install" \
+            2>&1 | tee minimum-project-install.log
+          ./build-minimum/comm-example
+      - name: Build and run the installed quickstart with CMake 3.16.9
+        run: |
+          minimum_cmake="$RUNNER_TEMP/cmake-minimum-build/bin/cmake"
+          "$minimum_cmake" -S "$RUNNER_TEMP/comm minimum install/share/linkerbot-comm/examples/quickstart" \
+            -B quickstart-minimum -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm minimum install" \
+            2>&1 | tee minimum-quickstart-configure.log
+          "$minimum_cmake" --build quickstart-minimum --parallel 4 \
+            2>&1 | tee minimum-quickstart-build.log
+          grep -F 'linkerbot-quickstart' quickstart-minimum/CTestTestfile.cmake
+          # --test-dir was added after CMake 3.16; run CTest from the build directory.
+          (cd quickstart-minimum && "$RUNNER_TEMP/cmake-minimum-build/bin/ctest" \
+            --output-on-failure --timeout 60 \
+            --output-log ../minimum-quickstart-results.log)
+      - name: Save minimum-version evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: minimum-cmake-ubuntu-24.04-arm
+          path: |
+            minimum-*.log
+            minimum-cmake-version.txt
+            build-minimum/CMakeCache.txt
+            quickstart-minimum/CMakeCache.txt
+            quickstart-minimum/Testing/Temporary/LastTest.log
 
   clang-quality:
     name: Clang 18 (${{ matrix.runner }}, ${{ matrix.mode }})

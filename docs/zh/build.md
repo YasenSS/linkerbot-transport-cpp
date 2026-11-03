@@ -4,7 +4,10 @@
 
 ## 前置条件与目录约定
 
-需要 CMake 3.16+、C++17 编译器和线程支持。Linux CI 使用 Ubuntu 24.04，主矩阵以
+核心库需要 CMake 3.16+、C++17 编译器和线程支持。本文常规测试命令使用
+`ctest --test-dir`，执行这些命令请使用 CMake/CTest 3.20+；3.16 的接入命令见下节。
+Catch2 3.8.1 本体声明最低 CMake 3.16，但其测试发现脚本需要 JSON 支持，因此本项目
+启用测试时要求 CMake 3.19+；其他已安装 Catch2 版本还须核对其自身要求。Linux CI 使用 Ubuntu 24.04，主矩阵以
 GCC 13 覆盖原生 amd64、ARM64 的 Debug/Release 与 95% 行覆盖率；Clang 18 质量矩阵
 在两个架构上覆盖 libc++、ASan+UBSan 和 TSan。本地维护验证优先使用 Linux ARM64。
 Windows 使用 MSVC x64，见专项说明。macOS 不在当前实机支持和 CI 验证矩阵内。
@@ -19,6 +22,26 @@ sudo apt-get install -y --no-install-recommends build-essential cmake ninja-buil
 
 首次启用测试时可能从 GitHub 下载 Catch2，需网络和 Git；核心库不需要厂商 SDK、
 厂商动态库、真实 CAN 设备或 Catch2。不要把厂商 DLL 复制到源码目录当作构建依赖。
+
+## CMake 3.16 最小接入
+
+以下路径不下载测试依赖，也不需要真实设备。从源码根目录执行：
+
+```bash
+cmake -S . -B build-minimum -DCMAKE_BUILD_TYPE=Release \
+  -DLINKERBOT_COMM_BUILD_TESTS=OFF \
+  -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF \
+  -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
+cmake --build build-minimum --parallel 4
+cmake --install build-minimum --prefix "$PWD/install/minimum"
+cmake -S examples/quickstart -B build-quickstart-minimum \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/install/minimum"
+cmake --build build-quickstart-minimum --parallel 4
+(cd build-quickstart-minimum && ctest --output-on-failure)
+```
+
+在旧版 CTest 中进入构建目录再执行测试，避免使用不受支持的 `--test-dir` 参数。
+该示例测试只验证内存 transport 的收发和安装包接入，不是完整回归或实机验收。
 
 ## 完整离线回归
 
