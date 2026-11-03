@@ -1,6 +1,6 @@
 # Documentation / 文档索引
 
-This index and the English overview in [README](../README.md#english) describe the
+This index and the [English](../README.md) and [Chinese](../README.zh-CN.md) READMEs describe the
 current implementation. Detailed guides below are maintained in Chinese.
 Historical hardware statements are separated in the validation guide.
 
@@ -9,7 +9,7 @@ Historical hardware statements are separated in the validation guide.
 
 ## 维护状态
 
-当前维护入口是根目录 README、本索引和 `docs/zh/`。验证文档中指向固定旧提交的内容是
+当前维护入口是根目录中英文 README、本索引和 `docs/zh/`。验证文档中指向固定旧提交的内容是
 档案证据，不会覆盖当前指南。将来如恢复旧译文，应放入 `docs/archive/`，在文件顶部标注历史状态
 并链接本索引；历史译文不加入现行 API 导航。
 

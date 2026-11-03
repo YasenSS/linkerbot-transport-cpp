@@ -88,6 +88,9 @@ target_include_directories(linkerbot-comm-compat
 )
 
 if(LINKERBOT_COMM_BUILD_TESTS)
+    if(CMAKE_VERSION VERSION_LESS 3.19)
+        message(FATAL_ERROR "Tests require CMake 3.19+ for Catch2 discovery; use LINKERBOT_COMM_BUILD_TESTS=OFF for the CMake 3.16 library-only build")
+    endif()
     find_package(Catch2 3 QUIET)
     if(NOT Catch2_FOUND)
         if(NOT LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS)
@@ -227,10 +230,12 @@ write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/linkerbot-comm-conf
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/linkerbot-comm-config.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/linkerbot-comm-config-version.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/linkerbot-comm)
-install(FILES LICENSE NOTICE README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md
+install(FILES LICENSE NOTICE README.md README.zh-CN.md CHANGELOG.md CONTRIBUTING.md SECURITY.md
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm)
 install(FILES examples/shared_bus.cpp
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/examples)
+install(FILES examples/quickstart/CMakeLists.txt examples/quickstart/main.cpp
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/examples/quickstart)
 install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/docs
     FILES_MATCHING PATTERN "*.md")
 
