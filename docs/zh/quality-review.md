@@ -73,7 +73,7 @@ Cppcheck 2.13 无法解析 Catch2 3.8 宏实现中的 token 拼接字符串字�
 正常构建和测试仍使用真实的 Catch2 头文件及运行库。
 
 模型保留断言操作数和测试体，区分不同测试用例与 section，并区分失败后终止的断言和
-失败后继续的检查。`validation/test-cppcheck-model.py` 使用 **25 个静态哨兵用例**和
+失败后继续的检查。`validation/test-cppcheck-model.py` 使用 **29 个静态哨兵用例**和
 **两个运行探针**验证模型：一个使用真实 Catch2，另一个使用模型。静态用例要求检出
 故意设置的空指针及越界错误，包括后续测试用例和 section 中的错误。运行探针核对异常
 类型不匹配时，fatal 断言会终止当前测试，nonfatal 检查会继续执行，并确认 section 名称

@@ -253,7 +253,7 @@ preprocessor and syntax errors are not suppressed.
 
 The Catch2 model addresses a Cppcheck 2.13 parser limitation; it does not remove
 test bodies or assertion operands from analysis. Real builds continue to use
-Catch2. Before generating the report, the workflow runs 25 static sentinels and
+Catch2. Before generating the report, the workflow runs 29 static sentinels and
 two runtime probes that compare fatal/nonfatal assertion behavior in real Catch2
 and the model. The sentinels require detection of null and bounds errors inside
 assertions, section names and bodies, and later test cases. A registration guard

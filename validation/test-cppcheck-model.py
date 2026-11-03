@@ -121,37 +121,50 @@ void nonfatal_probe() {
 void section_probe() {
     SECTION(section_name()) { observed |= 16; }
 }
+void caught_failure_probe() {
+    try { FAIL("expected failure"); }
+    catch (const Catch::TestFailureException &) { observed |= 32; }
+}
+void caught_skip_probe() {
+    try { SKIP("expected skip"); }
+    catch (const Catch::TestSkipException &) { observed |= 64; }
+}
 """
     definitions = "\n".join(
         f'#define {item.attrib["name"]} {item.attrib["value"]}'
         for item in ET.parse(model).getroot().findall("define")
     )
     modeled = (
-        '#include <catch2/internal/catch_test_failure_exception.hpp>\n'
+        '#include <catch2/internal/catch_test_failure_exception.hpp>\n#include <sstream>\n'
         + definitions + "\nbool cppcheck_catch2_section(const char *, int) { return true; }\n"
         + functions + """
 int main() {
     try { fatal_probe(); } catch (...) {}
     nonfatal_probe();
     section_probe();
-    return observed == 29 && section_name_evaluations > 0 ? 0 : 1;
+    caught_failure_probe();
+    caught_skip_probe();
+    return observed == 125 && section_name_evaluations > 0 ? 0 : 1;
 }
 """
     )
     actual = """
 #include <catch2/catch_session.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/internal/catch_test_failure_exception.hpp>
 """ + functions + """
 TEST_CASE("fatal mismatch", "[model-runtime]") { fatal_probe(); }
 TEST_CASE("nonfatal mismatch", "[model-runtime]") { nonfatal_probe(); }
 TEST_CASE("section name is evaluated", "[model-runtime]") { section_probe(); }
+TEST_CASE("fatal failure keeps its exception type", "[model-runtime]") { caught_failure_probe(); }
+TEST_CASE("skip keeps its exception type", "[model-runtime]") { caught_skip_probe(); }
 int main(int argc, char **argv) {
     const auto result = Catch::Session().run(argc, argv);
-    return result != 0 && observed == 29 && section_name_evaluations > 0 ? 0 : 1;
+    return result != 0 && observed == 125 && section_name_evaluations > 0 ? 0 : 1;
 }
 """
     for name, contents, libraries in (
-        ("modeled-runtime", modeled, []),
+        ("modeled-runtime", modeled, [str(catch_library)]),
         ("catch2-runtime", actual, [str(catch_library)]),
     ):
         path = directory / f"{name}.cpp"
@@ -178,7 +191,7 @@ int main(int argc, char **argv) {
         result = subprocess.run([str(executable)], capture_output=True, text=True, check=False)
         if result.returncode:
             raise AssertionError(f"{name}: control flow mismatch: {result.stdout}\n{result.stderr}")
-        print(f"PASS {name}: fatal stops; nonfatal continues; SECTION evaluates its name")
+        print(f"PASS {name}: fatal stops; nonfatal continues; SECTION evaluates its name; exceptions remain catchable")
 
 
 def main():
@@ -229,8 +242,24 @@ def main():
         "fatal_require_false_stops": (
             "int *p = nullptr; REQUIRE_FALSE(p == nullptr); CHECK(*p == 0);", None
         ),
-        "fatal_fail_stops": ('FAIL("stop"); int *p = nullptr; CHECK(*p == 0);', None),
-        "skip_stops": ('SKIP("stop"); int *p = nullptr; CHECK(*p == 0);', None),
+        # Initialize before the terminating operation: Cppcheck independently
+        # diagnoses constant-null expressions declared inside unreachable code.
+        "fatal_fail_stops": ('int *p = nullptr; FAIL("stop"); CHECK(*p == 0);', None),
+        "skip_stops": ('int *p = nullptr; SKIP("stop"); CHECK(*p == 0);', None),
+        "native_failure_stops": (
+            "int *p = nullptr; Catch::throw_test_failure_exception(); (void)(*p == 0);", None
+        ),
+        "native_skip_stops": (
+            "int *p = nullptr; Catch::throw_test_skip_exception(); (void)(*p == 0);", None
+        ),
+        "caught_failure_body": (
+            'try { FAIL("stop"); } catch (const Catch::TestFailureException &) '
+            '{ int *p = nullptr; CHECK(*p == 0); }', "nullPointer"
+        ),
+        "caught_skip_body": (
+            'try { SKIP("stop"); } catch (const Catch::TestSkipException &) '
+            '{ int *p = nullptr; CHECK(*p == 0); }', "nullPointer"
+        ),
         "section_name_operand": (
             'int *p = nullptr; SECTION((*p == 1) ? "one" : "two") { CHECK(true); }',
             "nullPointer",
@@ -255,7 +284,9 @@ def main():
         for name, (body, expected) in cases.items():
             test_file = directory / f"{name}.cpp"
             bodies = multiple_cases.get(name, [body])
-            test_file.write_text('#include <catch2/catch_test_macros.hpp>\n' + ''.join(
+            test_file.write_text(
+                '#include <catch2/catch_test_macros.hpp>\n'
+                '#include <catch2/internal/catch_test_failure_exception.hpp>\n' + ''.join(
                 f'TEST_CASE("{name}_{index}", "[model]") {{ {case_body} }}\n'
                 for index, case_body in enumerate(bodies)
             ))

@@ -806,8 +806,8 @@ TEST_CASE("lease move assignment preserves both owners when target close fails",
     // the only explicit retry owner for its failed close, and the source still
     // owns the lease that was going to replace it.
     REQUIRE_NOTHROW(first.bus());
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move) -- a failed target
-    // close leaves the source unchanged, as this test verifies.
+    // A failed target close leaves the source unchanged, as this test verifies.
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     REQUIRE_NOTHROW(second.bus());
     REQUIRE(pool.lease_count(first_key) == 1);
     REQUIRE(pool.lease_count(second_key) == 1);
@@ -833,8 +833,8 @@ TEST_CASE("lease move assignment closes the target before adopting the source", 
     REQUIRE(pool.lease_count(first_key) == 0);
     REQUIRE(pool.lease_count(second_key) == 1);
     REQUIRE(&first.bus() == second_bus);
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move) -- the documented
-    // moved-from state is the contract under test.
+    // The documented moved-from state is the contract under test.
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     REQUIRE_THROWS_AS(second.bus(), ClosedError);
 
     // Self-move remains a no-op and keeps the adopted lease usable.

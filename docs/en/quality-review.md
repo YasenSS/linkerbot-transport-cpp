@@ -91,7 +91,7 @@ use the real Catch2 headers and runtime.
 
 The model keeps assertion operands and test bodies visible, preserves separate
 test cases and sections, and distinguishes fatal assertions from nonfatal
-checks. `validation/test-cppcheck-model.py` verifies it with **25 static
+checks. `validation/test-cppcheck-model.py` verifies it with **29 static
 sentinels** and **two runtime probes**: one using real Catch2, the other using
 the model. The static cases require detection of deliberate null and bounds
 errors, including errors in later test cases and sections. The runtime probes
