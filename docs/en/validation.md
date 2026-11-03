@@ -4,7 +4,33 @@ English · [简体中文](../zh/validation.md)
 
 [Documentation index](../README.md) · [Reproduce builds](build.md)
 
-This guide records implementation capabilities, offline validation, and hardware acceptance separately. CMake identifies the source as 0.3.0. Published packages and their checksums are listed in the [upstream releases](https://github.com/linker-bot/linkerbot-transport-cpp/releases); a documentation update or successful CI run alone does not publish a package.
+This guide records implementation capabilities, offline validation, and hardware acceptance separately. CMake identifies the source as 0.3.0. Published packages and checksum instructions are in the [release guide](releases.md); a documentation update or successful CI run alone does not publish a package.
+
+<a id="release-030"></a>
+
+## 0.3.0 release validation
+
+The published [0.3.0 release](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.0)
+uses signed tag `v0.3.0`, tag object `ba02c06867a3014ad1c01f56ea4a5602bc07189a`,
+and source commit `a46177e86e403bbd18834aedb6e81ef3233c6c22`.
+All 16 checks passed on this commit in the upstream repository:
+
+- [Linux regression and packages](https://github.com/linker-bot/linkerbot-transport-cpp/actions/runs/41636452844):
+  amd64/ARM64, minimum CMake, libc++, ASan/UBSan, TSan, installed consumers and quickstart.
+- [Windows regression and packages](https://github.com/linker-bot/linkerbot-transport-cpp/actions/runs/41636452738):
+  x64 Debug/Release, native ABI fixtures and relocated consumers.
+- [Style checks](https://github.com/linker-bot/linkerbot-transport-cpp/actions/runs/41636452851) and
+  [full report](https://github.com/linker-bot/linkerbot-transport-cpp/actions/runs/41636452744):
+  complete A+, 100/100, zero diagnostics; 54/54 format inputs and 37/37 entries per analyzer.
+
+Local ARM64 Linux regression passed 218/218 tests. The new receipt-publication test
+failed against the previous Session implementation and passed with the fix.
+Upstream ARM64 production line coverage was 3,673/3,838 (95.7%). After publication,
+all ten uploaded assets were downloaded again: checksums, sizes, source metadata
+and all seven objects in each static library matched. The four SDK packages contain
+Linux AArch64, Linux x86-64 and Windows AMD64 objects as appropriate. The downloaded
+ARM64 package also passed both installed-consumer tests locally.
+These are offline results, not physical-adapter acceptance.
 
 ## Recorded transport validation
 
@@ -50,7 +76,7 @@ When a static owner obtains `Session::share()` or `Session::borrow()` in `main()
 
 No local x86 run was performed; amd64 was checked by the GitHub CI runs above. No hardware acceptance was performed, nor was `validation/pcan_header_abi.cpp`, which needs an external official PCAN header, compiled for this PR #5 local record. The first local Release configuration stopped before building because downloads were disabled and no Catch2 package path was supplied. With the cached fixed Catch2 3.8.1 source, the complete Release build and CTest passed. Passed, failed, and skipped items are distinct evidence.
 
-These links belong to the `soulteary/linkerbot-transport-cpp` fork. They do not establish the state of parent `linker-bot/linkerbot-transport-cpp` main until that repository merges the same commits and runs its own checks. A secondary Gitea workflow is present, but no publicly verifiable act_runner run is recorded here. Its configuration, or a GitHub YAML check, is not evidence of a successful Gitea run.
+The earlier records in this section belong to the `soulteary/linkerbot-transport-cpp` fork and do not by themselves establish upstream main's state. The release section above records the later upstream checks for the published commit. A secondary Gitea workflow is present, but no publicly verifiable act_runner run is recorded here. Its configuration, or a GitHub YAML check, is not evidence of a successful Gitea run.
 
 ## Platform and device capabilities
 

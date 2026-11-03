@@ -3,6 +3,8 @@
 [简体中文](../zh/windows-build.md) · [Documentation](../README.md) · [General builds](build.md) ·
 [Validation evidence](validation.md)
 
+Published SDKs and checksum instructions are in the [release guide](releases.md).
+
 Use Visual Studio 2022, v143 14.44, CMake 3.31.8 and C++17, targeting x64.
 The GitHub workflow runs Debug/Release offline regression, native ABI fixtures, ZIP packaging
 and extracted-package consumption on windows-2022. Fixed-commit successful runs are linked

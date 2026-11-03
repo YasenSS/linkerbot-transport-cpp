@@ -9,7 +9,8 @@
 Linkerbot SDK 的 C++17 CAN / CAN FD 通信层，负责物理连接、共享总线、接收路由和批次发送。
 设备命令、请求回复关联与控制业务由上层 SDK 实现。
 
-当前源码版本：**0.3.0**。
+当前源码版本：**0.3.0**。稳定版：[**0.3.0**](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.0)。
+下载、校验及版本文档见[发行说明](docs/zh/releases.md)。
 
 ## Linux 快速开始
 

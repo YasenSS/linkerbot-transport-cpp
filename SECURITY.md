@@ -2,9 +2,10 @@
 
 [English](SECURITY.md) · [简体中文](SECURITY.zh-CN.md)
 
-The source currently identifies itself as 0.3.0 and has no stable release or tag.
-Maintenance is best-effort for the current `main` branch; historical commits and
-unpublished CI artifacts do not have a separate support commitment.
+The published stable release is [0.3.0](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.0).
+Maintenance is best-effort on the current `main` branch. The release does not imply
+a separate long-term-support branch or a response-time guarantee. Historical
+commits and unpublished CI artifacts have no separate support commitment.
 
 ## Ordinary project issues
 
@@ -30,7 +31,7 @@ contact so changes remain centralized in the organization policy.
 
 Include the repository and full commit, trigger and prerequisites, required
 privileges, actual impact and boundary, a safely shareable reproducer, and any
-temporary mitigation. No fixed response time is promised for unreleased code.
+temporary mitigation. No fixed response time is promised.
 
 When physical devices are involved, stop testing if unexpected motion or unsafe
 output occurs. Test only systems and devices you own or are authorized to use.

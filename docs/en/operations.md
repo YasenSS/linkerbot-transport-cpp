@@ -44,6 +44,9 @@ The library has no persistent schema migration. If the application changes its r
 
 ## Delivery and release verification
 
+Published downloads, checksum commands and documentation corrections are listed
+in the [release guide](releases.md).
+
 Use an independent branch, signed commits, and an English PR describing the changes, compatibility, reproduction commands, and Linux results. Check CI, review, and unresolved threads for the latest head. After merging, synchronize main, verify it again, and clean up task branches and temporary environments. A formal release also requires a Changelog update, signed tag, and the established artifact workflow. CMake/CPack currently build and package artifacts; they do not publish a GitHub Release automatically.
 
 The Linux GCC Release jobs retain CPack TGZ archives and adjacent SHA256 files for
