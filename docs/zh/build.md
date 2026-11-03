@@ -221,17 +221,33 @@ clang-format 18、clang-tidy 18 和 Cppcheck，覆盖主工程源码、测试及
 
 `validation/prepare-report-db.py` 合并编译数据库，并将项目的 `-isystem` 目录显式表示为
 `-I`，供 Cppcheck 使用。`validation/cppcheck-report.sh` 让 Cppcheck 使用 `std` 标准库模型，
-仅抑制 `missingIncludeSystem`：编译器标准库头文件不是 Cppcheck 的分析输入。
+并通过 `validation/catch2-cppcheck.cfg` 为项目使用的 Catch2 宏建模。
+包装脚本仅抑制 `missingIncludeSystem`：编译器标准库头文件不是 Cppcheck 的分析输入。
 完整模式中的 clang-tidy 仍检查每个编译单元的缺失头文件，包括尖括号形式的项目头文件；
 其他 Cppcheck 预处理和语法错误不会被抑制。
+
+Catch2 模型处理的是 Cppcheck 2.13 的解析限制，不会从分析中移除测试体或断言操作数；
+真实构建继续使用 Catch2。工作流在生成报告前运行 29 个静态哨兵用例和两个运行探针，
+对比真实 Catch2 与模型的 fatal/nonfatal 断言行为。哨兵要求检出断言、section 和后续
+测试用例、section 名称及其代码中的空指针和越界错误。注册参数检查要求测试名称和标签
+使用字符串字面量，拒绝模型无法分析的注册表达式。按工作流构建三组分析输入并生成合并数据库后，可在
+源码根目录执行相同的模型检查：
+
+```bash
+python3 validation/test-cppcheck-model.py --compile-commands build/report-compile-commands.json
+```
+
+已确认缺陷、有意保留的契约及误报的区别，见[诊断复核](quality-review.md)及其逐项记录。
+CI 报告对应其实际分析的提交。
 
 从工作流下载 `cppreportcard-ubuntu-24.04-arm` 附件，可查看 `report.json`、`report.md`
 和 `badge.svg`，也可阅读 job summary。CI 将它们写入 `.github/cppreportcard/`。
 中英文 README 展示仓库中的 badge 快照，来源提交和运行记录见
 [快照说明](../../.github/cppreportcard/README.md)；更新时须在签名维护提交中同步修改 SVG 和说明。
-生成的 JSON、Markdown 报告保留为附件。工作流只读仓库，采用
-`fail_on: none` 且不设分数门槛：发现项供审查，分析不完整或工具执行失败仍会使任务失败。
-因此任务成功表示分析完整，不表示零发现或获得 A+。分数不代表测试覆盖率或实机验收。
+生成的 JSON、Markdown 报告保留为附件。工作流只读仓库，采用 `fail_on: findings`。
+`validation/check-quality-report.py` 还要求 A+、三个工具完整完成 full 模式分析且没有诊断。
+对应的反例验证会拒绝分析不完整、缺少工具或仅声称高分的报告。
+这是收紧 CI 门槛，没有改变分析规则或评分方式。分数不代表测试覆盖率或实机验收。
 Cppcheck 来自 Ubuntu 包仓库，runner 更新可能改变其版本；比较报告时应核对记录的工具版本。
 
 ### 现有 Clang 检查

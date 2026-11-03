@@ -242,12 +242,33 @@ The report uses `clang-analyzer-*` and `bugprone-*`; it does not replace the
 existing style workflow's different rule set or platform checks.
 
 `validation/prepare-report-db.py` merges the databases and exposes project
-`-isystem` directories as `-I` directories for Cppcheck. Cppcheck uses its `std`
-library model through `validation/cppcheck-report.sh`, which suppresses only
+`-isystem` directories as `-I` directories for Cppcheck. Through
+`validation/cppcheck-report.sh`, Cppcheck uses its `std` library model and
+`validation/catch2-cppcheck.cfg` for the Catch2 macros used by the project.
+The wrapper suppresses only
 `missingIncludeSystem`: compiler standard headers are not Cppcheck input.
 The full-mode clang-tidy pass still checks every compilation entry for missing
 headers, including project headers written with angle brackets. Other Cppcheck
 preprocessor and syntax errors are not suppressed.
+
+The Catch2 model addresses a Cppcheck 2.13 parser limitation; it does not remove
+test bodies or assertion operands from analysis. Real builds continue to use
+Catch2. Before generating the report, the workflow runs 29 static sentinels and
+two runtime probes that compare fatal/nonfatal assertion behavior in real Catch2
+and the model. The sentinels require detection of null and bounds errors inside
+assertions, section names and bodies, and later test cases. A registration guard
+requires literal test names and tags; it rejects expressions the model cannot
+analyze. After building the three analysis
+inputs and generating the combined database as in the workflow, run the same
+model check from the source root:
+
+```bash
+python3 validation/test-cppcheck-model.py --compile-commands build/report-compile-commands.json
+```
+
+See the [diagnostic review](quality-review.md) and its per-diagnostic ledger for
+the distinction between confirmed defects, intentional contracts and false
+positives. CI reports are tied to the commit they analyze.
 
 Download the `cppreportcard-ubuntu-24.04-arm` artifact from a workflow run for
 `report.json`, `report.md` and `badge.svg`, or read its job summary. CI writes these
@@ -255,10 +276,11 @@ files under `.github/cppreportcard/`. Both READMEs display the checked-in badge
 snapshot; its source commit and run are recorded in
 [the snapshot notes](../../.github/cppreportcard/README.md). Refresh the badge and
 notes together in a signed maintenance commit. Generated JSON and Markdown reports
-remain artifacts. The workflow has read-only repository access,
-uses `fail_on: none` and no score threshold: findings are reported for review,
-while incomplete analysis and tool failures still fail the job. A successful job
-therefore establishes complete analysis, not a finding-free report or an A+ grade.
+remain artifacts. The workflow has read-only repository access and uses
+`fail_on: findings`. `validation/check-quality-report.py` additionally requires
+an A+ grade, complete full-mode analysis by all three tools, and no diagnostics.
+Its negative controls reject incomplete, missing-tool and misleading-grade
+reports. This tightens the CI gate without changing analyzer rules or scoring.
 The score is not test coverage or hardware validation. Cppcheck comes from the
 Ubuntu package repository, so its version can change between runner updates;
 compare the tool versions recorded in reports.
@@ -267,7 +289,7 @@ compare the tool versions recorded in reports.
 
 An independent Linux ARM64 workflow uses clang-format 18 on all tracked C++ sources and
 headers. clang-tidy 18 checks project, example and test translation units in the compilation
-database and the two separately checked files below; headers are checked through those units.
+database and the separately checked files below; headers are checked through those units.
 The main compilation database includes `examples/shared_bus.cpp`, but not the separately
 configured `examples/quickstart/main.cpp`; the current style job does not run clang-tidy
 on that quickstart. The formatting check still includes both tracked example sources.

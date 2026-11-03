@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -37,11 +38,11 @@ namespace {
 
     constexpr auto kTimeout = std::chrono::milliseconds(500);
 
-    auto make_frame(uint32_t id, uint8_t first_byte) -> Message {
+    auto make_frame(uint32_t id, std::byte first_byte) -> Message {
         Message msg;
         msg.id = id;
         msg.dlc = 1;
-        msg.data[0] = first_byte;
+        msg.data[0] = std::to_integer<uint8_t>(first_byte);
         return msg;
     }
 
@@ -174,7 +175,7 @@ TEST_CASE("recover bumps generation and does not replay sent frames", "[managed_
     });
 
     bus.start();
-    bus.send(make_frame(0x28, 0x01));
+    bus.send(make_frame(0x28, std::byte{0x01}));
     REQUIRE(current != nullptr);
     sent_by_generation.push_back(current->sent());
 
@@ -182,7 +183,7 @@ TEST_CASE("recover bumps generation and does not replay sent frames", "[managed_
     REQUIRE(factory_calls == 2);
     REQUIRE(bus.get_health().generation == 2);
     REQUIRE(bus.get_health().state == TransportState::kOpen);
-    bus.send(make_frame(0x28, 0x02));
+    bus.send(make_frame(0x28, std::byte{0x02}));
 
     REQUIRE(sent_by_generation.size() == 1);
     REQUIRE(sent_by_generation[0].size() == 1);
@@ -203,11 +204,11 @@ TEST_CASE("old-generation callbacks are not delivered after recover", "[managed_
     FrameCollector collector;
     bus.subscribe(collector.callback());
     bus.start();
-    current->inject(make_frame(0x28, 0xA1));
+    current->inject(make_frame(0x28, std::byte{0xA1}));
     REQUIRE(collector.wait_for(1, kTimeout));
 
     bus.recover();
-    current->inject(make_frame(0x28, 0xA2));
+    current->inject(make_frame(0x28, std::byte{0xA2}));
     REQUIRE(collector.wait_for(2, kTimeout));
 
     auto frames = collector.frames();
@@ -241,7 +242,7 @@ TEST_CASE("late errors from a closed generation are ignored", "[managed_bus]") {
     REQUIRE(bus.get_health().generation == 2);
     REQUIRE_FALSE(bus.get_health().last_error_code.has_value());
 
-    current->inject(make_frame(0x28, 0xA9));
+    current->inject(make_frame(0x28, std::byte{0xA9}));
     REQUIRE(collector.wait_for(1, kTimeout));
     REQUIRE(collector.frames().back().data[0] == 0xA9);
     bus.stop();
@@ -275,10 +276,10 @@ TEST_CASE("sync send still means backend accepted the frame", "[managed_bus]") {
         return transport;
     });
     bus.start();
-    bus.send(make_frame(0x28, 0x03));
+    bus.send(make_frame(0x28, std::byte{0x03}));
     REQUIRE(current->sent().size() == 1);
     current->fail_writes("USB transmit failed");
-    REQUIRE_THROWS_AS(bus.send(make_frame(0x28, 0x04)), TransportIOError);
+    REQUIRE_THROWS_AS(bus.send(make_frame(0x28, std::byte{0x04})), TransportIOError);
     REQUIRE(current->sent().size() == 1);
     bus.stop();
 }
@@ -292,7 +293,7 @@ TEST_CASE("queue_send receipt completes after backend accept", "[managed_bus][qu
     });
     bus.start();
 
-    auto receipt = bus.queue_send(make_frame(0x28, 0x10));
+    auto receipt = bus.queue_send(make_frame(0x28, std::byte{0x10}));
     REQUIRE_NOTHROW(receipt.wait_for(kTimeout));
     REQUIRE(receipt.completed());
     REQUIRE(current->sent().size() == 1);
@@ -310,7 +311,7 @@ TEST_CASE("enqueue success is not physical send success", "[managed_bus][queue]"
     bus.start();
     current->arm_tx_gate();
 
-    auto receipt = bus.queue_send(make_frame(0x28, 0x11));
+    auto receipt = bus.queue_send(make_frame(0x28, std::byte{0x11}));
     REQUIRE(current->wait_until_tx_entered(kTimeout));
     REQUIRE_FALSE(receipt.completed());
     REQUIRE(current->sent().empty());
@@ -336,10 +337,10 @@ TEST_CASE("queue full is reported immediately", "[managed_bus][queue]") {
     bus.start();
     current->arm_tx_gate();
 
-    auto primer = bus.queue_send(make_frame(0x28, 0x01));
+    auto primer = bus.queue_send(make_frame(0x28, std::byte{0x01}));
     REQUIRE(current->wait_until_tx_entered(kTimeout));
-    auto queued = bus.queue_send(make_frame(0x28, 0x02));
-    REQUIRE_THROWS_AS(bus.queue_send(make_frame(0x28, 0x03)), QueueFullError);
+    auto queued = bus.queue_send(make_frame(0x28, std::byte{0x02}));
+    REQUIRE_THROWS_AS(bus.queue_send(make_frame(0x28, std::byte{0x03})), QueueFullError);
 
     current->release_tx_gate();
     REQUIRE_NOTHROW(primer.wait_for(kTimeout));
@@ -357,7 +358,7 @@ TEST_CASE("receipt distinguishes backend failure", "[managed_bus][queue]") {
     bus.start();
     current->fail_writes("USB transmit failed");
 
-    auto receipt = bus.queue_send(make_frame(0x28, 0x12));
+    auto receipt = bus.queue_send(make_frame(0x28, std::byte{0x12}));
     try {
         receipt.wait_for(kTimeout);
         FAIL("backend failure should complete the receipt with an error");
@@ -378,9 +379,9 @@ TEST_CASE("stop completes pending receipts", "[managed_bus][queue]") {
     bus.start();
     current->arm_tx_gate();
 
-    auto in_flight = bus.queue_send(make_frame(0x28, 0x21));
+    auto in_flight = bus.queue_send(make_frame(0x28, std::byte{0x21}));
     REQUIRE(current->wait_until_tx_entered(kTimeout));
-    auto queued = bus.queue_send(make_frame(0x28, 0x22));
+    auto queued = bus.queue_send(make_frame(0x28, std::byte{0x22}));
 
     std::thread stopper([&] { bus.stop(); });
     REQUIRE_THROWS_AS(queued.wait_for(kTimeout), ClosedError);
@@ -389,7 +390,9 @@ TEST_CASE("stop completes pending receipts", "[managed_bus][queue]") {
     try {
         in_flight.wait_for(kTimeout);
     } catch (const ClosedError &) {
+        CHECK(in_flight.completed());
     } catch (const TransportIOError &) {
+        CHECK(in_flight.completed());
     }
     REQUIRE(in_flight.completed());
 }
@@ -404,9 +407,9 @@ TEST_CASE("recover drops queued frames from the old generation", "[managed_bus][
     bus.start();
     current->arm_tx_gate();
 
-    auto primer = bus.queue_send(make_frame(0x28, 0x31));
+    auto primer = bus.queue_send(make_frame(0x28, std::byte{0x31}));
     REQUIRE(current->wait_until_tx_entered(kTimeout));
-    auto stale = bus.queue_send(make_frame(0x28, 0x32));
+    auto stale = bus.queue_send(make_frame(0x28, std::byte{0x32}));
 
     std::thread recoverer([&] { bus.recover(); });
     REQUIRE_THROWS_AS(stale.wait_for(kTimeout), ClosedError);
@@ -415,12 +418,14 @@ TEST_CASE("recover drops queued frames from the old generation", "[managed_bus][
     try {
         primer.wait_for(kTimeout);
     } catch (const ClosedError &) {
+        CHECK(primer.completed());
     } catch (const TransportIOError &) {
+        CHECK(primer.completed());
     }
     REQUIRE(bus.get_health().generation == 2);
     REQUIRE(bus.get_health().state == TransportState::kOpen);
 
-    auto fresh = bus.queue_send(make_frame(0x28, 0x33));
+    auto fresh = bus.queue_send(make_frame(0x28, std::byte{0x33}));
     REQUIRE_NOTHROW(fresh.wait_for(kTimeout));
     REQUIRE(current->sent().size() == 1);
     REQUIRE(current->sent()[0].data[0] == 0x33);
@@ -438,12 +443,12 @@ TEST_CASE("queued sends coalesce into write_batch", "[managed_bus][queue][batch]
     bus.start();
     current->arm_tx_gate();
 
-    auto primer = bus.queue_send(make_frame(0x10, 0));
+    auto primer = bus.queue_send(make_frame(0x10, std::byte{0}));
     REQUIRE(current->wait_until_tx_entered(kTimeout));
     std::vector<linkerbot::can::SendReceipt> receipts;
-    receipts.push_back(bus.queue_send(make_frame(0x11, 1)));
-    receipts.push_back(bus.queue_send(make_frame(0x12, 2)));
-    receipts.push_back(bus.queue_send(make_frame(0x13, 3)));
+    receipts.push_back(bus.queue_send(make_frame(0x11, std::byte{1})));
+    receipts.push_back(bus.queue_send(make_frame(0x12, std::byte{2})));
+    receipts.push_back(bus.queue_send(make_frame(0x13, std::byte{3})));
     current->release_tx_gate();
 
     REQUIRE_NOTHROW(primer.wait_for(kTimeout));
@@ -469,12 +474,12 @@ TEST_CASE("failed batch fails every receipt", "[managed_bus][queue][batch]") {
     bus.start();
     current->arm_tx_gate();
 
-    auto primer = bus.queue_send(make_frame(0x10, 0));
+    auto primer = bus.queue_send(make_frame(0x10, std::byte{0}));
     REQUIRE(current->wait_until_tx_entered(kTimeout));
     current->fail_batches("batch outcome is unknown");
-    auto first = bus.queue_send(make_frame(0x11, 1));
-    auto second = bus.queue_send(make_frame(0x12, 2));
-    auto third = bus.queue_send(make_frame(0x13, 3));
+    auto first = bus.queue_send(make_frame(0x11, std::byte{1}));
+    auto second = bus.queue_send(make_frame(0x12, std::byte{2}));
+    auto third = bus.queue_send(make_frame(0x13, std::byte{3}));
     current->release_tx_gate();
 
     REQUIRE_NOTHROW(primer.wait_for(kTimeout));
@@ -494,10 +499,10 @@ TEST_CASE("backends without batch fall back to per-frame send", "[managed_bus][q
     bus.start();
     current->arm_tx_gate();
 
-    auto primer = bus.queue_send(make_frame(0x10, 0));
+    auto primer = bus.queue_send(make_frame(0x10, std::byte{0}));
     REQUIRE(current->wait_until_tx_entered(kTimeout));
-    auto a = bus.queue_send(make_frame(0x11, 1));
-    auto b = bus.queue_send(make_frame(0x12, 2));
+    auto a = bus.queue_send(make_frame(0x11, std::byte{1}));
+    auto b = bus.queue_send(make_frame(0x12, std::byte{2}));
     current->release_tx_gate();
 
     REQUIRE_NOTHROW(primer.wait_for(kTimeout));
@@ -523,11 +528,11 @@ TEST_CASE("send_batch_max caps each backend call", "[managed_bus][queue][batch]"
     bus.start();
     current->arm_tx_gate();
 
-    auto primer = bus.queue_send(make_frame(0x10, 0));
+    auto primer = bus.queue_send(make_frame(0x10, std::byte{0}));
     REQUIRE(current->wait_until_tx_entered(kTimeout));
     std::vector<linkerbot::can::SendReceipt> receipts;
     for (uint8_t i = 1; i <= 10; ++i) {
-        receipts.push_back(bus.queue_send(make_frame(0x20u + i, i)));
+        receipts.push_back(bus.queue_send(make_frame(0x20u + i, std::byte{i})));
     }
     current->release_tx_gate();
 
@@ -557,7 +562,7 @@ TEST_CASE("single queued frame uses send not write_batch", "[managed_bus][queue]
         return transport;
     });
     bus.start();
-    auto receipt = bus.queue_send(make_frame(0x42, 1));
+    auto receipt = bus.queue_send(make_frame(0x42, std::byte{1}));
     REQUIRE_NOTHROW(receipt.wait_for(kTimeout));
     REQUIRE(current->sent().size() == 1);
     REQUIRE(current->batch_writes().empty());
@@ -566,10 +571,10 @@ TEST_CASE("single queued frame uses send not write_batch", "[managed_bus][queue]
 
 TEST_CASE("queue_send after stop fails fast", "[managed_bus][queue]") {
     ManagedCANBus bus([] { return std::make_unique<FakeTransport>(); });
-    REQUIRE_THROWS_AS(bus.queue_send(make_frame(0x28, 0x01)), ClosedError);
+    REQUIRE_THROWS_AS(bus.queue_send(make_frame(0x28, std::byte{0x01})), ClosedError);
     bus.start();
     bus.stop();
-    REQUIRE_THROWS_AS(bus.queue_send(make_frame(0x28, 0x01)), ClosedError);
+    REQUIRE_THROWS_AS(bus.queue_send(make_frame(0x28, std::byte{0x01})), ClosedError);
 }
 
 TEST_CASE("synchronous stop/start/recover from a subscriber callback is rejected, not fatal",
@@ -597,7 +602,7 @@ TEST_CASE("synchronous stop/start/recover from a subscriber callback is rejected
         callback_finished.store(true, std::memory_order_release);
     });
 
-    raw->inject(make_frame(0x28, 0x50));
+    raw->inject(make_frame(0x28, std::byte{0x50}));
     REQUIRE(wait_until([&] { return callback_finished.load(std::memory_order_acquire); }));
     REQUIRE(saw_validation_error.load(std::memory_order_acquire));
     // stop() was rejected rather than silently swallowed, so the bus is
@@ -638,8 +643,8 @@ TEST_CASE("synchronous recover from the fault callback is rejected, not fatal",
     raw->fail_reads("boom");
     REQUIRE(wait_until([&] { return fault_seen.load(std::memory_order_acquire); }));
     REQUIRE(saw_validation_error.load(std::memory_order_acquire));
-    REQUIRE_THROWS_AS(bus.send(make_frame(0x28, 0x52)), FaultedError);
-    REQUIRE_THROWS_AS(bus.queue_send(make_frame(0x28, 0x53)), FaultedError);
+    REQUIRE_THROWS_AS(bus.send(make_frame(0x28, std::byte{0x52})), FaultedError);
+    REQUIRE_THROWS_AS(bus.queue_send(make_frame(0x28, std::byte{0x53})), FaultedError);
 }
 
 TEST_CASE("an external stop is not blocked or terminated by a rejected self-stop callback",
@@ -675,7 +680,7 @@ TEST_CASE("an external stop is not blocked or terminated by a rejected self-stop
     });
     bus.subscribe([&](const Message &) { ++later_calls; });
 
-    raw->inject(make_frame(0x28, 0x51));
+    raw->inject(make_frame(0x28, std::byte{0x51}));
     {
         std::unique_lock lock(mutex);
         cv.wait(lock, [&] { return entered; });
@@ -714,7 +719,7 @@ TEST_CASE("managed bus health reports a disabled throwing subscriber",
         throw std::runtime_error("managed subscriber failure");
     });
     for (int i = 0; i < 4; ++i) {
-        raw->inject(make_frame(0x28, static_cast<uint8_t>(i)));
+        raw->inject(make_frame(0x28, static_cast<std::byte>(i)));
     }
 
     REQUIRE(wait_until([&] { return bus.get_health().disabled_subscriber_count == 1; }));
@@ -801,7 +806,8 @@ TEST_CASE("lease move assignment preserves both owners when target close fails",
     // the only explicit retry owner for its failed close, and the source still
     // owns the lease that was going to replace it.
     REQUIRE_NOTHROW(first.bus());
-    // NOLINTNEXTLINE(bugprone-use-after-move) -- the throwing assignment preserves the source.
+    // A failed target close leaves the source unchanged, as this test verifies.
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     REQUIRE_NOTHROW(second.bus());
     REQUIRE(pool.lease_count(first_key) == 1);
     REQUIRE(pool.lease_count(second_key) == 1);
@@ -827,7 +833,8 @@ TEST_CASE("lease move assignment closes the target before adopting the source", 
     REQUIRE(pool.lease_count(first_key) == 0);
     REQUIRE(pool.lease_count(second_key) == 1);
     REQUIRE(&first.bus() == second_bus);
-    // NOLINTNEXTLINE(bugprone-use-after-move) -- the moved-from state is the contract under test.
+    // The documented moved-from state is the contract under test.
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     REQUIRE_THROWS_AS(second.bus(), ClosedError);
 
     // Self-move remains a no-op and keeps the adopted lease usable.
@@ -880,7 +887,7 @@ TEST_CASE("a moved-from lease can adopt a new owner and be destroyed in a callba
         callback_returned.store(true, std::memory_order_release);
     });
 
-    trigger_transport->inject(make_frame(0x28, 0x62));
+    trigger_transport->inject(make_frame(0x28, std::byte{0x62}));
     REQUIRE(wait_until([&] { return callback_returned.load(std::memory_order_acquire); }));
     REQUIRE_FALSE(source.has_value());
     REQUIRE(retry_rejected.load(std::memory_order_acquire));
@@ -1154,7 +1161,7 @@ TEST_CASE("pool acquire and lease close reject calls from a dispatcher's own rec
         callback_finished.store(true, std::memory_order_release);
     });
 
-    raw->inject(make_frame(0x28, 0x60));
+    raw->inject(make_frame(0x28, std::byte{0x60}));
     REQUIRE(wait_until([&] { return callback_finished.load(std::memory_order_acquire); }));
     REQUIRE(acquire_rejected.load(std::memory_order_acquire));
     REQUIRE(close_rejected.load(std::memory_order_acquire));
@@ -1227,7 +1234,7 @@ TEST_CASE("last lease destruction in a receive callback is deferred safely", "[p
     });
 
     transport->fail_next_closes(close_failures);
-    transport->inject(make_frame(0x28, 0x61));
+    transport->inject(make_frame(0x28, std::byte{0x61}));
     REQUIRE(wait_until([&] { return callback_returned.load(std::memory_order_acquire); }));
     REQUIRE_FALSE(lease.has_value());
     REQUIRE(drain_rejected_in_callback.load(std::memory_order_acquire));

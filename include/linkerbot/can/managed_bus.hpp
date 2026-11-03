@@ -522,6 +522,9 @@ namespace linkerbot::can {
                 try {
                     options_.on_fault(error);
                 } catch (...) {
+                    // The bus is already faulted and queued work has failed.
+                    // A reporting callback cannot replace that outcome.
+                    return;
                 }
             }
         }

@@ -1,8 +1,11 @@
+#include "optional_value.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdlib>
 #include <functional>
 #include <future>
@@ -19,6 +22,8 @@
 #endif
 using namespace std::chrono_literals;
 using namespace linkerbot;
+using linkerbot::test_support::require_value;
+
 namespace {
 #if defined(__linux__)
     void pin_to_first_available_cpu() {
@@ -101,11 +106,11 @@ namespace {
         }
     }
 
-    can::Message frame(uint32_t id, uint8_t value = 0) {
+    can::Message frame(uint32_t id, std::byte value = std::byte{0}) {
         can::Message m;
         m.id = id;
         m.dlc = 1;
-        m.data[0] = value;
+        m.data[0] = std::to_integer<uint8_t>(value);
         return m;
     }
 
@@ -150,12 +155,12 @@ TEST_CASE("Session exact routes include IDE and registration is atomic", "[sessi
     REQUIRE_THROWS(rig.session->subscribe_routes({{0x29, false}, {0x28, false}}, 2));
     auto second = rig.session->subscribe_routes({{0x29, false}}, 2);
     auto extended = rig.session->subscribe_routes({{0x28, true}}, 2);
-    auto ext = frame(0x28, 22);
+    auto ext = frame(0x28, std::byte{22});
     ext.is_extended = true;
     rig.fake->inject(ext);
     auto received = extended->receive_until(transport::Clock::now() + 500ms);
     REQUIRE(received.has_value());
-    REQUIRE(received->message.data[0] == 22);
+    REQUIRE(require_value(received).message.data[0] == 22);
     REQUIRE_FALSE(first->try_receive());
     first->close();
     REQUIRE_NOTHROW(rig.session->subscribe_routes({{0x28, false}}, 2));
@@ -163,8 +168,8 @@ TEST_CASE("Session exact routes include IDE and registration is atomic", "[sessi
 TEST_CASE("Session bounded inbox rejects overflow and invalid RX", "[session]") {
     SessionRig rig;
     auto route = rig.session->subscribe_routes({{0x28, false}}, 1);
-    rig.fake->inject(frame(0x28, 1));
-    rig.fake->inject(frame(0x28, 2));
+    rig.fake->inject(frame(0x28, std::byte{1}));
+    rig.fake->inject(frame(0x28, std::byte{2}));
     auto invalid = frame(0x28);
     invalid.dlc = 65;
     rig.fake->inject(invalid);
@@ -173,7 +178,7 @@ TEST_CASE("Session bounded inbox rejects overflow and invalid RX", "[session]") 
     REQUIRE(barrier->receive_until(transport::Clock::now() + 500ms));
     REQUIRE(route->health().overflow == 1);
     REQUIRE(rig.session->health().invalid_frames == 1);
-    REQUIRE(route->try_receive()->message.data[0] == 1);
+    REQUIRE(require_value(route->try_receive()).message.data[0] == 1);
 }
 TEST_CASE("Session queued deadline and latest never replace a claimed batch", "[session]") {
     SessionRig rig;
@@ -182,17 +187,17 @@ TEST_CASE("Session queued deadline and latest never replace a claimed batch", "[
     latest.endpoint = "hand";
     latest.family = "angle";
     latest.policy = transport::SendPolicy::latest;
-    auto claimed = rig.session->submit({{frame(0x28, 1)}, 0us, 0us}, latest);
+    auto claimed = rig.session->submit({{frame(0x28, std::byte{1})}, 0us, 0us}, latest);
     REQUIRE(rig.fake->wait_until_tx_entered(500ms));
     auto other_latest = latest;
     other_latest.endpoint = "arm";
-    auto unrelated = rig.session->submit({{frame(0x28, 5)}, 0us, 0us}, other_latest);
-    auto superseded = rig.session->submit({{frame(0x28, 2)}, 0us, 0us}, latest);
-    auto kept = rig.session->submit({{frame(0x28, 3)}, 0us, 0us}, latest);
+    auto unrelated = rig.session->submit({{frame(0x28, std::byte{5})}, 0us, 0us}, other_latest);
+    auto superseded = rig.session->submit({{frame(0x28, std::byte{2})}, 0us, 0us}, latest);
+    auto kept = rig.session->submit({{frame(0x28, std::byte{3})}, 0us, 0us}, latest);
     REQUIRE(superseded.result().outcome == transport::SendOutcome::superseded);
     transport::SendOptions expired;
     expired.deadline = transport::Clock::now() + 10ms;
-    auto timed = rig.session->submit({{frame(0x28, 4)}, 0us, 0us}, expired);
+    auto timed = rig.session->submit({{frame(0x28, std::byte{4})}, 0us, 0us}, expired);
     REQUIRE_THROWS_AS(timed.wait_until(expired.deadline), can::TimeoutError);
     rig.fake->release_tx_gate();
     claimed.wait();
@@ -217,15 +222,15 @@ TEST_CASE("Session enforces send capacity while priority still orders queued wor
         2);
     raw->arm_tx_gate();
 
-    auto active = session->submit({{frame(0x28, 1)}});
+    auto active = session->submit({{frame(0x28, std::byte{1})}});
     REQUIRE(raw->wait_until_tx_entered(500ms));
     transport::SendOptions low;
     low.priority = 0;
-    auto low_priority = session->submit({{frame(0x28, 2)}}, low);
+    auto low_priority = session->submit({{frame(0x28, std::byte{2})}}, low);
     transport::SendOptions high;
     high.priority = 10;
-    auto high_priority = session->submit({{frame(0x28, 3)}}, high);
-    REQUIRE_THROWS_AS(session->submit({{frame(0x28, 4)}}), can::QueueFullError);
+    auto high_priority = session->submit({{frame(0x28, std::byte{3})}}, high);
+    REQUIRE_THROWS_AS(session->submit({{frame(0x28, std::byte{4})}}), can::QueueFullError);
 
     raw->release_tx_gate();
     active.wait();
@@ -245,7 +250,8 @@ TEST_CASE("Session cancellation interrupts pacing with known accepted count", "[
     options.cancellation = cancel.token();
     auto route = rig.session->subscribe_routes({{0x28, false}});
     rig.fake->echo_cmd(0x28, 1, 0);
-    auto receipt = rig.session->submit({{frame(0x28, 1), frame(0x28, 2)}, 1s, 0us}, options);
+    auto receipt = rig.session->submit(
+        {{frame(0x28, std::byte{1}), frame(0x28, std::byte{2})}, 1s, 0us}, options);
     REQUIRE(route->receive_until(transport::Clock::now() + 500ms));
     cancel.cancel();
     REQUIRE_THROWS_AS(receipt.wait_until(transport::Clock::now() + 500ms),
@@ -261,7 +267,7 @@ TEST_CASE("Session cancellation after full backend acceptance keeps the dispatch
     transport::SendOptions options;
     options.cancellation = cancel.token();
     rig.fake->arm_tx_gate();
-    auto receipt = rig.session->submit({{frame(0x28, 1)}, 0us, 0us}, options);
+    auto receipt = rig.session->submit({{frame(0x28, std::byte{1})}, 0us, 0us}, options);
     REQUIRE(rig.fake->wait_until_tx_entered(1s));
     // The only frame is already inside the backend write. Cancelling here
     // cannot unsend it, so the batch has no unresolved frame left to report.
@@ -277,7 +283,7 @@ TEST_CASE("Session close during the claimed write keeps the accepted frames disp
           "[session]") {
     SessionRig rig;
     rig.fake->arm_tx_gate();
-    auto receipt = rig.session->submit({{frame(0x28, 1)}, 0us, 0us});
+    auto receipt = rig.session->submit({{frame(0x28, std::byte{1})}, 0us, 0us});
     REQUIRE(rig.fake->wait_until_tx_entered(1s));
     auto closing = std::async(std::launch::async, [&] { rig.session->close(); });
     // close() cancels the claimed job while its frame sits in the backend.
@@ -473,9 +479,10 @@ TEST_CASE("Session recover invalidates old routes and cancels batches without re
 
     // The echoed first frame proves this batch owns the writer. Its long gap
     // leaves both an unfinished frame and a queued batch for recover to cancel.
-    auto active = rig.session->submit({{frame(0x28, 1), frame(0x28, 2)}, 10s});
+    auto active =
+        rig.session->submit({{frame(0x28, std::byte{1}), frame(0x28, std::byte{2})}, 10s});
     REQUIRE(old_route->receive_until(transport::Clock::now() + 2s));
-    auto queued = rig.session->submit({{frame(0x28, 3)}});
+    auto queued = rig.session->submit({{frame(0x28, std::byte{3})}});
     const auto generation = rig.session->recover(old_generation);
 
     REQUIRE(generation == old_generation + 1);
@@ -496,12 +503,12 @@ TEST_CASE("Session recover invalidates old routes and cancels batches without re
     REQUIRE(queued.result().sent_frames == 0);
 
     auto route = rig.session->subscribe_routes({{0x28, false}});
-    auto fresh = rig.session->submit({{frame(0x28, 4)}});
+    auto fresh = rig.session->submit({{frame(0x28, std::byte{4})}});
     REQUIRE(fresh.wait_until(transport::Clock::now() + 2s).generation == generation);
     const auto reply = route->receive_until(transport::Clock::now() + 2s);
     REQUIRE(reply);
-    REQUIRE(reply->generation == generation);
-    REQUIRE(reply->message.data[0] == 4);
+    REQUIRE(require_value(reply).generation == generation);
+    REQUIRE(require_value(reply).message.data[0] == 4);
     REQUIRE(rig.sent() == std::vector<uint8_t>{1, 4});
 }
 
@@ -545,7 +552,7 @@ TEST_CASE("Session recover coalesces concurrent callers observing the same gener
     REQUIRE(rig.factory_calls == 2);
     // Also drain a real send through the rebuilt connection.
     auto route = rig.session->subscribe_routes({{0x28, false}});
-    auto sent = rig.session->submit({{frame(0x28, 5)}});
+    auto sent = rig.session->submit({{frame(0x28, std::byte{5})}});
     (void)sent.wait_until(transport::Clock::now() + 2s);
     REQUIRE(route->receive_until(transport::Clock::now() + 2s));
     rig.session->close();
@@ -572,12 +579,12 @@ TEST_CASE("Session recover retries a failed factory without reviving old routes"
     REQUIRE(rig.session->health().recoveries == 1);
     REQUIRE_THROWS_AS(old_route->try_receive(), can::ClosedError);
     auto route = rig.session->subscribe_routes({{0x28, false}});
-    auto receipt = rig.session->submit({{frame(0x28, 6)}});
+    auto receipt = rig.session->submit({{frame(0x28, std::byte{6})}});
     (void)receipt.wait_until(transport::Clock::now() + 2s);
     const auto reply = route->receive_until(transport::Clock::now() + 2s);
     REQUIRE(reply);
-    REQUIRE(reply->generation == generation);
-    REQUIRE(reply->message.data[0] == 6);
+    REQUIRE(require_value(reply).generation == generation);
+    REQUIRE(require_value(reply).message.data[0] == 6);
     REQUIRE(rig.sent() == std::vector<uint8_t>{6});
 }
 
@@ -698,8 +705,8 @@ TEST_CASE("Session validates route changes and send options without losing exist
     REQUIRE_THROWS_AS(rig.session->submit({{frame(0x28)}}, expired), can::TimeoutError);
     rig.session->update_routes(route, {{0x29, false}});
     auto reused = rig.session->subscribe_routes({{0x28, false}});
-    rig.fake->inject(frame(0x29, 7));
-    REQUIRE(route->receive_until(transport::Clock::now() + 2s)->message.data[0] == 7);
+    rig.fake->inject(frame(0x29, std::byte{7}));
+    REQUIRE(require_value(route->receive_until(transport::Clock::now() + 2s)).message.data[0] == 7);
     route->close();
     REQUIRE_THROWS_AS(rig.session->update_routes(route, {{0x29, false}}), can::ClosedError);
 }
@@ -715,11 +722,11 @@ TEST_CASE("Session endpoint cancellation preserves unrelated work and cancels qu
     transport::CancellationSource token;
     transport::SendOptions cancelled;
     cancelled.cancellation = token.token();
-    auto active = rig.session->submit({{frame(0x28, 1)}}, a);
+    auto active = rig.session->submit({{frame(0x28, std::byte{1})}}, a);
     const bool entered = rig.fake->wait_until_tx_entered(2s);
-    auto same = rig.session->submit({{frame(0x28, 2)}}, a);
-    auto unrelated = rig.session->submit({{frame(0x28, 3)}}, b);
-    auto queued_token = rig.session->submit({{frame(0x28, 4)}}, cancelled);
+    auto same = rig.session->submit({{frame(0x28, std::byte{2})}}, a);
+    auto unrelated = rig.session->submit({{frame(0x28, std::byte{3})}}, b);
+    auto queued_token = rig.session->submit({{frame(0x28, std::byte{4})}}, cancelled);
     rig.session->cancel_endpoint("a");
     rig.session->cancel_endpoint("absent");
     token.cancel();
@@ -923,7 +930,7 @@ TEST_CASE("Session registry waits for deferred leased cleanup before replacement
     auto session = transport::Session::lease(std::move(lease));
 
     first_transport->arm_tx_gate();
-    auto receipt = session->submit({{frame(0x28, 0x31)}});
+    auto receipt = session->submit({{frame(0x28, std::byte{0x31})}});
     const bool writer_entered = first_transport->wait_until_tx_entered(2s);
 
     std::promise<void> released;
@@ -932,7 +939,7 @@ TEST_CASE("Session registry waits for deferred leased cleanup before replacement
         session.reset();
         released.set_value();
     });
-    first_transport->inject(frame(0x29, 0x41));
+    first_transport->inject(frame(0x29, std::byte{0x41}));
     const auto release_status = release_observed.wait_for(2s);
 
     auto replacement =
@@ -974,7 +981,7 @@ TEST_CASE("Session registry waits for deferred shared cleanup before replacement
     auto session = transport::Session::share(bus);
 
     raw->arm_tx_gate();
-    auto receipt = session->submit({{frame(0x28, 0x32)}});
+    auto receipt = session->submit({{frame(0x28, std::byte{0x32})}});
     const bool writer_entered = raw->wait_until_tx_entered(2s);
     std::promise<void> released;
     auto release_observed = released.get_future();
@@ -982,7 +989,7 @@ TEST_CASE("Session registry waits for deferred shared cleanup before replacement
         session.reset();
         released.set_value();
     });
-    raw->inject(frame(0x29, 0x42));
+    raw->inject(frame(0x29, std::byte{0x42}));
     const auto release_status = release_observed.wait_for(2s);
 
     auto replacement =
@@ -1019,7 +1026,7 @@ TEST_CASE("Session registry waiters recheck a replacement active generation",
     auto session = transport::Session::share(bus);
 
     raw->arm_tx_gate();
-    auto receipt = session->submit({{frame(0x28, 0x34)}});
+    auto receipt = session->submit({{frame(0x28, std::byte{0x34})}});
     const bool writer_entered = raw->wait_until_tx_entered(2s);
     if (!writer_entered) {
         raw->release_tx_gate();
@@ -1032,7 +1039,7 @@ TEST_CASE("Session registry waiters recheck a replacement active generation",
         session.reset();
         released.set_value();
     });
-    raw->inject(frame(0x29, 0x44));
+    raw->inject(frame(0x29, std::byte{0x44}));
     const auto release_status = release_observed.wait_for(2s);
     if (release_status != std::future_status::ready) {
         raw->release_tx_gate();
@@ -1091,6 +1098,8 @@ TEST_CASE("Session registry waiters recheck a replacement active generation",
             try {
                 (void)caller.get();
             } catch (...) {
+                // Joining all other callers precedes rethrowing launch_failure.
+                continue;
             }
         }
         std::rethrow_exception(launch_failure);
@@ -1174,7 +1183,7 @@ TEST_CASE("Session registry waits for deferred borrowed cleanup before replaceme
     auto session = transport::Session::borrow(dispatcher);
 
     raw->arm_tx_gate();
-    auto receipt = session->submit({{frame(0x28, 0x33)}});
+    auto receipt = session->submit({{frame(0x28, std::byte{0x33})}});
     const bool writer_entered = raw->wait_until_tx_entered(2s);
     std::promise<void> released;
     auto release_observed = released.get_future();
@@ -1182,7 +1191,7 @@ TEST_CASE("Session registry waits for deferred borrowed cleanup before replaceme
         session.reset();
         released.set_value();
     });
-    raw->inject(frame(0x29, 0x43));
+    raw->inject(frame(0x29, std::byte{0x43}));
     const auto release_status = release_observed.wait_for(2s);
 
     auto replacement =
@@ -1365,6 +1374,7 @@ TEST_CASE("Session registry ignores waits for a published initialization attempt
         try {
             (void)publisher.get();
         } catch (...) {
+            std::rethrow_exception(launch_failure);
         }
         std::rethrow_exception(launch_failure);
     }
@@ -1524,6 +1534,8 @@ TEST_CASE("Session registry rebinds a waiter to a replacement initialization att
             try {
                 (void)future->get();
             } catch (...) {
+                // Observe every ready future, then retain the thread-launch error.
+                continue;
             }
         }
         std::rethrow_exception(launch_failure);

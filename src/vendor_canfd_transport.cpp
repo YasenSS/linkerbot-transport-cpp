@@ -2,6 +2,7 @@
 #include <linkerbot/can/vendor_canfd_transport.hpp>
 
 #include <array>
+#include <cstddef>
 #include <cstring>
 #include <exception>
 #include <set>
@@ -114,9 +115,9 @@ namespace linkerbot::can {
         if (length > kMaxDataLen) {
             throw ValidationError("CAN FD payload length exceeds 64 bytes");
         }
-        for (uint8_t dlc = 0; dlc < kDlcToLength.size(); ++dlc) {
+        for (std::size_t dlc = 0; dlc < kDlcToLength.size(); ++dlc) {
             if (length <= kDlcToLength[dlc]) {
-                return dlc;
+                return static_cast<uint8_t>(dlc);
             }
         }
         throw ValidationError("CAN FD payload length exceeds 64 bytes");
@@ -465,7 +466,7 @@ namespace linkerbot::can {
 
     VendorCanFdTransport::~VendorCanFdTransport() {
         try {
-            close();
+            VendorCanFdTransport::close();
         } catch (...) { // destructor transfers unfinished resource ownership
             retain_cleanup(api_, config_.device_index, config_.channel_index, device_closed_);
         }

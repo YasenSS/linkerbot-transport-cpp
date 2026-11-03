@@ -117,6 +117,8 @@ API Test_CopyTiming(char *buffer, uint32_t size) {
     std::memcpy(buffer, last_timing.c_str(), last_timing.size() + 1);
     return 0;
 }
+// This exported test function must retain the PCAN-Basic ABI parameter order.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 API CAN_GetValue(uint16_t ch, uint8_t parameter, void *buffer, uint32_t size) {
     std::unique_lock<std::mutex> lock(mutex);
     ++values[7];
