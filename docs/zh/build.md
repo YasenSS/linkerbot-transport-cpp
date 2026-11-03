@@ -185,6 +185,33 @@ env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_pa
 
 ## Clang 格式与静态检查
 
+### C++ Report Card
+
+独立的 `C++ Report Card` 工作流在 Linux ARM64 上运行固定完整提交 SHA 的
+[cppreportcard-action](https://github.com/soulteary/cppreportcard-action) v1.0.1。
+构建项目、quickstart 和安装后消费者后，合并三份编译数据库，以 `full` 模式运行
+clang-format 18、clang-tidy 18 和 Cppcheck，覆盖主工程源码、测试及两个独立示例。
+
+配置位于 `.cppreportcard.json`。项目源文件仅排除两项：Windows 专用依赖测试文件
+`tests/vendor_fixture_dependency.cpp`，以及需要外部厂商头文件的
+`validation/pcan_header_abi.cpp`。构建产物目录与第三方依赖也不参与分析。
+报告启用 `clang-analyzer-*` 和 `bugprone-*`，不替代现有 style 工作流中不同的规则集
+或平台验证。
+
+`validation/prepare-report-db.py` 合并编译数据库，并将项目的 `-isystem` 目录显式表示为
+`-I`，供 Cppcheck 使用。`validation/cppcheck-report.sh` 让 Cppcheck 使用 `std` 标准库模型，
+仅抑制 `missingIncludeSystem`：编译器标准库头文件不是 Cppcheck 的分析输入。
+完整模式中的 clang-tidy 仍检查每个编译单元的缺失头文件，包括尖括号形式的项目头文件；
+其他 Cppcheck 预处理和语法错误不会被抑制。
+
+从工作流下载 `cppreportcard-ubuntu-24.04-arm` 附件，可查看 `report.json`、`report.md`
+和 `badge.svg`，也可阅读 job summary。报告不会提交回仓库。工作流只读仓库，采用
+`fail_on: none` 且不设分数门槛：发现项供审查，分析不完整或工具执行失败仍会使任务失败。
+因此任务成功表示分析完整，不表示零发现或获得 A+。分数不代表测试覆盖率或实机验收。
+Cppcheck 来自 Ubuntu 包仓库，runner 更新可能改变其版本；比较报告时应核对记录的工具版本。
+
+### 现有 Clang 检查
+
 独立的 Linux ARM64 工作流使用 clang-format 18 检查所有已跟踪的 C++ 源文件和头文件；
 clang-tidy 18 检查 compile database 中的项目、示例、测试翻译单元及下述两个单独文件，头文件
 通过这些翻译单元间接检查。主 compile database 包含 `examples/shared_bus.cpp`，不包含独立

@@ -202,6 +202,42 @@ env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_pa
 
 ## Clang formatting and static analysis
 
+### C++ Report Card
+
+The separate `C++ Report Card` workflow runs
+[cppreportcard-action](https://github.com/soulteary/cppreportcard-action) v1.0.1,
+pinned to a full commit SHA, on Linux ARM64. It runs clang-format 18, clang-tidy 18
+and Cppcheck in `full` mode after building the project, quickstart and installed
+consumer. Their compilation databases are combined so both standalone examples
+are analyzed as well as the main project's sources and tests.
+
+The configuration is `.cppreportcard.json`. Only two project source files are
+excluded: `tests/vendor_fixture_dependency.cpp` is a Windows-only dependency
+fixture, and `validation/pcan_header_abi.cpp` requires an external vendor header.
+Build/output directories and third-party dependencies are also excluded.
+The report uses `clang-analyzer-*` and `bugprone-*`; it does not replace the
+existing style workflow's different rule set or platform checks.
+
+`validation/prepare-report-db.py` merges the databases and exposes project
+`-isystem` directories as `-I` directories for Cppcheck. Cppcheck uses its `std`
+library model through `validation/cppcheck-report.sh`, which suppresses only
+`missingIncludeSystem`: compiler standard headers are not Cppcheck input.
+The full-mode clang-tidy pass still checks every compilation entry for missing
+headers, including project headers written with angle brackets. Other Cppcheck
+preprocessor and syntax errors are not suppressed.
+
+Download the `cppreportcard-ubuntu-24.04-arm` artifact from a workflow run for
+`report.json`, `report.md` and `badge.svg`, or read its job summary. Reports are
+not committed to the repository. The workflow has read-only repository access,
+uses `fail_on: none` and no score threshold: findings are reported for review,
+while incomplete analysis and tool failures still fail the job. A successful job
+therefore establishes complete analysis, not a finding-free report or an A+ grade.
+The score is not test coverage or hardware validation. Cppcheck comes from the
+Ubuntu package repository, so its version can change between runner updates;
+compare the tool versions recorded in reports.
+
+### Existing Clang checks
+
 An independent Linux ARM64 workflow uses clang-format 18 on all tracked C++ sources and
 headers. clang-tidy 18 checks project, example and test translation units in the compilation
 database and the two separately checked files below; headers are checked through those units.

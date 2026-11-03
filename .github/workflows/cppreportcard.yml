@@ -1,0 +1,66 @@
+name: C++ Report Card
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cppreportcard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  report:
+    name: Full report (ubuntu-24.04-arm)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install build and analysis tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build clang-18 clang-format-18 clang-tidy-18 cppcheck
+      - name: Configure and build analysis inputs
+        run: |
+          cmake -S . -B build/report -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+          cmake --build build/report --parallel 4
+          cmake --install build/report --prefix "$PWD/build/report-install"
+          cmake -S examples/quickstart -B build/report-quickstart -G Ninja \
+            -DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_PREFIX_PATH="$PWD/build/report-install"
+          cmake --build build/report-quickstart --parallel 4
+          cmake -S validation/installed-consumer -B build/report-consumer -G Ninja \
+            -DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_PREFIX_PATH="$PWD/build/report-install"
+          cmake --build build/report-consumer --parallel 4
+          python3 validation/prepare-report-db.py \
+            --output build/report-compile-commands.json \
+            build/report/compile_commands.json \
+            build/report-quickstart/compile_commands.json \
+            build/report-consumer/compile_commands.json
+      - name: Generate quality report
+        uses: soulteary/cppreportcard-action@e2bb7f8fe55af064fff1ddf110ea2e3786cfef34 # v1.0.1
+        with:
+          mode: full
+          config: .cppreportcard.json
+          compile_commands: build/report-compile-commands.json
+          install_tools: 'false'
+          fail_on: none
+          threshold: '0'
+          commit: 'false'
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cppreportcard-ubuntu-24.04-arm
+          path: .cppreportcard/
+          include-hidden-files: true
+          if-no-files-found: warn
