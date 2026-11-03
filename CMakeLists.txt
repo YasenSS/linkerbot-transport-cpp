@@ -227,7 +227,7 @@ write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/linkerbot-comm-conf
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/linkerbot-comm-config.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/linkerbot-comm-config-version.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/linkerbot-comm)
-install(FILES LICENSE NOTICE README.md CHANGELOG.md CONTRIBUTING.md
+install(FILES LICENSE NOTICE README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm)
 install(FILES examples/shared_bus.cpp
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/examples)

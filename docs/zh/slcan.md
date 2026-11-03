@@ -1,6 +1,6 @@
 # SLCAN：Windows / Linux 原生串口
 
-[文档索引](../README.md) · [诊断](troubleshooting.md) · [验证边界](validation.md)
+[文档索引](../README.md) · [诊断](troubleshooting.md) · [运行与升级](operations.md) · [验证边界](validation.md)
 
 SDK 提供两个显式固件配置：Lawicel Classic 和 CANable 2.0 FD 扩展。
 原生串口实现使用系统驱动，不依赖额外厂商 DLL。
@@ -27,8 +27,8 @@ FD 使用 CAN DLC 映射 `0..8,12,16,20,24,32,48,64`。`Message.dlc` 是字节�
 允许 FD，不强制将 Classic 帧转换成 FD，也不强制 BRS。`config.brs` 是配置校验项，
 不能替代消息的 `is_brs`。标准/扩展 ID 和 BRS 必须由上层设备协议决定。
 
-协议依据：[CANable 固件说明](https://github.com/normaldotcom/canable2-fw/blob/main/README.md)、
-[固件解析代码](https://github.com/normaldotcom/canable2-fw/blob/main/src/slcan.c)、
+协议依据：[CANable 固件说明](https://github.com/normaldotcom/canable2-fw/blob/b158aa7ab106bc018715cd4d5f02f544f9de1830/README.md)、
+[固件解析代码](https://github.com/normaldotcom/canable2-fw/blob/b158aa7ab106bc018715cd4d5f02f544f9de1830/src/slcan.c)、
 [python-can 4.6.1 SLCAN](https://python-can.readthedocs.io/en/v4.6.1/_modules/can/interfaces/slcan.html)。
 这是指定扩展协议的实现，不承诺所有厂商的 SLCAN FD 固件互通。
 
@@ -57,6 +57,8 @@ command_timeout 500 ms、startup_delay 0 ms，`fd=false`、`brs=false`；data_bi
 5 Mbit/s 仅在 FD 时使用。Classic Lawicel 保留默认 protocol、`fd=false`，不设置 FD 参数。
 固件须预先关闭回显和时间戳；SDK 不发送猜测性探测或刷写命令。
 Lawicel 的首条 C 须能在已关闭状态返回成功 CR。
+本库只在当前连接发送 `C/S/Y/O`，自身不持久化这些命令；适配器是否跨复位保留状态由具体固件
+决定。本库也不保存跨进程回执或固件状态，设备或服务重启后应重新核对 profile、速率和目标身份。
 
 `slcan_port_name` / `validate_slcan_config` 不做 I/O。`enumerate_slcan_ports` 仅查询
 显式允许列表的元数据，不打开端口；空列表返回空，不扫描全机串口。

@@ -1,6 +1,6 @@
 # Session、路由与生命周期
 
-[文档索引](../README.md) · [错误与诊断](troubleshooting.md) · [运行与升级](operations.md)
+[文档索引](../README.md) · [公共 API](api.md) · [错误与诊断](troubleshooting.md) · [运行与升级](operations.md)
 
 `include/linkerbot/transport/session.hpp` 是面向设备 SDK 的会话接口。
 它在同一条物理连接上提供精确接收路由和一个发送调度线程。设备协议与请求/回复匹配仍由上层实现。
@@ -51,6 +51,12 @@ factory 可以在同一线程重入不同的注册表 key（例如不同 `Manage
 不会提前发布替代 Session。接收/发送回调不能等待自身触发的清理，此时会抛 `ValidationError`；
 应从外部线程重试。
 
+注册表节点、协调 mutex 和等待图在进程生命周期内保持可达，使静态 Session owner 在进程退出
+阶段也能安全释放。清理完成后节点只保留弱引用和协调状态，不继续持有 Session、总线或驱动
+资源；但不同 `ManagedCANBus` / dispatcher 对象身份产生的节点不会删除。长驻进程应
+复用已管理的总线/dispatcher 对象，不能新建对象或换 Pool key 绕过关闭失败或配置冲突。
+这些状态不写磁盘，不是持久队列或旧确认记录，进程退出后由操作系统回收。
+
 ## 接收路由
 
 `subscribe_routes({{id, extended}, ...}, capacity=512)` 原子注册一组 key，共享一个有界 inbox。
@@ -80,14 +86,21 @@ priority 只影响待执行任务，不能抢占在途批次；很长的 gap/ini
 endpoint/family 是调用者定义的调度键，不自动等同于 CAN ID。使用明确的 endpoint；
 `cancel_endpoint("")` 会匹配未命名任务，不能当作只取消一个设备的安全默认。
 无帧间间隔时，支持 batch 的后端可合并发送。
+MiniCANFD 的单次原生批次上限为 100 帧；`gap=0` 时超过该值会以失败回执结束，详见
+[MiniCANFD 默认值与批次边界](minicanfd.md#打开共享与关闭)。其他后端也可有自己的驱动限制，
+“Session 不设全局帧数上限”不等于任意后端可接受无限批次。
 
 `SendOptions.deadline` 是单调时钟绝对时间，覆盖排队、发送锁等待及帧间等待。
 `cancellation` 可取消未完成任务；`cancel_endpoint(name)` 同时取消该 endpoint 的排队与在途任务。
 进入驱动后的当前写入可能继续完成；最后一帧已被后端接受后到达的取消不会覆盖 `dispatched`。
+`CancellationSource` 和由它生成的 token 共享一个单向状态；`cancel()` 可重复调用但不能撤销，
+也不能中止厂商驱动中没有取消接口的同步调用。
 
 回执的 `result()` 不等待，提供 outcome、generation、各阶段时间、已接受帧数及异常。
 `wait()` / `wait_until()` 在失败、过期、取消或被替换时抛出保存的异常。
 只等待超时不会取消任务，可继续查询同一回执。
+`SendReceipt::result()`、`wait_until()`、`completed()` 和 `RouteInbox::health()` 标为
+`[[nodiscard]]`；确实不使用结果时应显式写 `(void)`，避免在 `-Werror` 消费者中产生告警。
 `sent_frames` 表示已知被后端接受的数量；`current_frame_uncertain=true` 表示报错的当前
 帧或原生批次可能已部分送达，不能据此自动重放。
 后端接受也不等于 CAN 对端 ACK 或设备业务执行成功；CANable SLCAN 甚至只确认本机串口驱动接收字节。

@@ -1,6 +1,6 @@
 # MiniCANFD：平台 ABI、枚举与资源归属
 
-[文档索引](../README.md) · [诊断](troubleshooting.md) · [验证边界](validation.md)
+[文档索引](../README.md) · [诊断](troubleshooting.md) · [运行与升级](operations.md) · [验证边界](validation.md)
 
 MiniCANFD 通过运行时加载厂商库工作，核心 SDK 构建不依赖厂商开发包。
 Linux 使用 `libcanbus.so`，Windows x64 使用 `HCanbus.dll`；库和驱动由用户另行安装。
@@ -27,6 +27,13 @@ Linux 的显式通道编号继续保留，不通过物理设备数猜测通道�
 
 结构体使用自然 4 字节对齐。公开头文件加入了大小、字段偏移、标准布局和可复制性
 断言：`CanFDConfig` 20 字节，`CanFDMsg` 80 字节，DLC 偏移 9、载荷偏移 16。
+
+当前可核对的 ABI 来源是历史 Python 适配仓库的未签名提交
+[`4af61830b1562addafcb431edf8187d3d72f335f`](https://github.com/linker-bot/linkerbot-transport/commit/4af61830b1562addafcb431edf8187d3d72f335f)，
+其中记录的 x64 HCanbus 样本 SHA256 为
+`1c7a7fdb2b78f276cea84127f9ad72af6f7fe4004132f151586cd7899db8c5a8`。尚无可独立核验的
+厂商 V1.3 原件、发布日期和摘要，因此这只是历史适配证据，不是当前官方规范或实机验收。
+不能仅凭字段名自行解释 `Config`、`Model`、`Cantype` 的厂商语义。
 
 ## 无 CAN 帧枚举
 
@@ -69,11 +76,31 @@ const auto report = linkerbot::can::enumerate_vendor_canfd_channels(
 应传递 factory，由 `ManagedCANBus::start()` 或 `Session::create()` 的启动过程触发构造。
 Session 创建后已经启动，没有额外的 open 方法。
 
+`VendorCanFdTransport::Config` 的当前默认值如下。数值默认不代表已为目标硬件验收；打开前仍要
+按枚举结果和厂商资料确认索引、速率及配置字段。
+
+| 字段 / 内部边界 | 默认值或限制 |
+| --- | --- |
+| `device_index` / `channel_index` | `0` / `0`；Windows 的 `channel_index` 必须为 0 |
+| `library_path` | 未设置，随后读取 `LINKERBOT_CANFD_LIB` 或平台默认搜索 |
+| `nom_baud` / `dat_baud` | 1,000,000 / 5,000,000 bit/s |
+| `config_flags` / `model` / `cantype` | `0x07` / `0` / `1`；厂商字段含义须另行确认 |
+| `frame_type` | `0x04`；只保留聚合初始化源码兼容，不参与 TX 或 `CANFD_Init` |
+| `send_timeout_ms` | 10 ms，允许 0–100 ms |
+| `receive_timeout_ms` | 10 ms，允许 0–10 ms |
+| 单次原生接收缓冲 | 最多请求 64 帧 |
+| 单次原生发送批次 | 最多 100 帧 |
+
 默认仲裁/数据配置为 1 Mbit/s / 5 Mbit/s。每帧独立处理标准/扩展 ID、FD 和 BRS；
 未标记帧在 FD Transport 上沿用已有的 FD、无 BRS 语义。标准/扩展帧和 BRS
 应按上层设备协议设置，Transport 不根据型号推断这些标志。
 `Message.dlc` 为 0–64 字节，后端转换为厂商 0–15 的 DLC 编码；
 不可直接表示的长度向上取整并清零填充。`Config::frame_type` 不覆盖发送标志。
+
+直接调用 `write_batch()` 超过 100 帧会同步抛 `ValidationError`。Session 在 `gap=0` 且后端
+选择原生批次发送时，会把整个 `MessageBatch` 交给该接口；超过 100 帧时回执以失败完成，
+`send()` / `wait()` 会重抛保存的异常。需要更大批次时由上层显式分段并逐段核对确认，不能通过
+更换 Pool key、删除旧记录或盲目重放来掩盖边界。
 
 同一进程内，相同库的扫描、打开、关闭与清理共用协调锁。规则如下：
 
@@ -141,3 +168,6 @@ $env:LINKERBOT_CANFD_LIB = 'C:\MiniCANFD\HCanbus.dll'
 
 显式参数覆盖环境变量，路径不存在时立即失败；不要输出完整环境来排查库路径。
 历史设备型号陈述及本轮可核对的 CI 范围统一见 [验证记录](validation.md)，不据离线测试宣布实机通过。
+本后端只在进程内保存扫描快照、占用和 deferred cleanup 状态，不写数据库或恢复日志；进程退出
+不会保留回执或未完成命令。上层持久卷、旧记录保留、升级顺序和回滚限制见
+[运行、升级与回滚](operations.md)。
