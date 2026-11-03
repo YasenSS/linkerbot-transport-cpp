@@ -1,5 +1,7 @@
 # linkerbot-transport-cpp
 
+[![C++ Report Card](.github/cppreportcard/badge.svg)](.github/cppreportcard/README.md)
+
 [English](README.md) | [简体中文](README.zh-CN.md) | [完整文档](docs/README.md)
 
 术语定义见[术语与可观测行为](docs/zh/terminology.md)，详细指南均提供中英文版本。

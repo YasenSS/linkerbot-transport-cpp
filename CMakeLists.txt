@@ -235,6 +235,8 @@ install(FILES LICENSE NOTICE README.md README.zh-CN.md CHANGELOG.md CHANGELOG.en
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm)
 install(FILES examples/shared_bus.cpp
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/examples)
+install(FILES .github/cppreportcard/badge.svg .github/cppreportcard/README.md
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/.github/cppreportcard)
 install(FILES examples/quickstart/CMakeLists.txt examples/quickstart/main.cpp
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/examples/quickstart)
 install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/docs

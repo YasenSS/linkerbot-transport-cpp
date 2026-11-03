@@ -3,7 +3,7 @@
   "compile_commands": "build/report-compile-commands.json",
   "exclude": [
     ".git", "build", "dist", "vendor", "third_party", "external", "generated",
-    ".cppreportcard", "tests/vendor_fixture_dependency.cpp", "validation/pcan_header_abi.cpp"
+    ".cppreportcard", ".github/cppreportcard", "tests/vendor_fixture_dependency.cpp", "validation/pcan_header_abi.cpp"
   ],
   "tidy_checks": "-*,clang-analyzer-*,bugprone-*",
   "format_style": "LLVM",
