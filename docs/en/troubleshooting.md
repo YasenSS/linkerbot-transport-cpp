@@ -4,7 +4,7 @@ English · [简体中文](../zh/troubleshooting.md)
 
 [Documentation index](../README.md) · [Session](session.md) · [Operation and upgrades](operations.md)
 
-Distinguish invalid configuration, connection/driver failures, queue pressure, and device-level failures. Passing offline tests does not exclude physical-driver problems. An empty receive result does not by itself indicate a disconnected link. Use the error type, execution stage, and actual effect to determine the cause.
+Distinguish invalid configuration, connection/driver failures, queue pressure, and device-level failures. Passing offline tests does not exclude physical-driver problems. An empty receive result does not by itself indicate a disconnected link or prove that the full receive timeout elapsed: some backends also return empty after filtering frames or processing partial input. Use the error type, execution stage, and actual effect to determine the cause.
 
 ## Stable error interface
 
@@ -30,6 +30,10 @@ Inspect `SendResult.outcome`, `sent_frames`, `current_frame_uncertain`, and `err
 - `dispatched`: all frames were accepted by the backend; this does not prove CAN acknowledgment or device execution.
 - `superseded`: a newer task replaced a queued `latest` task with the same endpoint/family; an in-flight batch is not replaced.
 - `cancelled`, `expired`, `failed`: use the known accepted-frame count and current-frame uncertainty to assess progress.
+
+`current_frame_uncertain` can refer to the current frame or an entire native batch. A native-batch
+failure may not report per-frame progress; `sent_frames` counts only known accepted frames and is
+not proof that all remaining frames were undelivered.
 
 `result()` does not rethrow the saved exception and can be used after a wait failure. `wait()`/`wait_until()` do rethrow it. A receipt wait timeout does not cancel the task. If a business reply is lost, read actual device state and verify identity and business sequence numbers before the application decides whether a retry is valid. Changing the request identifier, deleting local records, or blindly replaying control frames does not resolve uncertainty.
 

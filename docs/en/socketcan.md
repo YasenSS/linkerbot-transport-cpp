@@ -73,7 +73,8 @@ been removed or renamed, repair the OS configuration before following the
 
 Classic mode receives `can_frame`. FD mode receives both Classic and FD frames and retains the
 extended-ID, FD and BRS flags. CAN error frames and RTR frames are not delivered as application
-frames. FD receive lengths above 64, unexpected read sizes and system I/O failures produce errors.
+frames; filtering one returns an empty optional immediately. FD receive lengths above 64,
+unexpected read sizes and system I/O failures produce errors.
 `Message.dlc` counts bytes; extended identifiers require `is_extended=true`.
 
 For compatibility, an untagged message sent in FD mode is FD without BRS. Setting `is_fd=false`
@@ -81,7 +82,7 @@ cannot force a Classic transmission on this backend in FD mode. A Classic backen
 and payloads larger than 8 bytes.
 
 The socket receive timeout is 10 ms and the send timeout is 50 ms. A receive timeout returns an
-empty optional. A negative system `write()` result throws `TransportIOError` with `system_error()`;
+empty optional, but an empty result does not prove that the full receive wait elapsed. A negative system `write()` result throws `TransportIOError` with `system_error()`;
 an unexpected short write also throws `TransportIOError`, but may have no system error code.
 Invalid frames throw `ValidationError` before the system call. These socket options and Session
 deadlines do not specify a device-execution deadline or guarantee that every driver returns within

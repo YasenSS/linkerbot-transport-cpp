@@ -51,7 +51,7 @@ config.fd = true;
 config.data_bitrate = 5'000'000; // Only 2M / 5M.
 config.startup_delay = std::chrono::milliseconds{0}; // Up to 5 seconds if opening resets firmware.
 linkerbot::can::SlcanTransport transport(config); // Exclusive open, configuration and initialization.
-const auto frame = transport.read(); // An empty queue returns nullopt after receive_timeout.
+const auto frame = transport.read(); // May return nullopt if no complete frame is available.
 if (frame) std::cout << frame->id << '\n';
 transport.close();
 ```
@@ -85,6 +85,10 @@ UART settings accept 1200..3000000; actual driver support is checked on open. Re
 Each initialization command has its own budget. Lawicel send and receive share a parser; frames
 received while waiting for a serial ACK enter the receive queue. CANable send and receive are
 independent and do not wait for a serial ACK that the firmware does not provide.
+
+`read()` pumps the serial input once when its frame queue is empty. Partial input or a protocol
+acknowledgment may produce no complete application frame, so an empty optional can return before
+the configured receive timeout. The caller may call `read()` again to continue parsing input.
 
 The parser supports fragmented and concatenated serial input. Incomplete lines are limited to
 26 characters for Classic and 138 for FD; up to 256 frames are buffered, and each serial read

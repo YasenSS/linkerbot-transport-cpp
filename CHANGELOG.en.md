@@ -4,6 +4,8 @@ English · [简体中文](CHANGELOG.md)
 
 ## 0.3.0 (unreleased)
 
+- Distinguish empty receive results from timeouts and filtered frames. Document synchronous Session submission errors and completion after a deadline. Add reproducible sanitizer commands and state the static-analysis scope for the independent quickstart.
+
 - Complete the English and Chinese guides, contribution instructions, changelog and support policy. Align terminology for timeouts, receipts, acknowledgments, recovery and cleanup.
 
 - Split the English and Chinese READMEs and add an independently buildable, runnable installed-package quickstart. Clarify CMake 3.16 consumption and modern CTest command requirements, and document Session receipt, recovery, and cleanup contracts beside the public declarations.

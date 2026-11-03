@@ -152,11 +152,44 @@ sanitizer 检查来隐藏报告；这些 fixture 仍由 GCC 主矩阵、Clang+li
 复用栈地址而产生跨用例锁图告警，因此 CI 使用 `catch_discover_tests` 生成的逐例 CTest 进程，
 不能用全局关闭死锁检查或压掉告警替代诊断。
 
+在 Ubuntu 24.04 ARM64 复现 sanitizer 任务时，先安装 Clang 18、LLVM 符号化工具和
+sanitizer 运行库，再使用独立构建目录。以下命令与 CI 一样使用 libstdc++，逐个运行发现的 CTest：
+
+```bash
+sudo apt-get install -y --no-install-recommends \
+  clang-18 llvm-18 libclang-rt-18-dev
+cmake -S . -B build-asan-ubsan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=clang++-18 \
+  '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Wpedantic -fsanitize=address,undefined -fno-omit-frame-pointer' \
+  '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined' \
+  '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined' \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+cmake --build build-asan-ubsan --parallel 4
+env ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer-18)" \
+  ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+  UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+  ctest --test-dir build-asan-ubsan \
+    -E '^(pcan-native-loader|vendor-native-loader)$' \
+    --output-on-failure --no-tests=error --timeout 90
+
+cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=clang++-18 \
+  '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Wpedantic -fsanitize=thread -fno-omit-frame-pointer' \
+  '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread' \
+  '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=thread' \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+cmake --build build-tsan --parallel 4
+env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_path=$(command -v llvm-symbolizer-18)" \
+  ctest --test-dir build-tsan --output-on-failure --no-tests=error --timeout 120
+```
+
 ## Clang 格式与静态检查
 
 独立的 Linux ARM64 工作流使用 clang-format 18 检查所有已跟踪的 C++ 源文件和头文件；
 clang-tidy 18 检查 compile database 中的项目、示例、测试翻译单元及下述两个单独文件，头文件
-通过这些翻译单元间接检查。维护者本地验收同样以 ARM64 为准；amd64 结果由 GitHub CI 提供，
+通过这些翻译单元间接检查。主 compile database 包含 `examples/shared_bus.cpp`，不包含独立
+配置的 `examples/quickstart/main.cpp`，当前 style job 未对该 quickstart 执行 clang-tidy；
+格式检查仍覆盖这两个已跟踪的示例源文件。维护者本地验收同样以 ARM64 为准；amd64 结果由 GitHub CI 提供，
 不能用本地 x86 运行替代 ARM64 证据。Ubuntu 24.04 可安装以下工具：
 
 ```bash

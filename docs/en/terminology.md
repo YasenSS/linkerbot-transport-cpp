@@ -9,7 +9,8 @@ Use the following terms consistently in guides, comments and issue reports.
 - **Serial acknowledgment:** a firmware response to a serial command or frame. Lawicel and CANable profiles have different response behavior; see [SLCAN](slcan.md).
 - **Application reply / business confirmation:** a response interpreted and correlated by the upper-layer device protocol. The transport library does not provide this correlation.
 - **Send receipt:** software state for one scheduled batch. `dispatched` means all frames were accepted by the backend. A failed or timed-out operation can still have delivered frames.
-- **Receive timeout:** no application frame was returned within the receive wait. It does not by itself establish disconnection.
+- **Empty receive result:** a `read()` call returned no application frame. Besides a timeout, a backend may return early after filtering a frame; an empty result alone does not establish elapsed time, absence of traffic or disconnection.
+- **Receive timeout:** the receive wait reached its configured timeout without returning an application frame. It does not by itself establish disconnection. Do not infer a timeout solely from an empty receive result.
 - **Wait timeout:** the caller stopped waiting for a receipt. It does not cancel the scheduled task or an in-flight driver call.
 - **Deadline:** an absolute time on `std::chrono::steady_clock`; it is not a UTC timestamp or a hard limit on an uninterruptible driver call.
 - **Recovery:** an explicit attempt to rebuild an eligible connection. Success changes the generation and invalidates old inboxes; it does not replay commands or verify device identity.

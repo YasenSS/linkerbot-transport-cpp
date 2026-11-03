@@ -86,7 +86,8 @@ initialized，也不会误清理其他连接。
 `retry_pcan_cleanup(api)`。
 
 接收使用非阻塞厂商读取加 1 ms 可中断轮询，默认等待 10 ms，配置允许 0–100 ms。
-仅纯 `QRCVEMPTY` 返回空值，组合错误不吞掉；bus-off、adapter unavailable/uninitialized、
+仅纯 `QRCVEMPTY` 按接收队列为空处理，组合错误不吞掉；过滤非数据帧直到截止时间或完成最多 256 次厂商读取尝试后，
+`read()` 也会返回空值，因此空值不表示已经等待完整接收时限。bus-off、adapter unavailable/uninitialized、
 TX queue full、bus error 分别由 `PcanTransportError::reason()` 表达，原始位码保留在
 `native_status()`。RTR/echo 过滤，status/error 消息报错，不作为业务数据交付。
 同步驱动调用没有取消 API，卡住的驱动不能强行中断；Windows 驱动调用时限和负载测试待验收。
