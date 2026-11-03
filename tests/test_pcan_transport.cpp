@@ -450,8 +450,8 @@ TEST_CASE("PCAN enumeration rejects unsafe metadata and records per-channel fail
 
     auto malformed = std::make_shared<PcanApi>(*fixture.api);
     // The parameter order is fixed by PcanApi::get_value and the vendor ABI.
-    malformed->get_value = [](uint16_t channel, uint8_t parameter, void *buffer,
-                              uint32_t) { // NOLINT(bugprone-easily-swappable-parameters)
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    malformed->get_value = [](uint16_t channel, uint8_t parameter, void *buffer, uint32_t) {
         if (parameter == pcan_abi::attached_count) {
             *static_cast<uint32_t *>(buffer) = 3;
             return pcan_abi::ok;
@@ -547,8 +547,8 @@ TEST_CASE("PCAN validates every supported Classic bitrate and explicit loader co
         auto initialize = api->initialize;
         uint16_t actual = 0;
         // Preserve PcanApi::initialize's native ABI argument order.
-        api->initialize = [&](uint16_t ch, uint16_t baud, uint8_t old1,
-                              uint32_t old2, // NOLINT(bugprone-easily-swappable-parameters)
+        // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+        api->initialize = [&](uint16_t ch, uint16_t baud, uint8_t old1, uint32_t old2,
                               uint16_t old3) {
             actual = baud;
             // The native fixture intentionally accepts only 1 Mbit/s. Keep
