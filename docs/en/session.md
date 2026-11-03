@@ -80,7 +80,8 @@ identifiers are distinct keys. `update_routes(inbox, keys)` atomically replaces 
 preserves the original registration on conflict.
 
 - `receive_until(steady_clock_deadline)` waits for a frame; timeout returns `std::nullopt`.
-- `try_receive()` immediately returns a frame, or an empty optional if none is queued.
+- `try_receive()` does not wait for a frame to arrive; it takes the inbox mutex and returns
+  a queued frame, or an empty optional if none is queued. A closed inbox throws `ClosedError`.
 - A full queue rejects new frames and increments inbox `overflow` and Session `overflows`;
   it does not overwrite queued frames.
 - `close()` clears the queue, releases keys and wakes waiters. Subsequent receives throw `ClosedError`.
@@ -95,6 +96,10 @@ queue throws `QueueFullError`. Capacity counts waiting batches, not the executin
 There is no global bound on frames per batch or total route groups, so a bounded queue
 does not bound total memory. Applications must also limit batch sizes, submission rate
 and total routes. `send(batch, options)` submits then waits through the same scheduler.
+
+Submission validates the batch before enqueueing. An already-cancelled token, an already-expired
+deadline or closed session throws synchronously, without returning a receipt. Backend-specific
+validation can still fail later through the returned receipt.
 
 The default policy is `SendPolicy::fifo`. Higher priority is scheduled first; waiting time
 contributes to priority and equal ranks retain order. `SendPolicy::latest` requires nonempty
@@ -115,6 +120,9 @@ cancels both queued and in-flight tasks for that endpoint. A driver write alread
 may complete. Cancellation arriving after final backend acceptance does not replace
 `dispatched`. `CancellationSource` and its tokens share one one-way state; repeated `cancel()`
 is allowed but cannot undo cancellation or interrupt synchronous vendor calls without a cancel API.
+The deadline is checked before backend calls and during scheduler waits, not after the final
+successful backend call. That call can finish after the deadline and still yield `dispatched`;
+a caller waiting only until the deadline may already have received a wait-timeout exception.
 
 Receipt `result()` does not wait for task completion; it reports outcome, generation, stage times, accepted-frame
 count and exception. `wait()` / `wait_until()` rethrow saved errors on failure, expiry,

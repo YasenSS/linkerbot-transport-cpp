@@ -64,7 +64,8 @@ factory 可以在同一线程重入不同的注册表 key（例如不同 `Manage
 `update_routes(inbox, keys)` 原子替换路由组，冲突时保留原有注册。
 
 - `receive_until(steady_clock_deadline)` 等待一帧；超时返回 `std::nullopt`。
-- `try_receive()` 立即取帧，没有消息时返回空值。
+- `try_receive()` 不等待新帧到达，但会获取 inbox 互斥锁；有排队帧时取出一帧，否则返回空值。
+  inbox 已关闭时抛 `ClosedError`。
 - 队列满拒绝新帧，并累计 inbox 的 `overflow` 和会话的 `overflows`，不覆盖已有帧。
 - `close()` 清空队列、释放 key 并唤醒等待者；关闭后的接收抛 `ClosedError`。
 - 每帧附带 generation、sequence 和接收时间。FD/BRS、ID 和载荷合法性先由会话检查，
@@ -77,6 +78,9 @@ factory 可以在同一线程重入不同的注册表 key（例如不同 `Manage
 容量按等待中的批次计，不含正在执行的批次。单个批次的帧数、所有路由组数量没有全局上限，
 因此有界队列不等于总内存有界；应用还需限制单批次帧数、提交速率和总路由量。
 `send(batch, options)` 提交后等待，使用相同调度路径。
+
+提交会在入队前校验批次；token 已取消、deadline 已过期或 Session 已关闭时同步抛异常，
+不会返回回执。后端特有的校验仍可能在随后发送时失败，并通过已返回的回执报告。
 
 默认 `SendPolicy::fifo`；priority 越大越先调度，等待时间参与优先级计算，相同排序保留先后顺序。
 `SendPolicy::latest` 要求非空 endpoint 和 family，只替换同组尚未执行的 latest 批次，
@@ -95,6 +99,9 @@ MiniCANFD 的单次原生批次上限为 100 帧；`gap=0` 时超过该值会以
 进入驱动后的当前写入可能继续完成；最后一帧已被后端接受后到达的取消不会覆盖 `dispatched`。
 `CancellationSource` 和由它生成的 token 共享一个单向状态；`cancel()` 可重复调用但不能撤销，
 也不能中止厂商驱动中没有取消接口的同步调用。
+deadline 在进入后端调用前及调度等待期间检查，最后一次后端调用成功返回后不再检查。
+因此该调用可能在 deadline 之后完成，而回执最终仍为 `dispatched`；仅等待到 deadline 的
+调用者此时可能已经收到等待超时异常。
 
 回执的 `result()` 不等待任务完成，提供 outcome、generation、各阶段时间、已接受帧数及异常。
 `wait()` / `wait_until()` 在失败、过期、取消或被替换时抛出保存的异常。

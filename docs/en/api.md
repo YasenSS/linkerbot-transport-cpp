@@ -45,6 +45,9 @@ business format. Backend acceptance does not establish CAN acknowledgment or dev
 Custom backends derived from `can::CANTransport` must meet these requirements:
 
 - `read()` uses a finite receive wait and returns `std::nullopt` on a normal timeout.
+  An empty result means that this call returned no application frame; a backend can also
+  return it early after filtering a frame, as SocketCAN does for RTR and error frames.
+  It does not prove that the full receive timeout elapsed or that no traffic arrived.
   Link failures, closed state or invalid received data may throw. OS or driver calls can
   extend elapsed time; the configured wait is not a hard return-time guarantee.
 - The dispatcher and transmit threads may call `read()` and `write()` concurrently;

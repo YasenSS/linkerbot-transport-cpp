@@ -64,13 +64,13 @@ int main() {
 ## 帧、等待和错误
 
 Classic 模式接收 `can_frame`；FD 模式同时接收 Classic 和 FD 帧，保留扩展 ID、FD 和 BRS 标志。
-CAN 错误帧与 RTR 不作为应用帧交付。FD 接收长度超过 64、读取异常尺寸或系统 I/O 错误会报错。
+CAN 错误帧与 RTR 不作为应用帧交付，过滤一帧后立即返回空值。FD 接收长度超过 64、读取异常尺寸或系统 I/O 错误会报错。
 `Message.dlc` 是字节数；扩展 ID 需要显式 `is_extended=true`。
 
 FD 模式发送未标记帧会沿用 FD、无 BRS 的兼容行为，不能靠 `is_fd=false` 在这个后端的
 FD 模式强制发 Classic。Classic 后端拒绝 FD/BRS 或超过 8 字节的载荷。
 
-socket 接收超时设为 10 ms，发送超时设为 50 ms；接收超时返回空值。系统 `write()` 以负值
+socket 接收超时设为 10 ms，发送超时设为 50 ms；接收超时返回空值，但空值不表示已经等待完整接收时限。系统 `write()` 以负值
 失败时抛出的 `TransportIOError` 保留 `system_error()`；异常短写也抛 `TransportIOError`，但
 可能没有系统错误码，非法帧则在系统调用前抛 `ValidationError`。这些 socket 选项和 Session
 deadline 不是设备执行时限，也不能保证任意驱动在硬性时限内返回。接收超时只表示等待窗口内

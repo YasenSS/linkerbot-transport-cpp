@@ -14,9 +14,10 @@ namespace linkerbot::can {
     // Configure finite receive waits: CANDispatcher uses a dedicated reader
     // thread and checks its stop flag between calls. Driver calls without a
     // cancellation API may still delay shutdown beyond the configured timeout.
-    // Return std::nullopt on a normal receive timeout. Invalid input, closed
-    // resources and I/O failures may throw; an exception alone does not prove
-    // that the physical link is disconnected.
+    // Return std::nullopt when no application frame is returned, including a
+    // normal timeout or a filtered frame. Empty results need not consume the
+    // full receive timeout. Invalid input, closed resources and I/O failures
+    // may throw; an exception alone does not prove physical disconnection.
     //
     // Both methods are called from different threads concurrently (read from the
     // dispatcher thread, write from callers), so implementations must be
@@ -30,8 +31,8 @@ namespace linkerbot::can {
         CANTransport(CANTransport &&) = delete;
         CANTransport &operator=(CANTransport &&) = delete;
 
-        // Returns the next received frame, or std::nullopt if none arrived within
-        // the implementation's receive timeout.
+        // Returns an application frame, or std::nullopt if this call returns none.
+        // Backends may return early after filtering a non-application frame.
         virtual auto read() -> std::optional<Message> = 0;
 
         // Returns after the backend accepts the frame. Failures throw a stable

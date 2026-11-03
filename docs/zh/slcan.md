@@ -49,7 +49,7 @@ config.fd = true;
 config.data_bitrate = 5'000'000;        // 仅 2M / 5M
 config.startup_delay = std::chrono::milliseconds{0}; // 固件开口复位时按需设置，最多 5 秒
 linkerbot::can::SlcanTransport transport(config);    // 独占打开、配置、初始化
-const auto frame = transport.read();   // 空队列在 receive_timeout 后返回 nullopt
+const auto frame = transport.read();   // 没有完整应用帧时可能返回 nullopt
 if (frame) std::cout << frame->id << '\n';
 transport.close();
 ```
@@ -79,6 +79,9 @@ UART 范围 1200..3000000；实际驱动支持在打开时核实。接收等待 
 串口写入 / Lawicel ACK 等待预算 1..5000 ms，startup_delay 为 0..5000 ms。
 初始化每条命令分别计时。Lawicel 的收发共用解析器，等待 ACK 时收到的帧进入接收队列；
 CANable 的接收和发送独立，不等待不存在的串口 ACK。
+
+`read()` 在帧队列为空时执行一次串口输入处理。部分输入或协议确认可能尚未形成完整应用帧，
+因此可能在配置的接收超时之前返回空值；调用者可再次调用 `read()` 继续解析输入。
 
 解析器支持拆包/粘包，Classic 未完成行上限 26 字符，FD 上限 138 字符，
 最多缓存 256 帧，单次串口读取最多 256 字节。非法 ASCII、BEL、超长行、队列溢出、

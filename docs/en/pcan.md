@@ -98,8 +98,10 @@ or open attempts retry it. One channel's cleanup failure retains diagnostics wit
 other channels. Applications may also call `retry_pcan_cleanup(api)` explicitly.
 
 Receive combines nonblocking vendor reads with interruptible 1 ms polling. The default wait is
-10 ms; configuration accepts 0–100 ms. Only a pure `QRCVEMPTY` returns empty; combined errors
-are not suppressed. `PcanTransportError::reason()` distinguishes bus-off, unavailable/uninitialized
+10 ms; configuration accepts 0–100 ms. A pure `QRCVEMPTY` is treated as an empty receive queue;
+combined error statuses are not suppressed. `read()` also returns empty after filtering non-data
+frames until the deadline or after at most 256 vendor read attempts, so an empty optional does not by itself
+prove that the full receive wait elapsed. `PcanTransportError::reason()` distinguishes bus-off, unavailable/uninitialized
 adapters, TX queue full and bus errors, retaining raw status bits in `native_status()`.
 RTR/echo frames are filtered; status/error messages produce errors instead of application data.
 Synchronous driver calls have no cancellation API, so a stuck driver cannot be forcibly interrupted.

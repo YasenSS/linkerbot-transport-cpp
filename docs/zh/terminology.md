@@ -9,7 +9,8 @@
 - **串口确认（serial acknowledgment）**：固件对串口命令或帧的响应。Lawicel 与 CANable 的响应行为不同，见 [SLCAN](slcan.md)。
 - **业务回复／业务确认（application reply / business confirmation）**：由上层设备协议解析并关联的响应。本通信库不实现这种关联。
 - **发送回执（send receipt）**：一个调度批次的软件状态。`dispatched` 表示所有帧已被后端接受；失败或超时的操作仍可能送达部分帧。
-- **接收超时（receive timeout）**：接收等待期间未返回应用帧，不能单凭此结果认定断连。
+- **接收空结果（empty receive result）**：一次 `read()` 调用未返回应用帧。除超时外，后端也可能在过滤帧后提前返回；不能仅凭空结果判断已等待时长、没有总线流量或已经断连。
+- **接收超时（receive timeout）**：接收等待达到配置的超时预算而未返回应用帧，不能单凭此结果认定断连，也不能只凭接收空结果认定发生了超时。
 - **等待超时（wait timeout）**：调用者停止等待回执，不取消调度任务或在途驱动调用。
 - **截止时间（deadline）**：基于 `std::chrono::steady_clock` 的绝对时刻，不是 UTC 时间戳，也不是不可中断驱动调用的硬性时限。
 - **恢复（recovery）**：显式尝试重建具备恢复条件的连接。成功后更新代次并使旧 inbox 失效，不重放命令，也不核验设备身份。

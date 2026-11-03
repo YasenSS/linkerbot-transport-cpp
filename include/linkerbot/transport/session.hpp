@@ -98,7 +98,8 @@ namespace linkerbot::transport {
         std::optional<Deadline> completed_at;
         size_t total_frames = 0;
         size_t sent_frames = 0;
-        // A backend exception may occur after its current frame reached the bus.
+        // A backend exception may follow partial delivery of the current frame
+        // or native batch; no per-frame acceptance count is known for that call.
         bool current_frame_uncertain = false;
         std::exception_ptr error;
     };
@@ -114,6 +115,8 @@ namespace linkerbot::transport {
         // Wait on the steady-clock deadline. A wait timeout throws can::TimeoutError
         // without cancelling the task; a claimed driver write may still complete.
         // On task completion, rethrow its saved error or return its final result.
+        // The final backend call may succeed after the send deadline; a wait
+        // timeout can therefore precede a later dispatched result.
         [[nodiscard]] SendResult wait_until(Deadline deadline) const;
         // Wait without a deadline, with the same saved-error behavior.
         void wait() const;
