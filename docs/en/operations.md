@@ -46,4 +46,13 @@ The library has no persistent schema migration. If the application changes its r
 
 Use an independent branch, signed commits, and an English PR describing the changes, compatibility, reproduction commands, and Linux results. Check CI, review, and unresolved threads for the latest head. After merging, synchronize main, verify it again, and clean up task branches and temporary environments. A formal release also requires a Changelog update, signed tag, and the established artifact workflow. CMake/CPack currently build and package artifacts; they do not publish a GitHub Release automatically.
 
+The Linux GCC Release jobs retain CPack TGZ archives and adjacent SHA256 files for
+amd64 and ARM64. Windows jobs retain x64 Debug/Release ZIPs and their SHA256 files.
+Use successful runs for the exact commit named by the signed release tag. Do not
+publish coverage-instrumented Linux Debug builds as Release packages. Check each
+archive's `build-info.json`, binary architecture and relocated installed consumer
+before uploading it. Publish the checked archives and a combined `SHA256SUMS.txt`
+with English Release Notes; verify the downloaded Release assets again afterward.
+The tag identifies the source commit, while checksums identify the uploaded bytes.
+
 Before and after release, verify stable-release status, body, attachments, SHA256, source SHA, configuration, binary architecture, and installed-package consumption. This repository has no container-image publication/signing workflow; SDK ZIP/TGZ files do not carry a container-image signature. If the application distributes an image, verify its provenance and signature separately. Pushing a tag or uploading a CI artifact is not completion of a release.

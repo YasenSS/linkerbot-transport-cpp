@@ -103,6 +103,54 @@ jobs:
           cmake --build quickstart --parallel 4
           ctest --test-dir quickstart --output-on-failure --no-tests=error --timeout 60 \
             --output-log quickstart-results.log
+      - name: Package and verify a relocated Release SDK
+        if: matrix.build_type == 'Release'
+        shell: bash
+        run: |
+          cpack --config build/CPackConfig.cmake -C Release -B dist
+          archives=(dist/*.tar.gz)
+          test "${#archives[@]}" -eq 1
+          (cd dist && sha256sum --check -- *.sha256)
+          mkdir package-check
+          tar -xzf "${archives[0]}" -C package-check
+          roots=(package-check/*)
+          test "${#roots[@]}" -eq 1
+          prefix="${roots[0]}"
+          python3 - "$prefix" "$(git rev-parse HEAD)" <<'PY'
+          import json
+          from pathlib import Path
+          import platform
+          import re
+          import sys
+          root = Path(sys.argv[1])
+          info = json.loads((root / 'share/linkerbot-comm/build-info.json').read_text())
+          version = re.search(r'set\(CPACK_PACKAGE_VERSION "([^"]+)"\)',
+                              Path('build/CPackConfig.cmake').read_text()).group(1)
+          assert info['comm_sha'] == sys.argv[2] and info['source_dirty'] is False, info
+          assert info['version'] == version and info['configuration'] == 'Release', info
+          assert info['system'] == 'Linux' and info['architecture'] == platform.machine(), info
+          files = [path for path in root.rglob('*') if path.is_file()]
+          assert not any(path.suffix in ('.so', '.dll', '.exe') or 'Catch2' in path.name
+                         or path.name in ('comm-tests', 'pcan-tests', 'vendor-loader-tests')
+                         for path in files), 'Runtime or test binary leaked into the SDK'
+          print(json.dumps(info, indent=2))
+          PY
+          LC_ALL=C readelf -h "$prefix/lib/liblinkerbot-comm.a" > package-architecture.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import platform
+          import re
+          machines = re.findall(r'Machine:\s+(.+)', Path('package-architecture.txt').read_text())
+          expected = {'aarch64': 'AArch64', 'x86_64': 'Advanced Micro Devices X86-64'}[platform.machine()]
+          assert machines and all(machine.strip() == expected for machine in machines), machines
+          print(f'Verified {len(machines)} library objects: {expected}')
+          PY
+          cmake -S "$prefix/share/linkerbot-comm/validation/installed-consumer" \
+            -B package-consumer -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/$prefix"
+          cmake --build package-consumer --parallel 4
+          ctest --test-dir package-consumer --output-on-failure --no-tests=error --timeout 60 \
+            --output-log package-consumer-results.log
       - name: Save test evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -114,6 +162,10 @@ jobs:
             registry-handoff-results.log
             consumer-results.log
             quickstart-results.log
+            package-architecture.txt
+            package-consumer-results.log
+            dist/*.tar.gz
+            dist/*.sha256
             coverage-summary.json
             build/CMakeCache.txt
             build/Testing/Temporary/LastTest.log

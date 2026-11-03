@@ -10,7 +10,7 @@ C++17 CAN / CAN FD transport library for Linkerbot SDKs. It manages physical
 connections, shared buses, incoming-frame routes and outgoing batches. Device
 commands and request/reply matching belong in the device SDK.
 
-Current source version: **0.3.0 (unreleased)**.
+Current source version: **0.3.0**.
 
 ## Linux quick start
 
