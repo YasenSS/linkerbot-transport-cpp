@@ -1680,7 +1680,7 @@ TEST_CASE("Session finalizes diagnostics before publishing a failed receipt",
             if (++gate_->calls == 2) {
                 gate_->entered = true;
                 gate_->changed.notify_all();
-                (void)gate_->changed.wait_for(lock, 3s, [&] { return gate_->released; });
+                gate_->changed.wait(lock, [&] { return gate_->released; });
             }
             return "gated diagnostic failure";
         }
