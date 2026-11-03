@@ -1673,7 +1673,7 @@ TEST_CASE("Session finalizes diagnostics before publishing a failed receipt",
             : CANError(can::ErrorCode::kTransportIo, "gated diagnostic failure"),
               gate_(std::move(gate)) {}
 
-        const char *what() const noexcept override {
+        [[nodiscard]] const char *what() const noexcept override {
             std::unique_lock<std::mutex> lock(gate_->mutex);
             // The dispatcher records the first diagnostic. Gate the Session
             // writer's second call so publication ordering is deterministic.
