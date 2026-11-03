@@ -2,6 +2,7 @@
 /build
 /linkerbot-python-sdk
 /.cache
+/.cppreportcard/
 /CLAUDE.md
 /AGENTS.md
 

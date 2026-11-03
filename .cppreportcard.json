@@ -1,0 +1,17 @@
+{
+  "mode": "full",
+  "compile_commands": "build/report-compile-commands.json",
+  "exclude": [
+    ".git", "build", "dist", "vendor", "third_party", "external", "generated",
+    ".cppreportcard", "tests/vendor_fixture_dependency.cpp", "validation/pcan_header_abi.cpp"
+  ],
+  "tidy_checks": "-*,clang-analyzer-*,bugprone-*",
+  "format_style": "LLVM",
+  "timeout_seconds": 300,
+  "jobs": 2,
+  "tools": {
+    "clang-format": "clang-format-18",
+    "clang-tidy": "clang-tidy-18",
+    "cppcheck": "validation/cppcheck-report.sh"
+  }
+}

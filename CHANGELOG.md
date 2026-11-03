@@ -4,6 +4,9 @@
 
 ## 0.3.0（未发布）
 
+- 接入 Linux ARM64 C++ Report Card 完整分析，上传 JSON、Markdown 和 SVG 报告；
+  使用只读权限并保留既有严格质量门槛。
+
 - 明确接收空结果与超时、过滤帧的区别，补充 Session 同步提交异常及 deadline 后完成语义；
   提供可复现的 sanitizer 命令并标明静态检查对独立 quickstart 的覆盖范围。
 

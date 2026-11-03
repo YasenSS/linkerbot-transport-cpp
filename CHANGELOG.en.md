@@ -4,6 +4,8 @@ English · [简体中文](CHANGELOG.md)
 
 ## 0.3.0 (unreleased)
 
+- Add full C++ Report Card analysis on Linux ARM64 with JSON, Markdown and SVG artifacts, read-only permissions, and the existing strict quality gates retained.
+
 - Distinguish empty receive results from timeouts and filtered frames. Document synchronous Session submission errors and completion after a deadline. Add reproducible sanitizer commands and state the static-analysis scope for the independent quickstart.
 
 - Complete the English and Chinese guides, contribution instructions, changelog and support policy. Align terminology for timeouts, receipts, acknowledgments, recovery and cleanup.
