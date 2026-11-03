@@ -4,6 +4,10 @@ English · [简体中文](CHANGELOG.md)
 
 ## 0.3.0 (unreleased)
 
+- Cache subscriber snapshots for dispatch when subscriptions are unchanged. ARM64 measurements show lower steady-state dispatch time and no snapshot allocation for nonempty registries; rebuilding after subscription changes costs more. Add a Linux benchmark harness, separate timing/allocation modes, raw results, and an ARM64 CI smoke check. No idle-wakeup improvement is claimed.
+- Preserve the active subscription if allocation fails while preparing unsubscribe bookkeeping; add a regression that injects the failure. Cancellation and callback-lifetime contracts are unchanged.
+- The snapshot cache changes the layout of registry-containing types. Rebuild downstream applications and libraries together; do not mix objects built against the old and new headers.
+
 - Display the generated `.github/cppreportcard/` badge in both READMEs with snapshot provenance. Install the badge and notes, and generate current CI report artifacts in the same directory.
 
 - Add full C++ Report Card analysis on Linux ARM64 with JSON, Markdown and SVG artifacts, read-only permissions, and the existing strict quality gates retained.

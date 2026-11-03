@@ -23,6 +23,7 @@ option(LINKERBOT_COMM_BUILD_TESTS "Build Catch2 unit tests" ${LINKERBOT_COMM_IS_
 option(LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS "Allow missing test dependencies to be fetched" ON)
 option(LINKERBOT_COMM_BUILD_EXAMPLES "Build example programs" ${LINKERBOT_COMM_IS_TOP_LEVEL})
 option(LINKERBOT_COMM_ENABLE_COVERAGE "Instrument Linux tests for gcovr line coverage" OFF)
+option(LINKERBOT_COMM_BUILD_BENCHMARKS "Build Linux performance measurement tools" OFF)
 
 if(LINKERBOT_COMM_ENABLE_COVERAGE)
     if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -129,8 +130,21 @@ if(LINKERBOT_COMM_BUILD_TESTS)
 
     add_executable(session-static-exit tests/session_static_exit.cpp)
     target_link_libraries(session-static-exit PRIVATE linkerbot-comm)
+    add_executable(subscriber-allocation-failure tests/subscriber_allocation_failure.cpp)
+    target_link_libraries(subscriber-allocation-failure PRIVATE linkerbot-comm)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        # This single-threaded fixture replaces global new/delete; TSan defines
+        # those symbols too. Target options override global -fsanitize=thread
+        # while leaving ASan/UBSan enabled. comm-tests retains TSan coverage of
+        # concurrent snapshots, cancellation and lifecycle operations.
+        target_compile_options(subscriber-allocation-failure PRIVATE -fno-sanitize=thread)
+        target_link_options(subscriber-allocation-failure PRIVATE -fno-sanitize=thread)
+    endif()
+    add_test(NAME subscriber-allocation-failure COMMAND subscriber-allocation-failure)
+    set_tests_properties(subscriber-allocation-failure PROPERTIES TIMEOUT 10)
     if(NOT LINKERBOT_COMM_IS_TOP_LEVEL)
-        set_target_properties(session-static-exit PROPERTIES EXCLUDE_FROM_ALL TRUE)
+        set_target_properties(session-static-exit subscriber-allocation-failure
+            PROPERTIES EXCLUDE_FROM_ALL TRUE)
     endif()
     add_test(NAME session-static-share-exit COMMAND session-static-exit shared)
     add_test(NAME session-static-borrow-exit COMMAND session-static-exit borrowed)
@@ -207,6 +221,10 @@ if(LINKERBOT_COMM_BUILD_EXAMPLES)
     endif()
 endif()
 
+if(LINKERBOT_COMM_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
+
 set_target_properties(linkerbot-comm PROPERTIES
     EXPORT_NAME comm
     LINKERBOT_COMM_VERSION "${PROJECT_VERSION}"
@@ -241,6 +259,11 @@ install(FILES examples/quickstart/CMakeLists.txt examples/quickstart/main.cpp
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/examples/quickstart)
 install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/docs
     FILES_MATCHING PATTERN "*.md")
+install(FILES benchmarks/README.md benchmarks/summarize.py
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/benchmarks)
+install(DIRECTORY benchmarks/results/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/benchmarks/results
+    FILES_MATCHING PATTERN "*.md" PATTERN "*.csv")
 
 include(cmake/ReleasePackage.cmake)
 install(FILES validation/installed-consumer/CMakeLists.txt validation/installed-consumer/main.cpp

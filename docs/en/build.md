@@ -96,6 +96,8 @@ the repetition count is not a deterministic proof.
 | `LINKERBOT_COMM_BUILD_EXAMPLES` | ON at top level, OFF as subdirectory | Build `comm-example` |
 | `LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS` | ON | Download v3.8.1 if Catch2 3 is missing |
 | `LINKERBOT_COMM_ENABLE_COVERAGE` | OFF | Linux/GCC only; requires tests ON; adds `--coverage -O0 -g` |
+| `LINKERBOT_COMM_BUILD_BENCHMARKS` | OFF | Build the Linux-only performance harness with the root project |
+| `LINKERBOT_PERF_COUNT_ALLOCATIONS` | OFF | Instrument C++ allocations in the benchmark; available when its subdirectory is enabled |
 | `Catch2_DIR` | Located by CMake | Installed Catch2 3 CMake configuration directory |
 | `CMAKE_INSTALL_PREFIX` | Platform CMake default | Installation prefix; install-time `--prefix` is also supported |
 | `LINKERBOT_COMM_SOURCE_REVISION` | Git automatically, otherwise unknown | Supply a full source SHA for exported source builds |
@@ -117,6 +119,27 @@ cmake --build build-core --parallel 4
 For offline tests, install Catch2 3 first, add
 `-DCatch2_DIR=/absolute/path/to/lib/cmake/Catch2` to the complete regression configure command
 and disable downloads. Catch2 2 does not satisfy the requirement.
+
+## Performance benchmarks
+
+On Linux, build the standalone harness without Catch2 or physical hardware:
+
+```bash
+cmake -S benchmarks -B build/perf -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/perf --parallel 4
+./build/perf/linkerbot-perf --iterations 200000 --idle-ms 500 --repetitions 5
+```
+
+Alternatively, set `-DLINKERBOT_COMM_BUILD_BENCHMARKS=ON` when configuring the root
+project; the executable is then under `build/benchmarks/`. Keep allocation tracking OFF
+for timings and use a separate build with `-DLINKERBOT_PERF_COUNT_ALLOCATIONS=ON`
+for allocation counts. See [Performance](performance.md) for measurement boundaries,
+reproduction commands and recorded ARM64 results.
+
+The Linux CI `benchmark-smoke` job builds both allocation modes with Clang 18/libc++
+on ARM64 and runs short scenarios, retaining CSV artifacts. It checks that the harness
+builds and runs, including its checksum checks; it is not a performance threshold or
+a substitute for controlled before/after measurements.
 
 ## Line coverage and verifiable results
 

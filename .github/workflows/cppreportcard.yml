@@ -30,7 +30,8 @@ jobs:
           cmake -S . -B build/report -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++-18 \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+            -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON \
+            -DLINKERBOT_COMM_BUILD_BENCHMARKS=ON
           cmake --build build/report --parallel 4
           cmake --install build/report --prefix "$PWD/build/report-install"
           cmake -S examples/quickstart -B build/report-quickstart -G Ninja \
