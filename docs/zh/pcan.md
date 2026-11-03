@@ -1,6 +1,6 @@
 # PCAN Classic CAN / CAN FD
 
-[文档索引](../README.md) · [诊断](troubleshooting.md) · [验证边界](validation.md)
+[文档索引](../README.md) · [诊断](troubleshooting.md) · [运行与升级](operations.md) · [验证边界](validation.md)
 
 `PcanTransport` 提供真实通道枚举和运行时加载，核心 SDK 构建不需要厂商开发包。
 硬件支持目标为 Windows x64 / MSVC。Linux 测试动态库用于离线 ABI 验证。
@@ -14,6 +14,11 @@
 
 ABI 参考为 [官方 PCANBasic.h](https://www.peak-system.com/produktcd/Develop/PC%20interfaces/Windows/PCAN-Basic%20API/Include/PCANBasic.h)。
 代码仅声明自有的 Classic/FD ABI 子集；Windows 入口使用 `__stdcall`，不调用 XL API。
+
+该官方头链接是可变地址，不是版本固定的归档。2026-11-03 获取的 PCAN-Basic
+5.1.0.1194 头文件标注 `Last change: 2025-10-24`，大小 40,098 字节，SHA256 为
+`1ff0c5723b7733e145bebdfca12da0ed7bd174ab46a845be2bf3c647087f14d2`。更新厂商组件时须
+重新获取并记录摘要，不能把本次值沿用为未来版本证明；厂商头不进入本仓库或发行包。
 
 公开头有结构布局断言：Classic 消息 16 字节、FD 消息 72 字节、Classic 时间戳 8 字节、
 FD 时间戳 8 字节、通道信息 52 字节；消息 data 偏移为 6，通道 features/name/id/condition
@@ -55,7 +60,6 @@ int main() {
 此例仅演示选择可用通道，不核验所连设备身份；实际应用还应按已确认的适配器和通道选择，
 不能把列表第一个可用通道视为特定设备。不要用 `PCAN_USBBUS1` 的名称猜测它已经连接。
 
-
 Classic 接受 1M、800k、500k、250k、125k、100k、50k、20k、10k、5k bit/s。
 FD 使用 `CAN_InitializeFD` / `CAN_ReadFD` / `CAN_WriteFD`，独立于 Classic 速率常量。
 `PcanFdTiming{}` 默认工程时序为：80 MHz，nominal BRP/TSEG1/TSEG2/SJW = 1/63/16/16，
@@ -72,11 +76,14 @@ Classic 拒绝大于 8 字节、FD/BRS 或非法 ID，不截断。
 同一实际模块、同一原生通道只能由一个 Transport 占用（包括模式/速率/时序冲突）。
 能力检查先于初始化，成功取得资源才按本通道 `CAN_Uninitialize(handle)` 清理，
 从不调用全局 handle 0 清理。初始化返回 CAUTION 表示取得资源但配置未严格满足，
-会拒绝并回滚；失败回滚保留资源与模块供重试。普通初始化失败不误清理其他连接。
+会拒绝并调用 `CAN_Uninitialize(handle)` 回滚。回滚成功时立即删除本进程 claim；只有回滚
+自身失败时才保留 claim、模块引用和 deferred cleanup 所有权。其他普通初始化错误不会标记为
+initialized，也不会误清理其他连接。
 
 `close()` 唤醒接收轮询，串行等待当前 I/O 后清理，重复调用安全；失败后保留占用，
-可再次 `close()`。析构/构造回滚失败转为 deferred，后续枚举/打开尝试重试；一个通道
-清理失败会保留诊断而不阻止其他通道。也可显式 `retry_pcan_cleanup(api)`。
+可再次 `close()`。析构清理失败，或构造期间已经取得通道但回滚失败时转为 deferred；
+后续枚举/打开尝试重试。一个通道清理失败会保留诊断而不阻止其他通道。也可显式
+`retry_pcan_cleanup(api)`。
 
 接收使用非阻塞厂商读取加 1 ms 可中断轮询，默认等待 10 ms，配置允许 0–100 ms。
 仅纯 `QRCVEMPTY` 返回空值，组合错误不吞掉；bus-off、adapter unavailable/uninitialized、
@@ -95,6 +102,14 @@ TX queue full、bus error 分别由 `PcanTransportError::reason()` 表达，原�
 Classic-only、缺符号库、枚举、帧转换与资源清理。fixture 不安装。
 真实 DLL、驱动与适配器的双向收发、USB 断开恢复、模式切换和持续负载需硬件验证。
 
+取得单独的官方头后，可做可选的 compile-only 对照；下面的输出文件在临时目录，不会复制
+厂商头。ARM64/Linux 分支只用固定宽度别名检查布局和函数类型，不验证 Windows `__stdcall`：
+
+```bash
+clang++-18 -std=c++17 -Iinclude \
+  -DPCAN_REFERENCE_HEADER='"/absolute/path/PCANBasic.h"' \
+  -c validation/pcan_header_abi.cpp -o /tmp/pcan_header_abi.o
+```
 
 显式库路径覆盖 `LINKERBOT_PCAN_LIB`；空环境变量按未设置处理，空显式路径拒绝。
 Linux loader 默认尝试 `libpcanbasic.so`，这一实现细节不改变 Windows x64 的硬件支持目标。

@@ -12,12 +12,14 @@ The source version is **0.3.0 (unreleased)**; a successful CI artifact is not a 
 ### Start here
 
 - [Build, install, CMake options and coverage](docs/zh/build.md) — Linux first.
+- [Public API, threading and ownership contracts](docs/zh/api.md).
 - [Session, routing, ownership and recovery](docs/zh/session.md).
 - Backends: [SocketCAN](docs/zh/socketcan.md), [MiniCANFD](docs/zh/minicanfd.md),
   [PCAN](docs/zh/pcan.md), [SLCAN](docs/zh/slcan.md).
 - [Windows builds and packages](docs/zh/windows-build.md).
 - [Errors and diagnostics](docs/zh/troubleshooting.md), [upgrade and rollback](docs/zh/operations.md).
 - [Validation evidence and hardware limits](docs/zh/validation.md).
+- [Support and sensitive-report policy](SECURITY.md).
 
 Detailed guides are maintained in Chinese. This English overview is current;
 there is no separately maintained English translation of every guide.
@@ -39,6 +41,9 @@ Linux amd64 and ARM64 Debug/Release CI checks the library, offline regression,
 recovery, example and installed consumer. Both Debug jobs require at least 95%
 aggregate production **line** coverage for code compiled on Linux. Windows x64
 Debug/Release CI additionally checks native DLL ABI fixtures and relocated ZIPs.
+An independent ARM64 Clang 18 workflow requires every tracked C++ file to be
+format-clean and treats all enabled clang-tidy diagnostics as errors; the exact
+scope and narrow Catch2 exception are documented in the [build guide](docs/zh/build.md).
 These checks do not establish hardware compatibility, Windows-only coverage,
 USB hotplug reliability or real-time performance. Linux PCAN fixtures verify the
 loader ABI, not Linux PCAN hardware support. See the [evidence and limits](docs/zh/validation.md).
@@ -117,10 +122,10 @@ int main() {
     transport::SendOptions options;
     options.deadline = transport::Clock::now() + std::chrono::seconds{1};
     auto receipt = session->submit({{request}}, options);
-    receipt.wait_until(options.deadline);
+    const auto result = receipt.wait_until(options.deadline);
     auto reply = inbox->receive_until(options.deadline);
     session->close();
-    return reply ? 0 : 1;
+    return reply && result.outcome == transport::SendOutcome::dispatched ? 0 : 1;
 }
 ```
 
@@ -166,7 +171,8 @@ fixtures are not part of the runtime package. Installed documentation lives unde
 ### 阅读顺序
 
 1. [构建、安装与 CMake 接入](docs/zh/build.md)：Linux、离线依赖、选项、覆盖率和消费安装包。
-2. [Session 与生命周期](docs/zh/session.md)：路由、共享关闭、发送回执、取消和恢复。
+2. [公共 API、线程与所有权契约](docs/zh/api.md)，再阅读
+   [Session 与生命周期](docs/zh/session.md)：路由、共享关闭、发送回执、取消和恢复。
 3. 按设备选择 [SocketCAN](docs/zh/socketcan.md)、[MiniCANFD](docs/zh/minicanfd.md)、
    [PCAN](docs/zh/pcan.md) 或 [SLCAN](docs/zh/slcan.md)。
 4. [排障与诊断](docs/zh/troubleshooting.md)、[运行、升级与回滚](docs/zh/operations.md)。
@@ -196,5 +202,5 @@ BRS 须同时设置 `is_fd`。不同后端对未标记消息的兼容解释见�
 入队、后端接受与设备执行是三个阶段；等待超时不会撤回在途帧。
 共享同一 Session 的调用者必须协调关闭；恢复后须重新注册路由并核验设备身份。
 
-采用 [MIT](LICENSE)；贡献流程见 [CONTRIBUTING](CONTRIBUTING.md)，版本变化见
-[CHANGELOG](CHANGELOG.md)，第三方组件见 [NOTICE](NOTICE)。
+采用 [MIT](LICENSE)；贡献流程见 [CONTRIBUTING](CONTRIBUTING.md)，支持与敏感报告规则见
+[SECURITY](SECURITY.md)，版本变化见 [CHANGELOG](CHANGELOG.md)，第三方组件见 [NOTICE](NOTICE)。

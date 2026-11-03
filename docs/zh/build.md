@@ -112,8 +112,9 @@ gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build-cover
 
 Clang 质量矩阵在 Linux amd64 与 ARM64 上执行以下三种独立 Debug 构建：
 
-- `libcxx`：使用 Clang 18 与 libc++ 运行全部 CTest，包括两个原生 ABI fixture；另以
-  `-Wall -Wextra -Wpedantic -Werror` 构建生产库和示例，并验证安装后的 libc++ 消费者。
+- `libcxx`：使用 Clang 18 与 libc++ 运行全部 CTest，包括两个原生 ABI fixture；该构建以
+  `-Wall -Wextra -Wpedantic -Werror` 编译生产库、测试、fixture 和示例，运行示例，并以
+  相同告警门槛验证安装后的 libc++ 消费者。
 - `asan-ubsan`：使用 libstdc++ 和 `-fsanitize=address,undefined`，启用泄漏检测并在首个
   ASan/UBSan 错误处失败。普通 CTest 逐例运行；仅排除下述两个原生 ABI fixture。
 - `tsan`：使用 libstdc++ 和 `-fsanitize=thread`，不关闭死锁检查，逐 CTest 进程运行全部测试。
@@ -127,6 +128,71 @@ sanitizer 检查来隐藏报告；这些 fixture 仍由 GCC 主矩阵、Clang+li
 线程检查应保留编译器版本、完整告警和退出码。把所有 Catch2 用例塞入同一进程会因不同测试
 复用栈地址而产生跨用例锁图告警，因此 CI 使用 `catch_discover_tests` 生成的逐例 CTest 进程，
 不能用全局关闭死锁检查或压掉告警替代诊断。
+
+## Clang 格式与静态检查
+
+独立的 Linux ARM64 工作流使用 clang-format 18 检查所有已跟踪的 C++ 源文件和头文件；
+clang-tidy 18 检查 compile database 中的项目、示例、测试翻译单元及下述两个单独文件，头文件
+通过这些翻译单元间接检查。维护者本地验收同样以 ARM64 为准；amd64 结果由 GitHub CI 提供，
+不能用本地 x86 运行替代 ARM64 证据。Ubuntu 24.04 可安装以下工具：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends \
+  cmake ninja-build git ca-certificates \
+  clang-18 clang-format-18 clang-tidy-18 clang-tools-18 \
+  libc++-18-dev libc++abi-18-dev
+```
+
+从源码根目录执行格式检查：
+
+```bash
+git ls-files -z -- '*.cpp' '*.hpp' '*.h' \
+  | xargs -0 clang-format-18 --dry-run --Werror
+```
+
+生成包含测试和示例的 compile database，再按 CI 的范围执行 clang-tidy：
+
+```bash
+cmake -S . -B build-tidy -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=clang++-18 \
+  '-DCMAKE_CXX_FLAGS=-stdlib=libc++' \
+  '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
+  '-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++' \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON \
+  -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+
+run-clang-tidy-18 -p build-tidy -j 2 -quiet \
+  -warnings-as-errors='*' \
+  "^${PWD}/(src|examples)/.*[.]cpp$|^${PWD}/tests/(?!test_).*[.]cpp$"
+
+run-clang-tidy-18 -p build-tidy -j 2 -quiet \
+  -checks=-cert-err58-cpp -warnings-as-errors='*' \
+  "^${PWD}/tests/test_.*[.]cpp$"
+
+clang-tidy-18 tests/vendor_fixture_dependency.cpp \
+  -warnings-as-errors='*' -- -std=c++17
+
+clang-tidy-18 validation/installed-consumer/main.cpp \
+  -warnings-as-errors='*' \
+  -- -std=c++17 -stdlib=libc++ -Iinclude -Icompat
+```
+
+`.clang-tidy` 只对宏展开忽略 `cppcoreguidelines-avoid-do-while`。Catch2 的 `TEST_CASE`
+会生成静态注册对象，而 `cert-err58-cpp` 没有宏忽略选项，因此仅 `tests/test_*.cpp` 在第二轮
+排除该检查；项目源码、测试辅助翻译单元和其余已启用规则仍以告警即错误执行。
+`tests/vendor_fixture_dependency.cpp` 仅由 Windows CMake 构建，不进入 Linux compile database，
+所以在 Linux 中单独检查其可移植分支。`validation/pcan_header_abi.cpp` 需要未随仓库分发的
+官方 PCAN 头，不属于通用 style job；执行或跳过该检查都应在验证记录中明确说明。
+
+格式或静态检查通过不代表编译、CTest、sanitizer、实机或发布已经通过，必须分别保留结果。
+
+`.gitea/workflows/ci.yaml` 是次级离线配置，监听 `main`/`master`，使用固定 Catch2 3.7.1
+镜像，执行 Debug/Release 全目标构建、CTest、示例和安装后 consumer，并在 Debug 要求同一
+95% 行覆盖率门槛。它不包含 GitHub 的双架构 Clang/sanitizer/style 矩阵，runner 架构由具体
+Gitea 实例决定；配置文件存在不等于某个提交已经在 Gitea 运行，验证记录必须附实际 run。
 
 ## 源码接入和安装接入
 

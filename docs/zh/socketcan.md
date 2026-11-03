@@ -1,6 +1,6 @@
 # SocketCAN：Linux Classic CAN / CAN FD
 
-[文档索引](../README.md) · [Session](session.md) · [验证边界](validation.md)
+[文档索引](../README.md) · [Session](session.md) · [运行与升级](operations.md) · [验证边界](validation.md)
 
 `SocketCANTransport(interface_name, fd_mode=false)` 使用 Linux CAN 网络接口。
 构造时创建 raw CAN socket、选择接口并绑定；它不配置接口速率、不启动接口，也不安装驱动。
@@ -35,6 +35,8 @@ ip -details -statistics link show can0
 
 参数、内核支持与 vcan 说明可查 [Linux SocketCAN 官方文档](https://docs.kernel.org/networking/can.html)。
 SDK 离线测试不需要配置 can0 或 vcan，勿在自动测试中重配已有真实通道。
+接口名称、速率和 up/down 状态属于操作系统配置，不写入本库。升级或回滚通信库不会恢复
+此前的 `ip link` 设置；部署流程应保存并重新核对系统侧配置。
 
 ## 接入与恢复 factory
 
@@ -68,9 +70,11 @@ CAN 错误帧与 RTR 不作为应用帧交付。FD 接收长度超过 64、读�
 FD 模式发送未标记帧会沿用 FD、无 BRS 的兼容行为，不能靠 `is_fd=false` 在这个后端的
 FD 模式强制发 Classic。Classic 后端拒绝 FD/BRS 或超过 8 字节的载荷。
 
-socket 接收超时设为 10 ms，发送超时设为 50 ms；接收超时返回空值，发送失败抛出带
-`system_error()` 的 `TransportIOError`。这些 socket 选项和 Session deadline 不是设备执行时限，
-也不能保证任意驱动在硬性时限内返回。收到超时不代表帧一定未送达。
+socket 接收超时设为 10 ms，发送超时设为 50 ms；接收超时返回空值。系统 `write()` 以负值
+失败时抛出的 `TransportIOError` 保留 `system_error()`；异常短写也抛 `TransportIOError`，但
+可能没有系统错误码，非法帧则在系统调用前抛 `ValidationError`。这些 socket 选项和 Session
+deadline 不是设备执行时限，也不能保证任意驱动在硬性时限内返回。接收超时只表示等待窗口内
+没有应用帧；发送超时或 `write()` 失败也不能证明帧一定未送达，应结合错误、回执和设备状态核对。
 
 `close()` 拒绝新 I/O，等待在途调用退出后只尝试一次真实 fd 关闭。Linux close 即使失败也
 不能用旧 fd 数值再关闭，以免误伤已复用描述符。`AdoptFd` 是离线 socketpair 的测试入口，
