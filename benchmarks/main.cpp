@@ -270,8 +270,8 @@ namespace {
         bool closed_ = false;
     };
 
-    void idle_case(std::size_t sessions, std::uint64_t idle_ms, std::size_t repetition,
-                   bool routed) {
+    void idle_case(std::size_t sessions, std::chrono::milliseconds idle_duration,
+                   std::size_t repetition, bool routed) {
         auto reads = std::make_shared<std::atomic<std::uint64_t>>(0);
         std::vector<std::shared_ptr<linkerbot::transport::Session>> owners;
         std::vector<std::shared_ptr<linkerbot::transport::RouteInbox>> inboxes;
@@ -287,7 +287,7 @@ namespace {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
         const auto reads_start = reads->load(std::memory_order_relaxed);
         const Measurement measurement;
-        std::this_thread::sleep_for(std::chrono::milliseconds(idle_ms));
+        std::this_thread::sleep_for(idle_duration);
         measurement.print(routed ? "idle_routed" : "idle_unrouted", sessions, repetition, 0,
                           reads->load(std::memory_order_relaxed) - reads_start, owners.size());
         for (auto &owner : owners) {
@@ -341,8 +341,8 @@ int main(int argc, char **argv) {
                 mutation_case(subscribers, iterations / 10 + 1, repetition, true);
             }
             for (const std::size_t sessions : {0U, 1U, 8U, 32U}) {
-                idle_case(sessions, idle_ms, repetition, false);
-                idle_case(sessions, idle_ms, repetition, true);
+                idle_case(sessions, std::chrono::milliseconds(idle_ms), repetition, false);
+                idle_case(sessions, std::chrono::milliseconds(idle_ms), repetition, true);
             }
         }
     } catch (const std::exception &error) {

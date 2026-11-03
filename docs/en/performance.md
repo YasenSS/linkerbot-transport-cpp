@@ -5,10 +5,10 @@ English · [简体中文](../zh/performance.md)
 [Documentation index](../README.md) · [Build guide](build.md) ·
 [Benchmark source and measurement rules](../../benchmarks/README.md)
 
-The first ARM64 Linux baseline identified a repeatable cost in subscriber
-snapshots. Reusing immutable membership between subscription changes reduced
-the measured steady-state snapshot/dispatch cost with 1, 8 and 64 subscribers
-and removed its per-operation allocation. Empty registries and frequent
+The ARM64 Linux measurements identified per-operation allocation in subscriber
+snapshots. Reusing immutable membership between subscription changes removed
+that allocation and lowered the measured median steady-state snapshot/dispatch
+time with 1, 8 and 64 subscribers in this sample set. Empty registries and frequent
 membership changes have different costs, shown below. The Session idle polling
 interval was not changed; these results do not establish an idle-CPU improvement.
 
@@ -50,15 +50,16 @@ median `[minimum, maximum]` over five samples, with allocation tracking **OFF**.
 
 | Subscribers | Baseline ns/op | Candidate ns/op | Median change |
 | --- | --- | --- | --- |
-| 0 | 10.84 [9.58, 26.31] | 15.90 [10.83, 21.49] | +46.8% |
-| 1 | 43.60 [36.97, 64.04] | 31.63 [23.81, 35.93] | −27.5% |
-| 8 | 149.62 [124.70, 214.06] | 118.87 [104.27, 124.25] | −20.6% |
-| 64 | 879.49 [803.85, 918.87] | 743.79 [663.08, 745.17] | −15.4% |
+| 0 | 15.91 [14.08, 19.04] | 18.61 [13.38, 20.60] | +17.02% |
+| 1 | 63.08 [50.96, 67.53] | 42.00 [30.95, 73.78] | −33.42% |
+| 8 | 250.03 [168.08, 252.08] | 214.09 [150.41, 254.45] | −14.37% |
+| 64 | 1656.21 [1076.82, 1735.97] | 1359.03 [924.90, 1689.64] | −17.94% |
 
-The 1/8/64-subscriber sample ranges did not overlap in this run. This is an
-observed result in this environment, not a confidence interval or a promised
-speedup on other systems. The empty-registry median became slower; its ranges
-overlapped and both paths allocated zero times after warmup.
+The baseline and candidate sample ranges overlap at every subscriber count.
+The lower 1/8/64-subscriber medians are observations in this environment, not
+confidence intervals or promised speedups. The empty-registry median became
+slower. Allocation counts provide a separate result: both empty paths allocated
+zero times after warmup, while nonempty steady-state allocations were eliminated.
 
 With allocation tracking **ON**, every 1/8/64-subscriber baseline operation
 allocated one vector buffer, requesting 16/128/1,024 bytes respectively. The
@@ -74,10 +75,10 @@ below is one such pair, not one frame or callback. Timing instrumentation is OFF
 
 | Existing subscribers | Baseline median ns/pair | Candidate median ns/pair |
 | --- | --- | --- |
-| 0 | 123.17 | 220.41 |
-| 1 | 146.28 | 210.06 |
-| 8 | 162.04 | 202.56 |
-| 64 | 376.86 | 534.56 |
+| 0 | 199.37 | 276.05 |
+| 1 | 228.20 | 303.28 |
+| 8 | 284.17 | 378.54 |
+| 64 | 750.24 | 1117.54 |
 
 Allocation runs showed **two additional allocations and 96 additional requested
 bytes per pair** for the candidate at every tested subscriber count. Plain
@@ -100,12 +101,12 @@ were:
 
 | Routes | Baseline CPU ms: median [min, max] | Candidate CPU ms: median [min, max] |
 | --- | --- | --- |
-| None | 17.627 [9.688, 39.346] | 17.139 [7.996, 37.897] |
-| One inbox per Session | 49.523 [7.477, 56.148] | 19.556 [7.273, 25.621] |
+| None | 23.978 [17.171, 25.922] | 28.655 [16.303, 43.576] |
+| One inbox per Session | 22.776 [20.268, 32.809] | 24.990 [19.911, 29.540] |
 
 The ranges are wide and overlap. Voluntary context-switch medians at 32 Sessions
-remained about 8,855 → 8,849 without routes and 8,540 → 8,725 with routes;
-transport-read medians remained about 1,588 and 1,567 respectively. The unchanged
+remained about 8,646 → 8,719 without routes and 8,590 → 8,714 with routes;
+transport-read medians remained about 1,567 in both cases. The unchanged
 idle path and these variations do not support a claim of reduced idle CPU or
 fewer wakeups. No idle-loop optimization is included in this change.
 

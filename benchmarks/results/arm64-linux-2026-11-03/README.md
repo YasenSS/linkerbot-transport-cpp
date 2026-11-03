@@ -20,20 +20,17 @@ Both builds used the same benchmark source. Its compile-time API detection uses
 SHA256 hashes for the benchmark files are:
 
 ```text
-aacf536a6b54b27099a1090b2c72fc88fb31efd06ffba1ba680b7c0f439d678e  benchmarks/main.cpp
-e0aaa36c30aac9e6ab94b0e3d67f8832a47603098a1e5d70bb5d41bdaf3264e3  benchmarks/CMakeLists.txt
+09a86e6a3eb8d86f254887a13cc6938c84dccf259c3d5c029b8ad6e66842e001  benchmarks/main.cpp
+6d2fca9eef5674d9e92529787fb1eab79eae215c3d85aa9d4a84767aa7e8b457  benchmarks/CMakeLists.txt
 ```
 
-After measurement, the C++ time header was changed to `<ctime>` and sorted, and
-the standalone CMake entry gained a guard against re-entering the benchmark
-directory. Rebuilding confirmed byte-identical measurement executables before
-and after those changes. The recorded executable SHA256 values are:
+The final source files above produced the measured binaries. Their SHA256 values are:
 
 ```text
-8047ea45f36fb5a627e95bdce17cda513801c6906b7a3473105a5e970b2b3825  before/time
-3ab537d1abca0f261103085572f397355017e869c775ed9d0a7981c0290d263c  after/time
-b96f938157311b7e523a2613ad358bb16e2185d625c4e25d9ffa281458d7e750  before/alloc
-33d247a8c33e4d664f22f24cb50f1a958ff5d40befa62b03dfa5ff04634c3890  after/alloc
+47308e5a3346e847b0262dcca8925b9b7f49b2fb9427c532203196717d587f69  before/time
+fa45f447449661f257be9bc6a6166ef132960415908f021f26bfa3c4d4876057  before/alloc
+ba4e027d097abf6d4a567a349993c01c3f69f9175281fe524ae5674211e8dc1b  after/time
+73973057858c1732ffbfe8ccbdcaf302f12483de465584f117580aa51b2acd5e  after/alloc
 ```
 
 ## Collection method and files
@@ -59,10 +56,12 @@ python3 benchmarks/summarize.py benchmarks/results/arm64-linux-2026-11-03
 ```
 
 The uninstrumented median for snapshot acquisition plus invocation at 1, 8 and
-64 subscribers changed from 43.60, 149.62 and 879.49 ns/op to 31.63, 118.87 and
-743.79 ns/op. Empty snapshots changed from 10.84 to 15.90 ns/op. The cold
-`mutation_snapshot` medians for 0, 1, 8 and 64 subscribers increased from 123.17,
-146.28, 162.04 and 376.86 ns/op to 220.41, 210.06, 202.56 and 534.56 ns/op.
+64 subscribers changed from 63.079, 250.026 and 1656.205 ns/op to 41.996,
+214.088 and 1359.029 ns/op. Empty snapshots changed from 15.906 to 18.613 ns/op.
+Baseline and candidate ranges overlap at every subscriber count; these medians
+are observations from this sample set, not a promise of speedup. The cold
+`mutation_snapshot` medians for 0, 1, 8 and 64 subscribers increased from 199.370,
+228.196, 284.172 and 750.240 ns/op to 276.054, 303.277, 378.541 and 1117.537 ns/op.
 Steady nonempty snapshots went from one allocation per operation to zero;
 cold mutation/snapshot pairs added two allocations and 96 requested bytes.
 
