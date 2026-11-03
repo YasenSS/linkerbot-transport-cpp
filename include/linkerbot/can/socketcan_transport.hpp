@@ -112,7 +112,7 @@ namespace linkerbot::can {
 
         ~SocketCANTransport() override {
             try {
-                close();
+                SocketCANTransport::close();
             } catch (...) { // NOLINT(bugprone-empty-catch) destructor must not throw
             }
         }

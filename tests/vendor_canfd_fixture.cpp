@@ -48,9 +48,14 @@ namespace {
     // controls 8=fail close 9=fail config 10=fail open 11=IO delay;
     // observations 12=last dev 13=last count 14=last timeout 15=nominal 16=data;
     // controls 17=scan result override (0 -> 6), 18=short tx; observation 19=channel.
-    void observe(unsigned device, unsigned channel) {
-        values[12] = static_cast<int>(device);
-        values[19] = static_cast<int>(channel);
+    struct ChannelAddress {
+        unsigned device;
+        unsigned channel;
+    };
+
+    void observe(ChannelAddress address) {
+        values[12] = static_cast<int>(address.device);
+        values[19] = static_cast<int>(address.channel);
     }
 } // namespace
 // These names are the dynamic fixture ABI consumed by the loader tests.
@@ -104,7 +109,7 @@ API CAN_OpenDevice(INDEX) {
     CHECK_CHANNEL
     std::lock_guard<std::mutex> lock(mutex);
     ++values[1];
-    observe(device, CHANNEL);
+    observe({device, CHANNEL});
     if (values[10] != 0) {
         return values[10];
     }
@@ -118,7 +123,7 @@ API CAN_CloseDevice(INDEX) {
     CHECK_CHANNEL
     std::lock_guard<std::mutex> lock(mutex);
     ++values[2];
-    observe(device, CHANNEL);
+    observe({device, CHANNEL});
     if (values[8] != 0) {
         return values[8];
     }
@@ -133,7 +138,7 @@ API CANFD_Init(INDEX, Configuration *config) {
     CHECK_CHANNEL
     std::lock_guard<std::mutex> lock(mutex);
     ++values[3];
-    observe(device, CHANNEL);
+    observe({device, CHANNEL});
     if ((config == nullptr) || device >= 6 || !opened[device][CHANNEL]) {
         return -4;
     }
@@ -151,7 +156,7 @@ API CANFD_Transmit(INDEX, Frame *frames, unsigned count, int timeout_ms) {
     CHECK_CHANNEL
     std::unique_lock<std::mutex> lock(mutex);
     ++values[4];
-    observe(device, CHANNEL);
+    observe({device, CHANNEL});
     values[13] = static_cast<int>(count);
     values[14] = timeout_ms;
 #ifdef FIXTURE_DEPENDENT
@@ -176,7 +181,7 @@ API CANFD_Receive(INDEX, Frame *frames, unsigned count, int timeout_ms) {
     CHECK_CHANNEL
     std::unique_lock<std::mutex> lock(mutex);
     ++values[5];
-    observe(device, CHANNEL);
+    observe({device, CHANNEL});
     values[13] = static_cast<int>(count);
     values[14] = timeout_ms;
     if ((frames == nullptr) || device >= 6 || !opened[device][CHANNEL] || count != 64 ||

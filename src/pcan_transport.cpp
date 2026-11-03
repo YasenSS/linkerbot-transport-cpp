@@ -331,8 +331,18 @@ namespace linkerbot::can {
         std::mutex io_mutex, read_mutex, wait_mutex;
         std::condition_variable wake;
     };
-    PcanTransport::PcanTransport(PcanConfig config)
-        : PcanTransport(config, load_for_config(config)) {}
+    // Member initialization order keeps loading ahead of the final config move;
+    // delegating-constructor arguments alone do not provide that ordering.
+    struct PcanTransport::Prepared {
+        PcanConfig config;
+        std::shared_ptr<PcanApi> api;
+
+        explicit Prepared(PcanConfig incoming)
+            : config(std::move(incoming)), api(load_for_config(config)) {}
+    };
+    PcanTransport::PcanTransport(PcanConfig config) : PcanTransport(Prepared{std::move(config)}) {}
+    PcanTransport::PcanTransport(Prepared prepared)
+        : PcanTransport(std::move(prepared.config), std::move(prepared.api)) {}
     PcanTransport::PcanTransport(PcanConfig config, std::shared_ptr<PcanApi> api)
         : state_(std::make_unique<State>()) {
         validate_pcan_config(config);

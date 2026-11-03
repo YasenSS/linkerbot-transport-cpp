@@ -1,6 +1,8 @@
 #ifdef __linux__
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
+
+#include "optional_value.hpp"
 #include <cerrno>
 #include <csignal>
 #include <cstddef>
@@ -15,6 +17,7 @@
 
 using namespace linkerbot::can;
 using namespace std::chrono_literals;
+using linkerbot::test_support::require_value;
 namespace {
     void interrupt_poll(int) {}
 
@@ -216,11 +219,11 @@ TEST_CASE("SLCAN Linux CANable FD crosses the real serial implementation without
     REQUIRE(::write(pty.master, wire.data(), wire.size()) == static_cast<ssize_t>(wire.size()));
     const auto reply = transport.read();
     REQUIRE(reply);
-    REQUIRE(reply->id == m.id);
-    REQUIRE(reply->is_fd);
-    REQUIRE(reply->is_extended);
-    REQUIRE_FALSE(reply->is_brs);
-    REQUIRE(reply->data == m.data);
+    REQUIRE(require_value(reply).id == m.id);
+    REQUIRE(require_value(reply).is_fd);
+    REQUIRE(require_value(reply).is_extended);
+    REQUIRE_FALSE(require_value(reply).is_brs);
+    REQUIRE(require_value(reply).data == m.data);
     transport.close();
     REQUIRE(pty.receive(2) == "C\r");
 }

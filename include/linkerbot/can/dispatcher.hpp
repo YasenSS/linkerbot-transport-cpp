@@ -84,6 +84,8 @@ namespace linkerbot::can {
                 std::string last_error;
             };
 
+            using Snapshot = std::vector<std::shared_ptr<Entry>>;
+
             SubscriberRegistry() = default;
             SubscriberRegistry(const SubscriberRegistry &) = delete;
             auto operator=(const SubscriberRegistry &) -> SubscriberRegistry & = delete;
@@ -94,6 +96,7 @@ namespace linkerbot::can {
                 guard();
                 const auto id = next_id_++;
                 slots_.push_back({id, std::make_shared<Entry>(std::move(callback))});
+                cached_snapshot_.reset();
                 return id;
             }
 
@@ -113,8 +116,11 @@ namespace linkerbot::can {
                                            [id](const Slot &slot) { return slot.id == id; });
                     if (it != slots_.end()) {
                         entry = it->entry;
-                        slots_.erase(it);
+                        // Reserve barrier ownership before changing the live view.
+                        // If allocation fails, the entry remains subscribed.
                         pending_.emplace(id, entry);
+                        slots_.erase(it);
+                        cached_snapshot_.reset();
                         claimed = true;
                     } else {
                         auto pending_it = pending_.find(id);
@@ -151,6 +157,7 @@ namespace linkerbot::can {
                         pending_.emplace(slot.id, slot.entry);
                     }
                     slots_.clear();
+                    cached_snapshot_.reset();
                 }
                 for (auto &[id, entry] : to_cancel) {
                     cancel(*entry);
@@ -169,6 +176,28 @@ namespace linkerbot::can {
                     out.push_back(slot.entry);
                 }
                 return out;
+            }
+
+            // Reuse immutable membership between changes. Entry state remains
+            // protected by its own mutex, including the cancellation barrier.
+            // Build before publishing so allocation failure leaves no partial view.
+            [[nodiscard]] auto snapshot_view() const -> std::shared_ptr<const Snapshot> {
+                {
+                    const std::shared_lock lock(mutex_);
+                    if (cached_snapshot_) {
+                        return cached_snapshot_;
+                    }
+                }
+                const std::unique_lock lock(mutex_);
+                if (!cached_snapshot_) {
+                    auto next = std::make_shared<Snapshot>();
+                    next->reserve(slots_.size());
+                    for (const auto &slot : slots_) {
+                        next->push_back(slot.entry);
+                    }
+                    cached_snapshot_ = std::move(next);
+                }
+                return cached_snapshot_;
             }
 
             [[nodiscard]] auto size() const -> std::size_t {
@@ -267,6 +296,7 @@ namespace linkerbot::can {
 
             mutable std::shared_mutex mutex_;
             std::vector<Slot> slots_;
+            mutable std::shared_ptr<const Snapshot> cached_snapshot_;
             std::unordered_map<SubscriptionId, std::shared_ptr<Entry>> pending_;
             SubscriptionId next_id_ = 1;
         };
@@ -426,7 +456,10 @@ namespace linkerbot::can {
                               std::chrono::steady_clock::time_point deadline,
                               std::chrono::microseconds gap,
                               std::chrono::microseconds initial_delay,
-                              const std::function<bool()> &cancelled, size_t &sent,
+                              // These non-const output references cannot bind to
+                              // each other's type; the public signature is retained.
+                              const std::function<bool()> &cancelled,
+                              size_t &sent, // NOLINT(bugprone-easily-swappable-parameters)
                               bool &uncertain) -> void {
             sent = 0;
             uncertain = false;
@@ -645,17 +678,18 @@ namespace linkerbot::can {
                 if (!frame) {
                     continue;
                 }
+                const Message &received = *frame;
                 {
                     const std::scoped_lock lock(health_mutex_);
                     health_.last_successful_rx = std::chrono::steady_clock::now();
                 }
 
-                auto snapshot = subscribers_.snapshot();
-                for (const auto &entry : snapshot) {
+                auto snapshot = subscribers_.snapshot_view();
+                for (const auto &entry : *snapshot) {
                     if (!running_.load(std::memory_order_acquire)) {
                         break;
                     }
-                    detail::SubscriberRegistry<FrameCallback>::invoke(*entry, *frame);
+                    detail::SubscriberRegistry<FrameCallback>::invoke(*entry, received);
                 }
             }
 
@@ -695,6 +729,7 @@ namespace linkerbot::can {
                     options_.on_fault(error);
                 } catch (...) {
                     // Fault reporting must not terminate the receive thread.
+                    return true;
                 }
             }
             return true;

@@ -471,8 +471,8 @@ namespace linkerbot::can {
                     return;
                 }
             }
-            auto snapshot = subscribers_.snapshot();
-            for (const auto &entry : snapshot) {
+            auto snapshot = subscribers_.snapshot_view();
+            for (const auto &entry : *snapshot) {
                 {
                     const std::scoped_lock lock(state_mutex_);
                     if (token != active_token_ || state_ != TransportState::kOpen) {
@@ -522,6 +522,9 @@ namespace linkerbot::can {
                 try {
                     options_.on_fault(error);
                 } catch (...) {
+                    // The bus is already faulted and queued work has failed.
+                    // A reporting callback cannot replace that outcome.
+                    return;
                 }
             }
         }

@@ -96,6 +96,8 @@ the repetition count is not a deterministic proof.
 | `LINKERBOT_COMM_BUILD_EXAMPLES` | ON at top level, OFF as subdirectory | Build `comm-example` |
 | `LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS` | ON | Download v3.8.1 if Catch2 3 is missing |
 | `LINKERBOT_COMM_ENABLE_COVERAGE` | OFF | Linux/GCC only; requires tests ON; adds `--coverage -O0 -g` |
+| `LINKERBOT_COMM_BUILD_BENCHMARKS` | OFF | Build the Linux-only performance harness with the root project |
+| `LINKERBOT_PERF_COUNT_ALLOCATIONS` | OFF | Instrument C++ allocations in the benchmark; available when its subdirectory is enabled |
 | `Catch2_DIR` | Located by CMake | Installed Catch2 3 CMake configuration directory |
 | `CMAKE_INSTALL_PREFIX` | Platform CMake default | Installation prefix; install-time `--prefix` is also supported |
 | `LINKERBOT_COMM_SOURCE_REVISION` | Git automatically, otherwise unknown | Supply a full source SHA for exported source builds |
@@ -117,6 +119,27 @@ cmake --build build-core --parallel 4
 For offline tests, install Catch2 3 first, add
 `-DCatch2_DIR=/absolute/path/to/lib/cmake/Catch2` to the complete regression configure command
 and disable downloads. Catch2 2 does not satisfy the requirement.
+
+## Performance benchmarks
+
+On Linux, build the standalone harness without Catch2 or physical hardware:
+
+```bash
+cmake -S benchmarks -B build/perf -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/perf --parallel 4
+./build/perf/linkerbot-perf --iterations 200000 --idle-ms 500 --repetitions 5
+```
+
+Alternatively, set `-DLINKERBOT_COMM_BUILD_BENCHMARKS=ON` when configuring the root
+project; the executable is then under `build/benchmarks/`. Keep allocation tracking OFF
+for timings and use a separate build with `-DLINKERBOT_PERF_COUNT_ALLOCATIONS=ON`
+for allocation counts. See [Performance](performance.md) for measurement boundaries,
+reproduction commands and recorded ARM64 results.
+
+The Linux CI `benchmark-smoke` job builds both allocation modes with Clang 18/libc++
+on ARM64 and runs short scenarios, retaining CSV artifacts. It checks that the harness
+builds and runs, including its checksum checks; it is not a performance threshold or
+a substitute for controlled before/after measurements.
 
 ## Line coverage and verifiable results
 
@@ -202,9 +225,71 @@ env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_pa
 
 ## Clang formatting and static analysis
 
+### C++ Report Card
+
+The separate `C++ Report Card` workflow runs
+[cppreportcard-action](https://github.com/soulteary/cppreportcard-action) v1.0.1,
+pinned to a full commit SHA, on Linux ARM64. It runs clang-format 18, clang-tidy 18
+and Cppcheck in `full` mode after building the project, quickstart and installed
+consumer. Their compilation databases are combined so both standalone examples
+are analyzed as well as the main project's sources and tests.
+
+The configuration is `.cppreportcard.json`. Only two project source files are
+excluded: `tests/vendor_fixture_dependency.cpp` is a Windows-only dependency
+fixture, and `validation/pcan_header_abi.cpp` requires an external vendor header.
+Build/output directories and third-party dependencies are also excluded.
+The report uses `clang-analyzer-*` and `bugprone-*`; it does not replace the
+existing style workflow's different rule set or platform checks.
+
+`validation/prepare-report-db.py` merges the databases and exposes project
+`-isystem` directories as `-I` directories for Cppcheck. Through
+`validation/cppcheck-report.sh`, Cppcheck uses its `std` library model and
+`validation/catch2-cppcheck.cfg` for the Catch2 macros used by the project.
+The wrapper suppresses only
+`missingIncludeSystem`: compiler standard headers are not Cppcheck input.
+The full-mode clang-tidy pass still checks every compilation entry for missing
+headers, including project headers written with angle brackets. Other Cppcheck
+preprocessor and syntax errors are not suppressed.
+
+The Catch2 model addresses a Cppcheck 2.13 parser limitation; it does not remove
+test bodies or assertion operands from analysis. Real builds continue to use
+Catch2. Before generating the report, the workflow runs 29 static sentinels and
+two runtime probes that compare fatal/nonfatal assertion behavior in real Catch2
+and the model. The sentinels require detection of null and bounds errors inside
+assertions, section names and bodies, and later test cases. A registration guard
+requires literal test names and tags; it rejects expressions the model cannot
+analyze. After building the three analysis
+inputs and generating the combined database as in the workflow, run the same
+model check from the source root:
+
+```bash
+python3 validation/test-cppcheck-model.py --compile-commands build/report-compile-commands.json
+```
+
+See the [diagnostic review](quality-review.md) and its per-diagnostic ledger for
+the distinction between confirmed defects, intentional contracts and false
+positives. CI reports are tied to the commit they analyze.
+
+Download the `cppreportcard-ubuntu-24.04-arm` artifact from a workflow run for
+`report.json`, `report.md` and `badge.svg`, or read its job summary. CI writes these
+files under `.github/cppreportcard/`. Both READMEs display the checked-in badge
+snapshot; its source commit and run are recorded in
+[the snapshot notes](../../.github/cppreportcard/README.md). Refresh the badge and
+notes together in a signed maintenance commit. Generated JSON and Markdown reports
+remain artifacts. The workflow has read-only repository access and uses
+`fail_on: findings`. `validation/check-quality-report.py` additionally requires
+an A+ grade, complete full-mode analysis by all three tools, and no diagnostics.
+Its negative controls reject incomplete, missing-tool and misleading-grade
+reports. This tightens the CI gate without changing analyzer rules or scoring.
+The score is not test coverage or hardware validation. Cppcheck comes from the
+Ubuntu package repository, so its version can change between runner updates;
+compare the tool versions recorded in reports.
+
+### Existing Clang checks
+
 An independent Linux ARM64 workflow uses clang-format 18 on all tracked C++ sources and
 headers. clang-tidy 18 checks project, example and test translation units in the compilation
-database and the two separately checked files below; headers are checked through those units.
+database and the separately checked files below; headers are checked through those units.
 The main compilation database includes `examples/shared_bus.cpp`, but not the separately
 configured `examples/quickstart/main.cpp`; the current style job does not run clang-tidy
 on that quickstart. The formatting check still includes both tracked example sources.

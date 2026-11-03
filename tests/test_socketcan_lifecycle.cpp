@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "optional_value.hpp"
+
 // SocketCANTransport is Linux-only (linux/can.h, PF_CAN, ...); this whole
 // file is a no-op on other platforms.
 #if defined(__linux__)
@@ -21,6 +23,7 @@ using linkerbot::can::ClosedError;
 using linkerbot::can::Message;
 using linkerbot::can::SocketCANTransport;
 using linkerbot::can::TransportIOError;
+using linkerbot::test_support::require_value;
 
 namespace {
 
@@ -54,10 +57,10 @@ TEST_CASE("AdoptFd round-trips a normal frame end-to-end", "[socketcan][lifecycl
 
     auto got = transport.read();
     REQUIRE(got.has_value());
-    REQUIRE(got->id == 0x123);
-    REQUIRE(got->dlc == 3);
-    REQUIRE(got->data[0] == 1);
-    REQUIRE(got->data[2] == 3);
+    REQUIRE(require_value(got).id == 0x123);
+    REQUIRE(require_value(got).dlc == 3);
+    REQUIRE(require_value(got).data[0] == 1);
+    REQUIRE(require_value(got).data[2] == 3);
 
     ::close(fds[1]);
 }
@@ -134,6 +137,8 @@ TEST_CASE("a second close() call waits for the first to fully complete", "[socke
         try {
             (void)transport.read();
         } catch (const ClosedError &) {
+            // Closing the transport may cancel this deliberately blocked read.
+            return;
         }
     });
     in_flight.get_future().wait();
@@ -263,12 +268,12 @@ TEST_CASE("SocketCAN FD accepts Classic and FD datagrams and rejects malformed l
     REQUIRE(::write(fds[1], &fd, sizeof(fd)) == sizeof(fd));
     const auto decoded = transport.read();
     REQUIRE(decoded);
-    REQUIRE(decoded->is_fd);
-    REQUIRE(decoded->is_brs);
-    REQUIRE(decoded->is_extended);
-    REQUIRE(decoded->id == 0x1abcdef);
-    REQUIRE(decoded->data[11] == 77);
-    Message reply = *decoded;
+    REQUIRE(require_value(decoded).is_fd);
+    REQUIRE(require_value(decoded).is_brs);
+    REQUIRE(require_value(decoded).is_extended);
+    REQUIRE(require_value(decoded).id == 0x1abcdef);
+    REQUIRE(require_value(decoded).data[11] == 77);
+    Message reply = require_value(decoded);
     transport.write(reply);
     canfd_frame encoded{};
     REQUIRE(::read(fds[1], &encoded, sizeof(encoded)) == sizeof(encoded));
@@ -281,9 +286,9 @@ TEST_CASE("SocketCAN FD accepts Classic and FD datagrams and rejects malformed l
     REQUIRE(::write(fds[1], &classic, sizeof(classic)) == sizeof(classic));
     const auto old = transport.read();
     REQUIRE(old);
-    REQUIRE_FALSE(old->is_fd);
-    REQUIRE(old->is_extended);
-    REQUIRE(old->id == 0x123456);
+    REQUIRE_FALSE(require_value(old).is_fd);
+    REQUIRE(require_value(old).is_extended);
+    REQUIRE(require_value(old).id == 0x123456);
     for (auto flag : {CAN_ERR_FLAG, CAN_RTR_FLAG}) {
         classic.can_id = flag;
         REQUIRE(::write(fds[1], &classic, sizeof(classic)) == sizeof(classic));

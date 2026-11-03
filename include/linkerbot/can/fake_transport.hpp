@@ -36,7 +36,7 @@ namespace linkerbot::can {
                     const std::scoped_lock lock(mutex_);
                     fail_close_count_ = 0;
                 }
-                close();
+                FakeTransport::close();
             } catch (...) { // NOLINT(bugprone-empty-catch) destructor must not throw
             }
         }
@@ -115,20 +115,20 @@ namespace linkerbot::can {
 
         auto fail_writes(std::string message) -> void {
             const std::scoped_lock lock(mutex_);
-            write_error_ = std::move(message);
+            write_error_.emplace(std::move(message));
         }
 
         auto fail_reads(std::string message) -> void {
             {
                 const std::scoped_lock lock(mutex_);
-                read_error_ = std::move(message);
+                read_error_.emplace(std::move(message));
             }
             cv_.notify_all();
         }
 
         auto fail_batches(std::string message) -> void {
             const std::scoped_lock lock(mutex_);
-            batch_error_ = std::move(message);
+            batch_error_.emplace(std::move(message));
         }
 
         auto set_prefer_batch(bool enabled) -> void {
