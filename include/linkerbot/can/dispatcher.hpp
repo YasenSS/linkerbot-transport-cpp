@@ -11,8 +11,8 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
-#include <functional>
 #include <exception>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -70,8 +70,7 @@ namespace linkerbot::can {
         // invoked forever; disabled_count()/last_error() expose this for
         // health reporting so a caller cannot mistake "callback errors are
         // being silently swallowed forever" for a fully healthy bus.
-        template <typename Callback>
-        class SubscriberRegistry {
+        template <typename Callback> class SubscriberRegistry {
           public:
             struct Entry {
                 explicit Entry(Callback cb) : callback(std::move(cb)) {}
@@ -144,7 +143,9 @@ namespace linkerbot::can {
                 {
                     const std::unique_lock lock(mutex_);
                     to_cancel.reserve(slots_.size() + pending_.size());
-                    for (auto &[id, entry] : pending_) to_cancel.emplace_back(id, entry);
+                    for (auto &[id, entry] : pending_) {
+                        to_cancel.emplace_back(id, entry);
+                    }
                     for (auto &slot : slots_) {
                         to_cancel.emplace_back(slot.id, slot.entry);
                         pending_.emplace(slot.id, slot.entry);
@@ -203,8 +204,7 @@ namespace linkerbot::can {
             // is concurrently being) cancelled or disabled. A callback that
             // throws kMaxConsecutiveFailures times in a row is disabled (see
             // the class comment) instead of being retried forever silently.
-            template <typename... Args>
-            static auto invoke(Entry &entry, Args &&...args) -> bool {
+            template <typename... Args> static auto invoke(Entry &entry, Args &&...args) -> bool {
                 {
                     std::unique_lock lock(entry.mutex);
                     if (!entry.active) {
@@ -262,6 +262,7 @@ namespace linkerbot::can {
                 entry.cv.wait(lock, [&] { return !entry.running; });
             }
 
+            // NOLINTNEXTLINE(readability-identifier-naming)
             static inline thread_local Entry *current_entry_ = nullptr;
 
             mutable std::shared_mutex mutex_;
@@ -301,8 +302,7 @@ namespace linkerbot::can {
             }
             if (options_.error_backoff_base.count() <= 0 ||
                 options_.error_backoff_base > options_.error_backoff_max) {
-                throw ValidationError(
-                    "dispatcher error backoff must be positive and bounded");
+                throw ValidationError("dispatcher error backoff must be positive and bounded");
             }
 
             {
@@ -377,8 +377,7 @@ namespace linkerbot::can {
                 record_send_error(error);
                 throw;
             } catch (const std::exception &error) {
-                TransportIOError classified(std::string("transport write failed: ") +
-                                            error.what());
+                TransportIOError classified(std::string("transport write failed: ") + error.what());
                 record_send_error(classified);
                 throw classified;
             } catch (...) {
@@ -427,31 +426,35 @@ namespace linkerbot::can {
                               std::chrono::steady_clock::time_point deadline,
                               std::chrono::microseconds gap,
                               std::chrono::microseconds initial_delay,
-                              const std::function<bool()> &cancelled,
-                              size_t &sent, bool &uncertain) -> void {
+                              const std::function<bool()> &cancelled, size_t &sent,
+                              bool &uncertain) -> void {
             sent = 0;
             uncertain = false;
-            if (gap.count() < 0 || initial_delay.count() < 0)
+            if (gap.count() < 0 || initial_delay.count() < 0) {
                 throw ValidationError("negative transmit pacing");
+            }
             const auto check = [&] {
                 require_open();
-                if (cancelled && cancelled())
+                if (cancelled && cancelled()) {
                     throw transport::CancelledError("physical batch cancelled");
-                if (std::chrono::steady_clock::now() >= deadline)
+                }
+                if (std::chrono::steady_clock::now() >= deadline) {
                     throw TimeoutError("physical batch deadline expired");
+                }
             };
             std::unique_lock<std::mutex> lock(send_mutex_, std::defer_lock);
             while (!lock.try_lock()) {
                 check();
-                std::this_thread::sleep_until(std::min(deadline,
-                    std::chrono::steady_clock::now() + std::chrono::microseconds(250)));
+                std::this_thread::sleep_until(std::min(
+                    deadline, std::chrono::steady_clock::now() + std::chrono::microseconds(250)));
             }
             const auto pace = [&](std::chrono::microseconds delay) {
                 const auto until = std::chrono::steady_clock::now() + delay;
                 while (std::chrono::steady_clock::now() < until) {
                     check();
-                    std::this_thread::sleep_until(std::min({until, deadline,
-                        std::chrono::steady_clock::now() + std::chrono::microseconds(250)}));
+                    std::this_thread::sleep_until(std::min(
+                        {until, deadline,
+                         std::chrono::steady_clock::now() + std::chrono::microseconds(250)}));
                 }
                 check();
             };
@@ -465,7 +468,9 @@ namespace linkerbot::can {
                     uncertain = false;
                 } else {
                     for (const auto &frame : frames) {
-                        if (sent) pace(gap);
+                        if (sent != 0u) {
+                            pace(gap);
+                        }
                         check();
                         uncertain = true;
                         transport_->write(frame);
@@ -581,7 +586,9 @@ namespace linkerbot::can {
         auto recv_loop() -> void {
             current_recv_dispatcher_ = this;
             struct ClearMarkerOnExit {
-                ~ClearMarkerOnExit() { current_recv_dispatcher_ = nullptr; }
+                ~ClearMarkerOnExit() {
+                    current_recv_dispatcher_ = nullptr;
+                }
             } clear_marker_on_exit;
             (void)clear_marker_on_exit;
 
@@ -621,8 +628,7 @@ namespace linkerbot::can {
                     if (!running_.load(std::memory_order_acquire)) {
                         break;
                     }
-                    InternalError classified(
-                        "transport read failed with a non-standard exception");
+                    InternalError classified("transport read failed with a non-standard exception");
                     ++consecutive_errors;
                     if (handle_receive_error(classified, consecutive_errors)) {
                         break;
@@ -684,8 +690,7 @@ namespace linkerbot::can {
             }
 
             running_.store(false, std::memory_order_release);
-            if (!fault_reported_.exchange(true, std::memory_order_acq_rel) &&
-                options_.on_fault) {
+            if (!fault_reported_.exchange(true, std::memory_order_acq_rel) && options_.on_fault) {
                 try {
                     options_.on_fault(error);
                 } catch (...) {
@@ -738,12 +743,10 @@ namespace linkerbot::can {
             mark_closed();
         }
 
-        [[nodiscard]] auto error_backoff(uint32_t count) const
-            -> std::chrono::milliseconds {
+        [[nodiscard]] auto error_backoff(uint32_t count) const -> std::chrono::milliseconds {
             const auto base = options_.error_backoff_base.count();
             const auto maximum = options_.error_backoff_max.count();
-            if (static_cast<uint64_t>(count) >
-                static_cast<uint64_t>(maximum / base)) {
+            if (static_cast<uint64_t>(count) > static_cast<uint64_t>(maximum / base)) {
                 return options_.error_backoff_max;
             }
             return std::chrono::milliseconds(base * count);
@@ -754,6 +757,7 @@ namespace linkerbot::can {
             health_.state = TransportState::kClosed;
         }
 
+        // NOLINTNEXTLINE(readability-identifier-naming)
         static inline thread_local const CANDispatcher *current_recv_dispatcher_ = nullptr;
 
         std::unique_ptr<CANTransport> transport_;

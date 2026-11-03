@@ -1,11 +1,34 @@
-#include <linkerbot/can/fake_transport.hpp>
-#include <linkerbot/can/pcan_transport.hpp>
-#include <linkerbot/can/slcan_transport.hpp>
-#include <linkerbot/can/vendor_canfd_transport.hpp>
-#include <linkerbot/transport/session.hpp>
+#include <can_dispatcher.hpp>
 #include <can_transport.hpp>
+#include <fake_transport.hpp>
+#include <vendor_canfd_abi.hpp>
+#include <vendor_canfd_transport.hpp>
+
+#if defined(__linux__)
+#include <socketcan_transport.hpp>
+#endif
+
 #include <chrono>
 #include <iostream>
+#include <linkerbot/can/dispatcher.hpp>
+#include <linkerbot/can/errors.hpp>
+#include <linkerbot/can/fake_transport.hpp>
+#include <linkerbot/can/frame.hpp>
+#include <linkerbot/can/health.hpp>
+#include <linkerbot/can/managed_bus.hpp>
+#include <linkerbot/can/message.hpp>
+#include <linkerbot/can/pcan_transport.hpp>
+#include <linkerbot/can/pool.hpp>
+#include <linkerbot/can/slcan_transport.hpp>
+#if defined(__linux__)
+#include <linkerbot/can/socketcan_frame.hpp>
+#include <linkerbot/can/socketcan_transport.hpp>
+#endif
+#include <linkerbot/can/transport.hpp>
+#include <linkerbot/can/vendor_canfd_abi.hpp>
+#include <linkerbot/can/vendor_canfd_transport.hpp>
+#include <linkerbot/transport/cancellation.hpp>
+#include <linkerbot/transport/session.hpp>
 #include <memory>
 #include <utility>
 
@@ -16,7 +39,9 @@ int main() {
     message.dlc = 1;
     message.data[0] = 42;
     transport.write(message);
-    if (transport.sent().size() != 1) return 1;
+    if (transport.sent().size() != 1) {
+        return 1;
+    }
     transport.close();
     // Verify installed Session symbols and routing without hardware.
     auto adapter = std::make_unique<linkerbot::can::FakeTransport>();
@@ -29,7 +54,9 @@ int main() {
     const auto reply = inbox->receive_until(options.deadline);
     session->close();
     if (!reply || reply->message.id != message.id || reply->message.dlc != 2 ||
-        reply->message.data[1] != 7 || !inbox->health().closed) return 6;
+        reply->message.data[1] != 7 || !inbox->health().closed) {
+        return 6;
+    }
     // Exercise installed SLCAN symbols without opening any COM port.
     linkerbot::can::SlcanConfig serial;
     serial.port = "COM10";
@@ -37,22 +64,31 @@ int main() {
     const auto encoded = linkerbot::can::encode_slcan_frame(message);
     const auto decoded = linkerbot::can::decode_slcan_frame(encoded.substr(0, encoded.size() - 1));
     if (decoded.id != message.id || decoded.data[0] != 42 ||
-        !linkerbot::can::enumerate_slcan_ports({}).empty()) return 4;
+        !linkerbot::can::enumerate_slcan_ports({}).empty()) {
+        return 4;
+    }
     serial.protocol = linkerbot::can::SlcanProtocol::kCanableFd;
     serial.fd = true;
     linkerbot::can::validate_slcan_config(serial);
-    message.is_fd = true; message.dlc = 64; message.is_brs = true;
+    message.is_fd = true;
+    message.dlc = 64;
+    message.is_brs = true;
     const auto fd = linkerbot::can::encode_slcan_frame(message, serial.protocol);
-    const auto roundtrip = linkerbot::can::decode_slcan_frame(fd.substr(0,fd.size()-1),serial.protocol);
-    if (!roundtrip.is_fd || !roundtrip.is_brs || roundtrip.dlc != 64) return 5;
+    const auto roundtrip =
+        linkerbot::can::decode_slcan_frame(fd.substr(0, fd.size() - 1), serial.protocol);
+    if (!roundtrip.is_fd || !roundtrip.is_brs || roundtrip.dlc != 64) {
+        return 5;
+    }
     // Explicit missing paths make this independent of machine-installed drivers.
     try {
         (void)linkerbot::can::load_pcan_api("__missing_linkerbot_driver__/PCANBasic.dll");
         return 2;
-    } catch (const linkerbot::can::TransportIOError &) {}
+    } catch (const linkerbot::can::TransportIOError &) {
+    }
     try {
         (void)linkerbot::can::load_vendor_canfd_api("__missing_linkerbot_driver__/HCanbus.dll");
         return 3;
-    } catch (const linkerbot::can::TransportIOError &) {}
+    } catch (const linkerbot::can::TransportIOError &) {
+    }
     std::cout << "Installed comm and missing-driver behavior passed\n";
 }

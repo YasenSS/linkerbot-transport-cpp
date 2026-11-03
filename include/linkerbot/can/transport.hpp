@@ -11,10 +11,13 @@ namespace linkerbot::can {
     // Frame send/receive on one physical link. Implementations own the link's
     // lifetime: acquire it in the constructor, release it in the destructor.
     //
-    // `read()` must not block indefinitely — CANDispatcher polls it from a
-    // dedicated thread and relies on a bounded return to observe its stop flag.
-    // Return std::nullopt on timeout (that is normal, not an error); throw only
-    // for a genuinely broken link.
+    // Configure finite receive waits: CANDispatcher uses a dedicated reader
+    // thread and checks its stop flag between calls. Driver calls without a
+    // cancellation API may still delay shutdown beyond the configured timeout.
+    // Return std::nullopt when no application frame is returned, including a
+    // normal timeout or a filtered frame. Empty results need not consume the
+    // full receive timeout. Invalid input, closed resources and I/O failures
+    // may throw; an exception alone does not prove physical disconnection.
     //
     // Both methods are called from different threads concurrently (read from the
     // dispatcher thread, write from callers), so implementations must be
@@ -28,8 +31,8 @@ namespace linkerbot::can {
         CANTransport(CANTransport &&) = delete;
         CANTransport &operator=(CANTransport &&) = delete;
 
-        // Returns the next received frame, or std::nullopt if none arrived within
-        // the implementation's receive timeout.
+        // Returns an application frame, or std::nullopt if this call returns none.
+        // Backends may return early after filtering a non-application frame.
         virtual auto read() -> std::optional<Message> = 0;
 
         // Returns after the backend accepts the frame. Failures throw a stable
@@ -38,8 +41,9 @@ namespace linkerbot::can {
         virtual auto write(const Message &message) -> void = 0;
 
         // Transmit several frames. The default implementation writes sequentially.
-        // A failed batch must be treated as failure for every frame: backends that
-        // coalesce into one syscall cannot report which frames reached the bus.
+        // An exception does not roll back frames already accepted by the backend.
+        // Coalesced native batches may partially complete without reporting a
+        // per-frame result. Reconcile device state before retrying the batch.
         virtual auto write_batch(const std::vector<Message> &messages) -> void {
             for (const auto &message : messages) {
                 write(message);
@@ -50,8 +54,9 @@ namespace linkerbot::can {
             return false;
         }
 
-        // Interrupt pending I/O and release the physical link. Must be
-        // idempotent and safe after a partial initialization or prior failure.
+        // Request cancellation where supported, coordinate in-flight I/O and
+        // release owned resources. Repeated calls are safe after success;
+        // resources retained after a failure remain available for cleanup retry.
         virtual auto close() -> void = 0;
 
       protected:

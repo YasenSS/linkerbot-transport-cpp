@@ -1,25 +1,62 @@
-# 参与贡献与问题反馈
+# Contributing and reporting issues
 
-通过本仓库的 Issues 反馈通信层问题，通过 Pull Request 提交修改。
-手部协议、角度和 `HandDevice` 接口问题请提交到配套 hand SDK 仓库。
-先查看 [README](README.md) 的验证范围及对应后端文档。
+English · [简体中文](CONTRIBUTING.zh-CN.md)
 
-## 问题所需信息
+Use Issues for transport reports when enabled; otherwise submit a pull request with a minimal reproducer. Report hand protocol, joint-angle, and `HandDevice` interface problems to the companion hand SDK. Start with the validation scope in the [README](README.md) and the relevant backend guide.
 
-- 库版本或提交号、是否有本地修改；使用 hand SDK 时同时提供其版本。
-- 操作系统、架构、编译器、CMake、Debug/Release 和 Windows 运行库配置。
-- backend、适配器及固件、驱动/DLL 版本、通道、UART/CAN 速率和 FD 时序。
-- 最小复现代码与命令、完整错误及原生状态码、预期结果和实际结果。
+## Issue reports
 
-日志上传前移除令牌、口令、内部服务器地址和个人目录信息。
-不要上传厂商 DLL、驱动、专有头文件或无法公开的抓包内容。
+Reproduce on a specified version, then check whether current `main` already includes a fix. Include at least:
 
-## 修改与验证
+- full transport and hand commits, local modifications, and the `main` commit compared;
+- OS, architecture, compiler, CMake, Debug/Release, and Windows CRT;
+- backend, adapter, firmware, driver/DLL, channel, UART/CAN rates, and FD timing;
+- trigger, prerequisites, required privileges, actual effect, and unaffected boundary;
+- minimal reproducer, exact commands, repetitions, expected/actual results, and full errors;
+- whether the issue concerns reliability, configuration, build, ABI, performance, or another category.
 
-一次修改集中解决一个问题，并写明行为变化和验证结果。
-构建与离线测试方式见 [README](README.md#build-and-test)；后端配置文档位于 `docs/zh/`。
-通信和生命周期修改应覆盖相应离线用例，安装变化应验证 `find_package` 用户接入。
-未连接真实适配器时不要求执行实机测试，也不能把测试桩结果写成硬件通过。
-新增依赖需说明许可证和分发方式。
+Remove tokens, passwords, verification codes, internal server addresses, and personal directory information before uploading logs. Do not submit vendor DLLs, drivers, proprietary headers, or captures that cannot be published.
 
-项目采用 [MIT 许可证](LICENSE)。请确认提交的代码及资料有权公开。
+## Change principles
+
+Keep each change focused on one problem. Retain evidence of failure before fixing it, then prove success with a regression that also covers normal and compatible behavior. Do not hide a failure by deleting records, replacing idempotency keys, relaxing validation, or disabling detection. For transport/lifetime changes prioritize concurrency, process exit, timeouts, cancellation, lost acknowledgments, retries, and compatibility with old application records.
+
+Performance changes need before/after benchmarks with the same environment and inputs, including duration, allocations, variation, and compatibility. Document licenses, pinned versions, download methods, and package inclusion for new dependencies. Hardware tests are not required without a real adapter; fixture, PTY, and in-memory transport results must not be reported as hardware acceptance.
+
+## Local ARM64 validation
+
+See the [build guide](docs/en/build.md) for complete build, coverage, sanitizer, and clang-tidy commands. Use Linux ARM64 for local maintenance validation; local x86 results do not replace ARM64 evidence. GitHub CI checks amd64 separately. At minimum, run the formatting, strict compilation, and CTest checks relevant to the change:
+
+```bash
+git ls-files -z -- '*.cpp' '*.hpp' '*.h' \
+  | xargs -0 clang-format-18 --dry-run --Werror
+
+cmake -S . -B build-libcxx -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=clang++-18 \
+  '-DCMAKE_CXX_FLAGS=-stdlib=libc++ -Wall -Wextra -Wpedantic -Werror' \
+  '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
+  '-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++' \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON \
+  -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+cmake --build build-libcxx --parallel 4
+ctest --test-dir build-libcxx --output-on-failure --no-tests=error --timeout 90
+./build-libcxx/comm-example
+```
+
+Linux aggregate production line coverage must be at least 95% over `src/` and `include/`. This is not a per-file threshold, branch coverage requirement, or hardware acceptance. Use TSan or other applicable tools for concurrency changes; explain skipped checks. Go race/vet, Redis, and database tests apply only to relevant application projects; this transport library has no such dependencies.
+
+Installation, export, or CMake package changes also need an independent `find_package` consumer. Check interfaces, defaults, commands, links, and installed relative paths for documentation changes. Mark historical material explicitly and link the maintained guides.
+
+## Commits and pull requests
+
+Create an independent branch from current `main`, use signed commits, and verify the signature before pushing:
+
+```bash
+git commit -S
+git verify-commit HEAD
+```
+
+Write restrained, accurate English PRs explaining reproduction, root cause, fix, compatibility, configuration, old records, upgrade order, rollback limits, and passed/failed/skipped validation. Check CI, review, and unresolved threads for the **latest head**. Creating a PR does not mean CI passed; pushing a tag does not mean a release is complete.
+
+Merge only after checks pass and authorization is given. Synchronize `main`, verify its new CI, then clean up task remote/local branches and temporary worktrees. Preserve existing user files. The project uses the [MIT license](LICENSE); confirm that code, documentation, and test material can be published before submitting them.

@@ -1,0 +1,331 @@
+# Building, installing and integrating with CMake
+
+[简体中文](../zh/build.md) · [Documentation](../README.md) · [Windows](windows-build.md)
+
+## Prerequisites and directories
+
+The core library requires CMake 3.16+, a C++17 compiler and thread support. The regular test
+commands below use `ctest --test-dir`; use CMake/CTest 3.20+ for those commands. The next
+section gives a 3.16-compatible integration path. Catch2 3.8.1 itself declares CMake 3.16,
+but its test-discovery script needs JSON support, so this project requires CMake 3.19+
+with tests enabled. Check any separately installed Catch2 version's own requirements too.
+Linux CI uses Ubuntu 24.04: GCC 13 covers native amd64/ARM64 Debug/Release and the 95%
+line-coverage gate; Clang 18 covers libc++, ASan+UBSan and TSan on both architectures.
+Local maintenance validation prioritizes Linux ARM64. Windows uses MSVC x64 as described
+in its guide. macOS is outside the current hardware-support and CI validation matrix.
+
+Run Bash commands from the source root. Examples use Ninja, which must be installed;
+omit `-G Ninja` to use the platform default generator. On Ubuntu:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build git ca-certificates
+```
+
+Enabling tests may download Catch2 from GitHub, requiring network access and Git. The core
+library requires no vendor SDK, vendor dynamic library, CAN device or Catch2. Do not copy
+vendor DLLs into the source directory as build dependencies.
+
+## Minimal integration with CMake 3.16
+
+This path downloads no test dependencies and requires no physical device:
+
+```bash
+cmake -S . -B build-minimum -DCMAKE_BUILD_TYPE=Release \
+  -DLINKERBOT_COMM_BUILD_TESTS=OFF \
+  -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF \
+  -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
+cmake --build build-minimum --parallel 4
+cmake --install build-minimum --prefix "$PWD/install/minimum"
+cmake -S examples/quickstart -B build-quickstart-minimum \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/install/minimum"
+cmake --build build-quickstart-minimum --parallel 4
+(cd build-quickstart-minimum && ctest --output-on-failure)
+```
+
+With older CTest, enter the build directory before running tests instead of using the
+unsupported `--test-dir` option. This example verifies in-memory transport I/O and installed
+package integration, not the complete regression suite or hardware acceptance.
+
+## Complete offline regression
+
+```bash
+cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+cmake --build build-release --parallel 4
+ctest --test-dir build-release --output-on-failure --no-tests=error --timeout 60
+./build-release/comm-example
+```
+
+For Debug, use a separate `build-debug` directory and `-DCMAKE_BUILD_TYPE=Debug`.
+Single-configuration generators choose the configuration at configure time. Visual Studio
+and other multi-configuration generators require `--config` / `-C` during build, CTest and
+installation. Do not reuse directories from another architecture, compiler or generator.
+
+Prefer CTest: CMake injects test-library paths for `pcan-native-loader` and
+`vendor-native-loader`. Running their executables without those environment settings fails;
+that does not indicate a missing physical driver. To repeat only Session recovery cases:
+
+```bash
+ctest --test-dir build-release -R '^Session recover' --repeat until-fail:20 \
+  --output-on-failure --no-tests=error --timeout 60
+```
+
+GCC amd64/ARM64 Debug/Release CI also repeats three registry lifecycle interleaving tests:
+
+```bash
+ctest --test-dir build-release \
+  -R '^(Session registry waiters recheck a replacement active generation|Session registry ignores waits for a published initialization attempt|Session registry rebinds a waiter to a replacement initialization attempt)$' \
+  --repeat until-fail:20 --output-on-failure --no-tests=error --timeout 60 \
+  --output-log registry-handoff-results.log
+```
+
+The first checks that an old wait condition does not miss a new active generation published
+after cleanup. The second checks that a published initialization attempt does not produce a
+false cycle through a stale wait edge. The third checks rebinding to a replacement attempt
+after initialization failure. Synchronization gates fix entry into cleanup, publication and
+failure paths, but public APIs do not expose exactly when internal wait edges are installed
+or removed. Repetition broadens handoff scheduling coverage and timeouts prevent hangs;
+the repetition count is not a deterministic proof.
+
+## Build options
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `LINKERBOT_COMM_BUILD_TESTS` | ON at top level, OFF as subdirectory | Catch2 tests and native ABI fixtures |
+| `LINKERBOT_COMM_BUILD_EXAMPLES` | ON at top level, OFF as subdirectory | Build `comm-example` |
+| `LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS` | ON | Download v3.8.1 if Catch2 3 is missing |
+| `LINKERBOT_COMM_ENABLE_COVERAGE` | OFF | Linux/GCC only; requires tests ON; adds `--coverage -O0 -g` |
+| `Catch2_DIR` | Located by CMake | Installed Catch2 3 CMake configuration directory |
+| `CMAKE_INSTALL_PREFIX` | Platform CMake default | Installation prefix; install-time `--prefix` is also supported |
+| `LINKERBOT_COMM_SOURCE_REVISION` | Git automatically, otherwise unknown | Supply a full source SHA for exported source builds |
+| `CMAKE_MSVC_RUNTIME_LIBRARY` | Dynamic CRT on MSVC | Default Release `/MD`, Debug `/MDd`; match the consumer |
+
+These are CMake cache variables, not runtime environment variables. Disabling downloads
+does not remove cached Catch2 or supply missing dependencies. `BUILD_SHARED_LIBS` does not
+make this a shared library: the core target is explicitly STATIC.
+
+To prohibit dependency downloads and build only the core:
+
+```bash
+cmake -S . -B build-core -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF \
+  -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
+cmake --build build-core --parallel 4
+```
+
+For offline tests, install Catch2 3 first, add
+`-DCatch2_DIR=/absolute/path/to/lib/cmake/Catch2` to the complete regression configure command
+and disable downloads. Catch2 2 does not satisfy the requirement.
+
+## Line coverage and verifiable results
+
+Install `gcovr` and use a new build directory to avoid mixing `.gcda` counts from old source:
+
+```bash
+sudo apt-get install -y --no-install-recommends gcovr
+cmake -S . -B build-coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_ENABLE_COVERAGE=ON
+cmake --build build-coverage --parallel 4
+ctest --test-dir build-coverage --output-on-failure --no-tests=error --timeout 60
+gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build-coverage/_deps' \
+  --fail-under-line 95 --txt --json-summary coverage-summary.json build-coverage
+```
+
+95% means aggregate production **line coverage** in the Linux build, not 95% per file or
+per branch. It includes `src/` and `include/`, including public FakeTransport, and excludes
+test directories and Catch2. Production lines are not selectively excluded to improve the
+result. Windows code omitted by Linux conditional compilation is outside the denominator.
+See [Validation](validation.md) for executed fixed-commit results; a CI file alone is not a pass.
+
+Consumers of coverage-instrumented static libraries also need `--coverage` at link time,
+for example `-DCMAKE_CXX_FLAGS=--coverage`. Normal Release builds keep coverage OFF.
+
+## Clang, a second standard library and sanitizers
+
+The Linux amd64/ARM64 Clang matrix uses three independent Debug builds:
+
+- `libcxx`: Clang 18 and libc++, all CTests including both native ABI fixtures, compiling
+  the library, tests, fixtures and example with `-Wall -Wextra -Wpedantic -Werror`.
+  It runs the example and checks an installed libc++ consumer with the same warning policy.
+- `asan-ubsan`: libstdc++ and `-fsanitize=address,undefined`, leak detection enabled,
+  failing at the first ASan/UBSan error. Individual CTests run in separate processes;
+  only the two native ABI fixtures described below are excluded.
+- `tsan`: libstdc++ and `-fsanitize=thread`, deadlock detection enabled, all tests run
+  as separate CTest processes.
+
+ASan+UBSan is not combined with Ubuntu's system libc++: ARM64 observations reported
+`operator new`/`free` mismatch in libc++/libc++abi exception-object allocation. That observed
+report is not attributed to project code. The two native-loader fixtures are also excluded
+from ASan+UBSan: to model third-party C++ libraries without headers, each side deliberately
+declares layout-compatible ABI structures with distinct type identities. UBSan metadata on
+both sides reports function-type mismatches. CI does not disable those checks to suppress
+reports; GCC, Clang/libc++ and TSan still cover the fixtures.
+
+Retain compiler version, complete diagnostics and exit status for thread checks. Running
+all Catch2 cases in one process has produced cross-case lock-graph warnings when different
+tests reuse stack addresses. CI therefore uses individual processes generated by
+`catch_discover_tests`; globally disabling deadlock detection or suppressing warnings is
+not a substitute for diagnosis.
+
+To reproduce the sanitizer jobs on Ubuntu 24.04 ARM64, install Clang 18, LLVM's
+symbolizer and the sanitizer runtime, then use separate build directories. These
+commands use libstdc++, as in CI, and run each discovered CTest separately:
+
+```bash
+sudo apt-get install -y --no-install-recommends \
+  clang-18 llvm-18 libclang-rt-18-dev
+cmake -S . -B build-asan-ubsan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=clang++-18 \
+  '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Wpedantic -fsanitize=address,undefined -fno-omit-frame-pointer' \
+  '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined' \
+  '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined' \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+cmake --build build-asan-ubsan --parallel 4
+env ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer-18)" \
+  ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+  UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+  ctest --test-dir build-asan-ubsan \
+    -E '^(pcan-native-loader|vendor-native-loader)$' \
+    --output-on-failure --no-tests=error --timeout 90
+
+cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=clang++-18 \
+  '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Wpedantic -fsanitize=thread -fno-omit-frame-pointer' \
+  '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread' \
+  '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=thread' \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+cmake --build build-tsan --parallel 4
+env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_path=$(command -v llvm-symbolizer-18)" \
+  ctest --test-dir build-tsan --output-on-failure --no-tests=error --timeout 120
+```
+
+## Clang formatting and static analysis
+
+An independent Linux ARM64 workflow uses clang-format 18 on all tracked C++ sources and
+headers. clang-tidy 18 checks project, example and test translation units in the compilation
+database and the two separately checked files below; headers are checked through those units.
+The main compilation database includes `examples/shared_bus.cpp`, but not the separately
+configured `examples/quickstart/main.cpp`; the current style job does not run clang-tidy
+on that quickstart. The formatting check still includes both tracked example sources.
+Local maintenance validation also uses ARM64; GitHub CI provides amd64 results. Local x86
+runs do not replace ARM64 evidence. On Ubuntu 24.04:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends \
+  cmake ninja-build git ca-certificates \
+  clang-18 clang-format-18 clang-tidy-18 clang-tools-18 \
+  libc++-18-dev libc++abi-18-dev
+```
+
+From the source root, check formatting:
+
+```bash
+git ls-files -z -- '*.cpp' '*.hpp' '*.h' \
+  | xargs -0 clang-format-18 --dry-run --Werror
+```
+
+Generate the compilation database with tests/examples, then use the CI clang-tidy scope:
+
+```bash
+cmake -S . -B build-tidy -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=clang++-18 \
+  '-DCMAKE_CXX_FLAGS=-stdlib=libc++' \
+  '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
+  '-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++' \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON \
+  -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+
+run-clang-tidy-18 -p build-tidy -j 2 -quiet \
+  -warnings-as-errors='*' \
+  "^${PWD}/(src|examples)/.*[.]cpp$|^${PWD}/tests/(?!test_).*[.]cpp$"
+
+run-clang-tidy-18 -p build-tidy -j 2 -quiet \
+  -checks=-cert-err58-cpp -warnings-as-errors='*' \
+  "^${PWD}/tests/test_.*[.]cpp$"
+
+clang-tidy-18 tests/vendor_fixture_dependency.cpp \
+  -warnings-as-errors='*' -- -std=c++17
+
+clang-tidy-18 validation/installed-consumer/main.cpp \
+  -warnings-as-errors='*' \
+  -- -std=c++17 -stdlib=libc++ -Iinclude -Icompat
+```
+
+`.clang-tidy` ignores `cppcoreguidelines-avoid-do-while` only for macro expansions.
+Catch2 `TEST_CASE` generates static registration objects and `cert-err58-cpp` has no macro
+ignore option, so only `tests/test_*.cpp` excludes that check in the second pass. Project
+sources, test-support units and all other enabled rules still treat warnings as errors.
+`tests/vendor_fixture_dependency.cpp` is built only on Windows and is absent from the Linux
+compilation database, so Linux checks its portable branch separately.
+`validation/pcan_header_abi.cpp` needs the external official PCAN header and is outside the
+generic style job; record explicitly whether that check ran or was skipped.
+
+Formatting/static-analysis success does not establish build, CTest, sanitizer, hardware or
+release success; retain each result separately.
+
+`.gitea/workflows/ci.yaml` is a secondary offline configuration for `main`/`master`, using a
+pinned Catch2 3.7.1 mirror. It builds all Debug/Release targets, runs CTest, the example and
+installed consumer, and enforces the same 95% Debug line-coverage threshold. It lacks GitHub's
+dual-architecture Clang/sanitizer/style matrix, and runner architecture depends on the Gitea
+instance. Configuration existence does not establish that a commit ran on Gitea; attach an actual run.
+
+## Source-tree and installed integration
+
+For source-tree integration, define the consumer's `your-sdk` target first:
+
+```cmake
+add_subdirectory(../linkerbot-transport-cpp linkerbot-transport-cpp)
+target_link_libraries(your-sdk PRIVATE linkerbot::comm)
+```
+
+Tests and examples default OFF as a subdirectory. If explicitly enabling tests, the top-level
+project must also enable CTest discovery. Install and check an independent consumer:
+
+```bash
+cmake --install build-release --prefix "$PWD/install/comm"
+cmake -S install/comm/share/linkerbot-comm/validation/installed-consumer \
+  -B build-consumer -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$PWD/install/comm"
+cmake --build build-consumer --parallel 4
+ctest --test-dir build-consumer --output-on-failure --no-tests=error --timeout 60
+```
+
+Applications use `find_package(linkerbot-comm 0.3 CONFIG REQUIRED)`:
+
+- `linkerbot::comm`: implementation, headers, C++17 and thread-link dependencies.
+- `linkerbot::comm-compat`: legacy flat header paths plus implementation linkage.
+- `linkerbot::comm-values`: header paths and C++17 only; implementation calls still require comm.
+
+`SameMinorVersion` requires matching major/minor and an installed version at least as high
+as the requested version. The companion hand SDK's patch-version requirement still applies;
+successful `find_package(... 0.3 ...)` alone does not establish compatibility. Recompile
+matching components before mixing architectures, CRTs, compilers or library versions; see
+[Upgrade order](operations.md).
+
+## Packaging and provenance
+
+Top-level Linux builds produce TGZ by default:
+
+```bash
+cpack --config build-release/CPackConfig.cmake -B dist
+```
+
+CPack generates adjacent SHA256 files. Linux filenames include version, OS and architecture,
+**not Debug/Release**, so use separate artifact directories for different configurations.
+See the Windows guide for ZIP naming and CRT details.
+
+`share/linkerbot-comm/build-info.json` contains version, `comm_sha`, `source_dirty`, OS,
+architecture, compiler, toolset, configuration and CRT. Provenance is generated at CMake
+configuration time; reconfigure after changing source commits. Metadata from an old build
+directory does not validate a new commit. Source exports without Git may supply a full SHA
+explicitly, but that is caller-provided provenance, not a content checksum or signature.
+`source_dirty` comes from Git diff of tracked files; it does not establish absence of
+untracked files or validate separately installed vendor binaries.
+
+Before distribution, check clean source, version, configuration, architecture and SHA256,
+then rerun installed-consumer validation. Building does not automatically create a GitHub
+Release, signed tag or image; CI and packaging success are not release completion.

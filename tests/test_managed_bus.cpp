@@ -83,6 +83,19 @@ namespace {
         std::vector<Message> frames_;
     };
 
+    class DestructionTrackingFakeTransport final : public FakeTransport {
+      public:
+        explicit DestructionTrackingFakeTransport(std::shared_ptr<std::atomic<bool>> destroyed)
+            : destroyed_(std::move(destroyed)) {}
+
+        ~DestructionTrackingFakeTransport() override {
+            destroyed_->store(true, std::memory_order_release);
+        }
+
+      private:
+        std::shared_ptr<std::atomic<bool>> destroyed_;
+    };
+
 } // namespace
 
 TEST_CASE("constructing ManagedCANBus does not call the factory", "[managed_bus]") {
@@ -220,9 +233,7 @@ TEST_CASE("late errors from a closed generation are ignored", "[managed_bus]") {
     bus.subscribe(collector.callback());
     bus.start();
     current->fail_reads("unplugged");
-    REQUIRE(wait_until([&] {
-        return bus.get_health().state == TransportState::kFaulted;
-    }));
+    REQUIRE(wait_until([&] { return bus.get_health().state == TransportState::kFaulted; }));
     REQUIRE(bus.get_health().generation == 1);
 
     bus.recover();
@@ -303,6 +314,7 @@ TEST_CASE("enqueue success is not physical send success", "[managed_bus][queue]"
     REQUIRE(current->wait_until_tx_entered(kTimeout));
     REQUIRE_FALSE(receipt.completed());
     REQUIRE(current->sent().empty());
+    REQUIRE_THROWS_AS(receipt.wait_for(std::chrono::milliseconds(1)), linkerbot::can::TimeoutError);
 
     current->release_tx_gate();
     REQUIRE_NOTHROW(receipt.wait_for(kTimeout));
@@ -609,6 +621,7 @@ TEST_CASE("synchronous recover from the fault callback is rejected, not fatal",
         } catch (const ValidationError &) {
             saw_validation_error.store(true, std::memory_order_release);
         }
+        throw std::runtime_error("fault observer failure must be isolated");
     };
 
     FakeTransport *raw = nullptr;
@@ -625,6 +638,8 @@ TEST_CASE("synchronous recover from the fault callback is rejected, not fatal",
     raw->fail_reads("boom");
     REQUIRE(wait_until([&] { return fault_seen.load(std::memory_order_acquire); }));
     REQUIRE(saw_validation_error.load(std::memory_order_acquire));
+    REQUIRE_THROWS_AS(bus.send(make_frame(0x28, 0x52)), FaultedError);
+    REQUIRE_THROWS_AS(bus.queue_send(make_frame(0x28, 0x53)), FaultedError);
 }
 
 TEST_CASE("an external stop is not blocked or terminated by a rejected self-stop callback",
@@ -645,6 +660,7 @@ TEST_CASE("an external stop is not blocked or terminated by a rejected self-stop
     bool entered = false;
     bool release_now = false;
     std::atomic<bool> saw_validation_error{false};
+    std::atomic<int> later_calls{0};
 
     bus.subscribe([&](const Message &) {
         try {
@@ -657,6 +673,7 @@ TEST_CASE("an external stop is not blocked or terminated by a rejected self-stop
         cv.notify_all();
         cv.wait(lock, [&] { return release_now; });
     });
+    bus.subscribe([&](const Message &) { ++later_calls; });
 
     raw->inject(make_frame(0x28, 0x51));
     {
@@ -668,6 +685,7 @@ TEST_CASE("an external stop is not blocked or terminated by a rejected self-stop
     // The external stop() blocks joining the receive thread until the
     // callback above releases it, but must complete without deadlock.
     std::thread external_stop([&] { bus.stop(); });
+    REQUIRE(wait_until([&] { return bus.get_health().state == TransportState::kStopping; }));
 
     {
         const std::scoped_lock lock(mutex);
@@ -677,6 +695,47 @@ TEST_CASE("an external stop is not blocked or terminated by a rejected self-stop
 
     external_stop.join();
     REQUIRE(bus.get_health().state == TransportState::kClosed);
+    REQUIRE(later_calls.load() == 0);
+}
+
+TEST_CASE("managed bus health reports a disabled throwing subscriber",
+          "[managed_bus][health][subscriber]") {
+    FakeTransport *raw = nullptr;
+    ManagedCANBus bus([&] {
+        auto transport = std::make_unique<FakeTransport>();
+        raw = transport.get();
+        return transport;
+    });
+    bus.start();
+
+    std::atomic<int> calls{0};
+    bus.subscribe([&](const Message &) {
+        ++calls;
+        throw std::runtime_error("managed subscriber failure");
+    });
+    for (int i = 0; i < 4; ++i) {
+        raw->inject(make_frame(0x28, static_cast<uint8_t>(i)));
+    }
+
+    REQUIRE(wait_until([&] { return bus.get_health().disabled_subscriber_count == 1; }));
+    const auto health = bus.get_health();
+    REQUIRE(calls.load() == 3);
+    REQUIRE(health.last_subscriber_error.find("managed subscriber failure") != std::string::npos);
+    bus.stop();
+}
+
+TEST_CASE("managed bus destructor contains a retryable transport close failure",
+          "[managed_bus][lifecycle]") {
+    FakeTransport *raw = nullptr;
+    {
+        ManagedCANBus bus([&] {
+            auto transport = std::make_unique<FakeTransport>();
+            raw = transport.get();
+            return transport;
+        });
+        bus.start();
+        raw->fail_next_closes(1);
+    }
 }
 
 TEST_CASE("pool shares one connection until the last lease closes", "[pool]") {
@@ -716,6 +775,120 @@ TEST_CASE("lease close is idempotent and access after close fails", "[pool]") {
     lease.close();
     lease.close();
     REQUIRE_THROWS_AS(lease.bus(), ClosedError);
+    REQUIRE_THROWS_AS(lease.shared_bus(), ClosedError);
+}
+
+TEST_CASE("lease move assignment preserves both owners when target close fails", "[pool]") {
+    SharedCANBusPool pool;
+    CANBusKey first_key;
+    first_key.backend = "fake";
+    first_key.endpoint = "can0";
+    CANBusKey second_key = first_key;
+    second_key.endpoint = "can1";
+
+    FakeTransport *first_transport = nullptr;
+    auto first = pool.acquire(first_key, [&] {
+        auto transport = std::make_unique<FakeTransport>();
+        first_transport = transport.get();
+        return transport;
+    });
+    auto second = pool.acquire(second_key, [] { return std::make_unique<FakeTransport>(); });
+
+    first_transport->fail_next_closes(1);
+    REQUIRE_THROWS_AS(first = std::move(second), TransportIOError);
+
+    // The failed assignment must modify neither operand: the target remains
+    // the only explicit retry owner for its failed close, and the source still
+    // owns the lease that was going to replace it.
+    REQUIRE_NOTHROW(first.bus());
+    // NOLINTNEXTLINE(bugprone-use-after-move) -- the throwing assignment preserves the source.
+    REQUIRE_NOTHROW(second.bus());
+    REQUIRE(pool.lease_count(first_key) == 1);
+    REQUIRE(pool.lease_count(second_key) == 1);
+
+    REQUIRE_NOTHROW(first.close());
+    REQUIRE_NOTHROW(second.close());
+    REQUIRE(pool.active_keys().empty());
+}
+
+TEST_CASE("lease move assignment closes the target before adopting the source", "[pool]") {
+    SharedCANBusPool pool;
+    CANBusKey first_key;
+    first_key.backend = "fake";
+    first_key.endpoint = "can0";
+    CANBusKey second_key = first_key;
+    second_key.endpoint = "can1";
+
+    auto first = pool.acquire(first_key, [] { return std::make_unique<FakeTransport>(); });
+    auto second = pool.acquire(second_key, [] { return std::make_unique<FakeTransport>(); });
+    auto *second_bus = &second.bus();
+
+    first = std::move(second);
+    REQUIRE(pool.lease_count(first_key) == 0);
+    REQUIRE(pool.lease_count(second_key) == 1);
+    REQUIRE(&first.bus() == second_bus);
+    // NOLINTNEXTLINE(bugprone-use-after-move) -- the moved-from state is the contract under test.
+    REQUIRE_THROWS_AS(second.bus(), ClosedError);
+
+    // Self-move remains a no-op and keeps the adopted lease usable.
+    auto *same_lease = &first;
+    first = std::move(*same_lease);
+    REQUIRE(&first.bus() == second_bus);
+    first.close();
+    REQUIRE(pool.active_keys().empty());
+}
+
+TEST_CASE("a moved-from lease can adopt a new owner and be destroyed in a callback",
+          "[pool][lifecycle]") {
+    SharedCANBusPool pool;
+    CANBusKey first_key;
+    first_key.backend = "fake";
+    first_key.endpoint = "can0";
+    CANBusKey second_key = first_key;
+    second_key.endpoint = "can1";
+    CANBusKey trigger_key = first_key;
+    trigger_key.endpoint = "can2";
+
+    auto moved_from = pool.acquire(first_key, [] { return std::make_unique<FakeTransport>(); });
+    auto first_owner = std::move(moved_from);
+    std::optional<CANBusLease> source;
+    source.emplace(pool.acquire(second_key, [] { return std::make_unique<FakeTransport>(); }));
+
+    // Reusing the moved-from target must adopt the source's preallocated
+    // deferred-cleanup node as well as its bus ownership.
+    moved_from = std::move(*source);
+    REQUIRE(pool.lease_count(first_key) == 1);
+    REQUIRE(pool.lease_count(second_key) == 1);
+
+    FakeTransport *trigger_transport = nullptr;
+    auto trigger = pool.acquire(trigger_key, [&] {
+        auto transport = std::make_unique<FakeTransport>();
+        trigger_transport = transport.get();
+        return transport;
+    });
+    std::atomic<bool> callback_returned{false};
+    std::atomic<bool> retry_rejected{false};
+    trigger.bus().subscribe([&](const Message &) {
+        // source now contains a valid moved-from lease with no bus/task. Its
+        // callback-thread destruction must be a harmless no-op.
+        source.reset();
+        try {
+            CANBusLease::retry_deferred_cleanup();
+        } catch (const ValidationError &) {
+            retry_rejected.store(true, std::memory_order_release);
+        }
+        callback_returned.store(true, std::memory_order_release);
+    });
+
+    trigger_transport->inject(make_frame(0x28, 0x62));
+    REQUIRE(wait_until([&] { return callback_returned.load(std::memory_order_acquire); }));
+    REQUIRE_FALSE(source.has_value());
+    REQUIRE(retry_rejected.load(std::memory_order_acquire));
+
+    moved_from.close();
+    first_owner.close();
+    trigger.close();
+    REQUIRE(pool.active_keys().empty());
 }
 
 TEST_CASE("concurrent acquire uses one factory and connection", "[pool]") {
@@ -763,6 +936,39 @@ TEST_CASE("concurrent acquire uses one factory and connection", "[pool]") {
         lease.close();
     }
     REQUIRE(pool.lease_count(key) == 0);
+    REQUIRE(pool.active_keys().empty());
+}
+
+TEST_CASE("failed pool start rolls back the preconstructed physical reservation", "[pool]") {
+    SharedCANBusPool pool;
+    CANBusKey key;
+    // Heap-backed strings exercise the path whose former post-mutation key
+    // reconstruction could throw and strand physical_active_.
+    key.backend = std::string(4096, 'b');
+    key.endpoint = std::string(4096, 'e');
+    key.device_index = 3;
+    key.channel_index = 7;
+    key.nom_baud = 500000;
+    int factory_calls = 0;
+
+    REQUIRE_THROWS_AS(pool.acquire(key,
+                                   [&]() -> std::unique_ptr<linkerbot::can::CANTransport> {
+                                       ++factory_calls;
+                                       throw TransportIOError("injected start failure");
+                                   }),
+                      TransportIOError);
+    REQUIRE(factory_calls == 1);
+    REQUIRE(pool.lease_count(key) == 0);
+    REQUIRE(pool.active_keys().empty());
+
+    // The same physical wire with a different configuration must be reusable;
+    // a stale reservation from the failed open would reject this acquisition.
+    auto replacement_key = key;
+    replacement_key.nom_baud = 1000000;
+    auto replacement =
+        pool.acquire(replacement_key, [] { return std::make_unique<FakeTransport>(); });
+    REQUIRE(pool.lease_count(replacement_key) == 1);
+    replacement.close();
     REQUIRE(pool.active_keys().empty());
 }
 
@@ -814,10 +1020,13 @@ TEST_CASE("a failed lease close must be retried explicitly by the same lease", "
 
 TEST_CASE("a new acquire rejects a key whose owning lease still needs a close retry", "[pool]") {
     SharedCANBusPool pool;
-    CANBusKey key; key.backend = "fake";
+    CANBusKey key;
+    key.backend = "fake";
     FakeTransport *current = nullptr;
     auto factory = [&] {
-        auto transport = std::make_unique<FakeTransport>(); current = transport.get(); return transport;
+        auto transport = std::make_unique<FakeTransport>();
+        current = transport.get();
+        return transport;
     };
     auto first = pool.acquire(key, factory);
     current->fail_next_closes(1);
@@ -850,6 +1059,59 @@ TEST_CASE("a failed lease close can still be retried after the pool wrapper is d
     REQUIRE_THROWS_AS(lease->close(), TransportIOError);
     REQUIRE_NOTHROW(lease->bus().get_health());
     REQUIRE_NOTHROW(lease->close()); // retry succeeds even with no pool wrapper alive.
+}
+
+TEST_CASE("destructor close failures remain pending for explicit deferred retry", "[pool]") {
+    SharedCANBusPool pool;
+    CANBusKey first_key;
+    first_key.backend = "fake";
+    first_key.endpoint = "can0";
+    CANBusKey second_key = first_key;
+    second_key.endpoint = "can1";
+
+    FakeTransport *first_transport = nullptr;
+    FakeTransport *second_transport = nullptr;
+    std::optional<CANBusLease> first;
+    std::optional<CANBusLease> second;
+    first.emplace(pool.acquire(first_key, [&] {
+        auto transport = std::make_unique<FakeTransport>();
+        first_transport = transport.get();
+        return transport;
+    }));
+    second.emplace(pool.acquire(second_key, [&] {
+        auto transport = std::make_unique<FakeTransport>();
+        second_transport = transport.get();
+        return transport;
+    }));
+
+    // One failure is observed by the destructor's synchronous attempt; the
+    // second is observed by the cleanup worker. The intrusive tasks must then
+    // remain as the retry owners for both original pool records.
+    first_transport->fail_next_closes(2);
+    second_transport->fail_next_closes(2);
+    first.reset();
+    second.reset();
+
+    REQUIRE_THROWS_AS(CANBusLease::drain_deferred_cleanup(), FaultedError);
+    REQUIRE(CANBusLease::pending_deferred_cleanup() == 2);
+    REQUIRE(pool.lease_count(first_key) == 1);
+    REQUIRE(pool.lease_count(second_key) == 1);
+    REQUIRE(pool.active_keys().size() == 2);
+    REQUIRE_THROWS_AS(pool.acquire(first_key, [] { return std::make_unique<FakeTransport>(); }),
+                      FaultedError);
+    REQUIRE_THROWS_AS(pool.acquire(second_key, [] { return std::make_unique<FakeTransport>(); }),
+                      FaultedError);
+
+    CANBusLease::retry_deferred_cleanup();
+    REQUIRE_NOTHROW(CANBusLease::drain_deferred_cleanup());
+    REQUIRE(CANBusLease::pending_deferred_cleanup() == 0);
+    REQUIRE(pool.lease_count(first_key) == 0);
+    REQUIRE(pool.lease_count(second_key) == 0);
+    REQUIRE(pool.active_keys().empty());
+
+    // Retrying with no failed work is explicitly idempotent.
+    CANBusLease::retry_deferred_cleanup();
+    REQUIRE_NOTHROW(CANBusLease::drain_deferred_cleanup());
 }
 
 TEST_CASE("pool acquire and lease close reject calls from a dispatcher's own receive thread",
@@ -919,6 +1181,67 @@ TEST_CASE("a lease outlives its pool and still closes safely", "[pool]") {
 
     REQUIRE_NOTHROW(lease->bus().get_health());
     REQUIRE_NOTHROW(lease->close());
+}
+
+TEST_CASE("last lease destruction in a receive callback is deferred safely", "[pool][lifecycle]") {
+    int close_failures = 0;
+    SECTION("normal close") {
+        close_failures = 0;
+    }
+    SECTION("transient close failure is retried by the deferred owner") {
+        close_failures = 1;
+    }
+
+    CANBusKey key;
+    key.backend = "fake";
+    key.endpoint = "can0";
+
+    std::optional<CANBusLease> lease;
+    FakeTransport *transport = nullptr;
+    auto transport_destroyed = std::make_shared<std::atomic<bool>>(false);
+    {
+        SharedCANBusPool pool;
+        lease.emplace(pool.acquire(key, [&] {
+            auto fake = std::make_unique<DestructionTrackingFakeTransport>(transport_destroyed);
+            transport = fake.get();
+            return fake;
+        }));
+    } // The lease is now the last owner of PoolState and ManagedCANBus.
+
+    std::atomic<bool> callback_returned{false};
+    std::atomic<bool> drain_rejected_in_callback{false};
+    std::atomic<bool> retry_rejected_in_callback{false};
+    lease->bus().subscribe([&](const Message &) {
+        lease.reset();
+        try {
+            CANBusLease::drain_deferred_cleanup();
+        } catch (const ValidationError &) {
+            drain_rejected_in_callback.store(true, std::memory_order_release);
+        }
+        try {
+            CANBusLease::retry_deferred_cleanup();
+        } catch (const ValidationError &) {
+            retry_rejected_in_callback.store(true, std::memory_order_release);
+        }
+        callback_returned.store(true, std::memory_order_release);
+    });
+
+    transport->fail_next_closes(close_failures);
+    transport->inject(make_frame(0x28, 0x61));
+    REQUIRE(wait_until([&] { return callback_returned.load(std::memory_order_acquire); }));
+    REQUIRE_FALSE(lease.has_value());
+    REQUIRE(drain_rejected_in_callback.load(std::memory_order_acquire));
+    REQUIRE(retry_rejected_in_callback.load(std::memory_order_acquire));
+
+    if (close_failures != 0) {
+        REQUIRE_THROWS_AS(CANBusLease::drain_deferred_cleanup(), FaultedError);
+        REQUIRE(CANBusLease::pending_deferred_cleanup() == 1);
+        REQUIRE_FALSE(transport_destroyed->load(std::memory_order_acquire));
+        CANBusLease::retry_deferred_cleanup();
+    }
+    REQUIRE_NOTHROW(CANBusLease::drain_deferred_cleanup());
+    REQUIRE(CANBusLease::pending_deferred_cleanup() == 0);
+    REQUIRE(transport_destroyed->load(std::memory_order_acquire));
 }
 
 TEST_CASE("the pool outlives a closed lease and stays reusable", "[pool]") {

@@ -24,20 +24,20 @@ using linkerbot::can::TransportIOError;
 
 namespace {
 
-// One end (fds[0]) is handed to SocketCANTransport via AdoptFd; the other
-// (fds[1]) is the "peer" the test drives directly with raw read()/write() to
-// simulate link traffic (or its absence) without a real CAN interface.
-auto make_socketpair() -> std::array<int, 2> {
-    std::array<int, 2> fds{-1, -1};
-    REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) == 0);
-    return fds;
-}
+    // One end (fds[0]) is handed to SocketCANTransport via AdoptFd; the other
+    // (fds[1]) is the "peer" the test drives directly with raw read()/write() to
+    // simulate link traffic (or its absence) without a real CAN interface.
+    auto make_socketpair() -> std::array<int, 2> {
+        std::array<int, 2> fds{-1, -1};
+        REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data()) == 0);
+        return fds;
+    }
 
 } // namespace
 
 TEST_CASE("AdoptFd round-trips a normal frame end-to-end", "[socketcan][lifecycle]") {
     auto fds = make_socketpair();
-    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false});
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, {}});
 
     Message msg;
     msg.id = 0x123;
@@ -47,7 +47,7 @@ TEST_CASE("AdoptFd round-trips a normal frame end-to-end", "[socketcan][lifecycl
     msg.data[2] = 3;
     REQUIRE_NOTHROW(transport.write(msg));
 
-    struct can_frame frame{};
+    struct can_frame frame {};
     REQUIRE(::read(fds[1], &frame, sizeof(frame)) == static_cast<ssize_t>(sizeof(frame)));
     // Echo it straight back so transport.read() has something to decode.
     REQUIRE(::write(fds[1], &frame, sizeof(frame)) == static_cast<ssize_t>(sizeof(frame)));
@@ -76,9 +76,9 @@ TEST_CASE("close() waits for an in-flight blocking read before releasing the fd"
     std::promise<void> release_read;
     auto release_read_future = release_read.get_future();
     SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, [&] {
-        in_flight.set_value();
-        release_read_future.wait();
-    }});
+                                                                 in_flight.set_value();
+                                                                 release_read_future.wait();
+                                                             }});
 
     std::promise<bool> read_threw;
     auto read_threw_future = read_threw.get_future();
@@ -106,13 +106,12 @@ TEST_CASE("close() waits for an in-flight blocking read before releasing the fd"
     // while the read is still held in flight by the seam, but this is not a
     // minimum-elapsed-time check, so it cannot be spuriously slow-CI-flaky.
     CHECK(close_done_future.wait_for(std::chrono::milliseconds(200)) ==
-            std::future_status::timeout);
+          std::future_status::timeout);
 
     release_read.set_value();
     closer.join();
     reader.join();
     REQUIRE(read_threw_future.get() == false);
-
 
     // Idempotent double close.
     REQUIRE_NOTHROW(transport.close());
@@ -120,17 +119,16 @@ TEST_CASE("close() waits for an in-flight blocking read before releasing the fd"
     ::close(fds[1]);
 }
 
-TEST_CASE("a second close() call waits for the first to fully complete",
-          "[socketcan][lifecycle]") {
+TEST_CASE("a second close() call waits for the first to fully complete", "[socketcan][lifecycle]") {
     auto fds = make_socketpair();
 
     std::promise<void> in_flight;
     std::promise<void> release_read;
     auto release_read_future = release_read.get_future();
     SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, [&] {
-        in_flight.set_value();
-        release_read_future.wait();
-    }});
+                                                                 in_flight.set_value();
+                                                                 release_read_future.wait();
+                                                             }});
 
     std::thread reader([&] {
         try {
@@ -150,7 +148,7 @@ TEST_CASE("a second close() call waits for the first to fully complete",
     });
     first_close_started.get_future().wait();
     CHECK(first_close_done_future.wait_for(std::chrono::milliseconds(200)) ==
-            std::future_status::timeout);
+          std::future_status::timeout);
 
     std::promise<void> second_close_started;
     std::promise<void> second_close_done;
@@ -167,26 +165,23 @@ TEST_CASE("a second close() call waits for the first to fully complete",
     // still waiting on in-flight I/O and had not actually released the fd
     // yet. Neither call may finish while the read is still held.
     CHECK(first_close_done_future.wait_for(std::chrono::milliseconds(200)) ==
-            std::future_status::timeout);
+          std::future_status::timeout);
     CHECK(second_close_done_future.wait_for(std::chrono::milliseconds(200)) ==
-            std::future_status::timeout);
+          std::future_status::timeout);
 
     release_read.set_value();
     reader.join();
     first_closer.join();
     second_closer.join();
     CHECK(first_close_done_future.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
-    CHECK(second_close_done_future.wait_for(std::chrono::seconds(1)) ==
-            std::future_status::ready);
-
+    CHECK(second_close_done_future.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
 
     ::close(fds[1]);
 }
 
-TEST_CASE("read()/write() throw ClosedError immediately after close()",
-          "[socketcan][lifecycle]") {
+TEST_CASE("read()/write() throw ClosedError immediately after close()", "[socketcan][lifecycle]") {
     auto fds = make_socketpair();
-    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false});
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, {}});
     transport.close();
 
     Message msg;
@@ -200,9 +195,9 @@ TEST_CASE("read()/write() throw ClosedError immediately after close()",
 TEST_CASE("read() filters raw CAN_ERR_FLAG frames instead of decoding them",
           "[socketcan][lifecycle]") {
     auto fds = make_socketpair();
-    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false});
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, {}});
 
-    struct can_frame frame{};
+    struct can_frame frame {};
     frame.can_id = 0x123 | CAN_ERR_FLAG;
     frame.can_dlc = 8;
     REQUIRE(::write(fds[1], &frame, sizeof(frame)) == static_cast<ssize_t>(sizeof(frame)));
@@ -215,9 +210,9 @@ TEST_CASE("read() filters raw CAN_ERR_FLAG frames instead of decoding them",
 TEST_CASE("read() filters raw CAN_RTR_FLAG frames instead of decoding them",
           "[socketcan][lifecycle]") {
     auto fds = make_socketpair();
-    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false});
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, {}});
 
-    struct can_frame frame{};
+    struct can_frame frame {};
     frame.can_id = 0x123 | CAN_RTR_FLAG;
     frame.can_dlc = 8; // requested length for an RTR frame, not real payload
     REQUIRE(::write(fds[1], &frame, sizeof(frame)) == static_cast<ssize_t>(sizeof(frame)));
@@ -236,7 +231,7 @@ TEST_CASE("write() fails within the bounded send timeout instead of hanging",
     // hanging forever (R18).
     int small_sndbuf = 1024;
     REQUIRE(::setsockopt(fds[0], SOL_SOCKET, SO_SNDBUF, &small_sndbuf, sizeof(small_sndbuf)) == 0);
-    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false});
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], false, {}});
 
     Message msg;
     msg.id = 1;
@@ -253,6 +248,106 @@ TEST_CASE("write() fails within the bounded send timeout instead of hanging",
     REQUIRE(threw);
 
     ::close(fds[1]);
+}
+
+TEST_CASE("SocketCAN FD accepts Classic and FD datagrams and rejects malformed lengths",
+          "[socketcan][frames]") {
+    auto fds = make_socketpair();
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], true, {}});
+    REQUIRE_FALSE(transport.read());
+    canfd_frame fd{};
+    fd.can_id = CAN_EFF_FLAG | 0x1abcdef;
+    fd.len = 12;
+    fd.flags = CANFD_BRS;
+    fd.data[11] = 77;
+    REQUIRE(::write(fds[1], &fd, sizeof(fd)) == sizeof(fd));
+    const auto decoded = transport.read();
+    REQUIRE(decoded);
+    REQUIRE(decoded->is_fd);
+    REQUIRE(decoded->is_brs);
+    REQUIRE(decoded->is_extended);
+    REQUIRE(decoded->id == 0x1abcdef);
+    REQUIRE(decoded->data[11] == 77);
+    Message reply = *decoded;
+    transport.write(reply);
+    canfd_frame encoded{};
+    REQUIRE(::read(fds[1], &encoded, sizeof(encoded)) == sizeof(encoded));
+    REQUIRE(encoded.can_id == fd.can_id);
+    REQUIRE(encoded.flags == CANFD_BRS);
+    REQUIRE(encoded.data[11] == 77);
+    can_frame classic{};
+    classic.can_id = CAN_EFF_FLAG | 0x123456;
+    classic.can_dlc = 8;
+    REQUIRE(::write(fds[1], &classic, sizeof(classic)) == sizeof(classic));
+    const auto old = transport.read();
+    REQUIRE(old);
+    REQUIRE_FALSE(old->is_fd);
+    REQUIRE(old->is_extended);
+    REQUIRE(old->id == 0x123456);
+    for (auto flag : {CAN_ERR_FLAG, CAN_RTR_FLAG}) {
+        classic.can_id = flag;
+        REQUIRE(::write(fds[1], &classic, sizeof(classic)) == sizeof(classic));
+        REQUIRE_FALSE(transport.read());
+        fd.can_id = flag;
+        REQUIRE(::write(fds[1], &fd, sizeof(fd)) == sizeof(fd));
+        REQUIRE_FALSE(transport.read());
+    }
+    const char byte = 0;
+    REQUIRE(::write(fds[1], &byte, 1) == 1);
+    REQUIRE_THROWS_AS(transport.read(), TransportIOError);
+    ::close(fds[1]);
+    REQUIRE_FALSE(transport.read());
+    fd.len = 65;
+    REQUIRE_THROWS_AS(linkerbot::can::decode_socketcan_frame(fd), linkerbot::can::ValidationError);
+    reply.is_fd = false;
+    reply.is_brs = false;
+    reply.dlc = 8;
+    const auto classic_encoded =
+        linkerbot::can::encode_socketcan_frame(linkerbot::can::LinkKind::kClassic, reply);
+    REQUIRE((classic_encoded.classic_frame.can_id & CAN_EFF_FLAG) != 0);
+}
+
+TEST_CASE("SocketCAN adopted handles reject invalid descriptors and release failed setup",
+          "[socketcan][faults]") {
+    REQUIRE_THROWS_AS(SocketCANTransport(SocketCANTransport::AdoptFd{-1, false, {}}),
+                      linkerbot::can::ValidationError);
+    std::array<int, 2> pipe_fds{};
+    REQUIRE(::pipe(pipe_fds.data()) == 0);
+    REQUIRE_THROWS_AS(SocketCANTransport(SocketCANTransport::AdoptFd{pipe_fds[0], false, {}}),
+                      TransportIOError);
+    ::close(pipe_fds[1]);
+    for (bool fd_mode : {false, true}) {
+        auto fds = make_socketpair();
+        SocketCANTransport transport(
+            SocketCANTransport::AdoptFd{fds[0], fd_mode, [fd = fds[0]] { ::close(fd); }});
+        REQUIRE_THROWS_AS(transport.read(), TransportIOError);
+        REQUIRE_THROWS_AS(transport.close(), TransportIOError);
+        REQUIRE_NOTHROW(transport.close());
+        ::close(fds[1]);
+    }
+}
+
+TEST_CASE("SocketCAN unwinds an interrupted reservation and contains destructor close errors",
+          "[socketcan][faults]") {
+    auto fds = make_socketpair();
+    {
+        SocketCANTransport transport(SocketCANTransport::AdoptFd{
+            fds[0], false, [] { throw std::runtime_error("interrupted I/O"); }});
+        REQUIRE_THROWS_AS(transport.read(), std::runtime_error);
+        REQUIRE_NOTHROW(transport.close());
+    }
+    ::close(fds[1]);
+    auto short_fds = make_socketpair();
+    {
+        SocketCANTransport transport(SocketCANTransport::AdoptFd{short_fds[0], false, {}});
+        char byte = 0;
+        REQUIRE(::write(short_fds[1], &byte, 1) == 1);
+        REQUIRE_THROWS_AS(transport.read(), TransportIOError);
+        // No descriptor is opened between invalidation and destruction: this
+        // tests the one-attempt close error contract without fd-number reuse.
+        ::close(short_fds[0]);
+    }
+    ::close(short_fds[1]);
 }
 
 #endif // defined(__linux__)

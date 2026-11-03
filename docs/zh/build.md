@@ -1,0 +1,302 @@
+# 构建、安装与 CMake 接入
+
+[English](../en/build.md) · [文档索引](../README.md) · [Windows 专项说明](windows-build.md)
+
+## 前置条件与目录约定
+
+核心库需要 CMake 3.16+、C++17 编译器和线程支持。本文常规测试命令使用
+`ctest --test-dir`，执行这些命令请使用 CMake/CTest 3.20+；3.16 的接入命令见下节。
+Catch2 3.8.1 本体声明最低 CMake 3.16，但其测试发现脚本需要 JSON 支持，因此本项目
+启用测试时要求 CMake 3.19+；其他已安装 Catch2 版本还须核对其自身要求。Linux CI 使用 Ubuntu 24.04，主矩阵以
+GCC 13 覆盖原生 amd64、ARM64 的 Debug/Release 与 95% 行覆盖率；Clang 18 质量矩阵
+在两个架构上覆盖 libc++、ASan+UBSan 和 TSan。本地维护验证优先使用 Linux ARM64。
+Windows 使用 MSVC x64，见专项说明。macOS 不在当前实机支持和 CI 验证矩阵内。
+
+以下 Bash 命令都从源码根目录执行。示例使用 Ninja，需预先安装；也可去掉 `-G Ninja`
+使用平台默认生成器。Ubuntu 构建工具可这样安装：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build git ca-certificates
+```
+
+首次启用测试时可能从 GitHub 下载 Catch2，需网络和 Git；核心库不需要厂商 SDK、
+厂商动态库、真实 CAN 设备或 Catch2。不要把厂商 DLL 复制到源码目录当作构建依赖。
+
+## CMake 3.16 最小接入
+
+以下路径不下载测试依赖，也不需要真实设备。从源码根目录执行：
+
+```bash
+cmake -S . -B build-minimum -DCMAKE_BUILD_TYPE=Release \
+  -DLINKERBOT_COMM_BUILD_TESTS=OFF \
+  -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF \
+  -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
+cmake --build build-minimum --parallel 4
+cmake --install build-minimum --prefix "$PWD/install/minimum"
+cmake -S examples/quickstart -B build-quickstart-minimum \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/install/minimum"
+cmake --build build-quickstart-minimum --parallel 4
+(cd build-quickstart-minimum && ctest --output-on-failure)
+```
+
+在旧版 CTest 中进入构建目录再执行测试，避免使用不受支持的 `--test-dir` 参数。
+该示例测试只验证内存 transport 的收发和安装包接入，不是完整回归或实机验收。
+
+## 完整离线回归
+
+```bash
+cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+cmake --build build-release --parallel 4
+ctest --test-dir build-release --output-on-failure --no-tests=error --timeout 60
+./build-release/comm-example
+```
+
+Debug 使用另一个目录 `build-debug` 和 `-DCMAKE_BUILD_TYPE=Debug`。单配置生成器需要在
+配置时指定构建类型；Visual Studio 等多配置生成器在构建、CTest、安装时使用 `--config` / `-C`。
+不要复用其他架构、编译器或生成器产生的构建目录。
+
+优先使用 CTest。`pcan-native-loader` 与 `vendor-native-loader` 由 CMake 注入测试动态库
+路径，直接运行对应测试程序而没有这些环境变量会失败；这不代表缺少真实驱动。
+只运行 Session 恢复用例并重复检查：
+
+```bash
+ctest --test-dir build-release -R '^Session recover' --repeat until-fail:20 \
+  --output-on-failure --no-tests=error --timeout 60
+```
+
+GCC 的 amd64/ARM64 Debug/Release CI 还会分别重复三个 registry 生命周期交错回归：
+
+```bash
+ctest --test-dir build-release \
+  -R '^(Session registry waiters recheck a replacement active generation|Session registry ignores waits for a published initialization attempt|Session registry rebinds a waiter to a replacement initialization attempt)$' \
+  --repeat until-fail:20 --output-on-failure --no-tests=error --timeout 60 \
+  --output-log registry-handoff-results.log
+```
+
+第一个用例检查清理结束后已发布的新 active generation 不会被旧等待条件遗漏；第二个用例
+检查已经发布的初始化尝试不会以陈旧等待边误报循环；第三个用例检查初始化失败并更换
+initializer 后，等待边会绑定到新的初始化尝试。同步门固定进入清理、发布和失败路径，但
+公共 API 不暴露内部等待边的安装和清除时刻；重复运行只用于扩大 handoff 调度覆盖，硬超时
+用于防止回归挂死，不能把重复次数当作确定性证明。
+
+## 构建选项
+
+| 配置项 | 默认值 | 作用 |
+| --- | --- | --- |
+| `LINKERBOT_COMM_BUILD_TESTS` | 顶层 ON，子目录 OFF | 构建 Catch2 测试及原生 ABI fixture |
+| `LINKERBOT_COMM_BUILD_EXAMPLES` | 顶层 ON，子目录 OFF | 构建 `comm-example` |
+| `LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS` | ON | 缺少 Catch2 3 时允许下载 v3.8.1 |
+| `LINKERBOT_COMM_ENABLE_COVERAGE` | OFF | 仅 Linux/GCC；要求测试 ON；加入 `--coverage -O0 -g` |
+| `Catch2_DIR` | 由 CMake 查找 | 已安装的 Catch2 3 CMake 配置目录 |
+| `CMAKE_INSTALL_PREFIX` | CMake 平台默认 | 安装前缀；也可在安装时用 `--prefix` |
+| `LINKERBOT_COMM_SOURCE_REVISION` | 自动读 Git；不可用时 unknown | 导出源码构建时人工提供完整来源 SHA |
+| `CMAKE_MSVC_RUNTIME_LIBRARY` | MSVC 默认为动态 CRT | 默认 Release `/MD`、Debug `/MDd`；须和消费者一致 |
+
+这些是 CMake 缓存变量，不是运行时环境变量。修改下载开关不会删除已经存在的 Catch2
+缓存，也不能替代预先提供依赖。`BUILD_SHARED_LIBS` 不会把本项目变为共享库，核心目标显式为 STATIC。
+
+完全禁止依赖下载且只构建核心库：
+
+```bash
+cmake -S . -B build-core -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF \
+  -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
+cmake --build build-core --parallel 4
+```
+
+需要离线运行测试时，先安装 Catch2 3，将 `-DCatch2_DIR=/absolute/path/to/lib/cmake/Catch2`
+加到完整回归的配置命令，并关闭下载。Catch2 2 不满足要求。
+
+## 行覆盖率与可核对结果
+
+先安装 `gcovr`，使用新的构建目录，避免源码变化前的 `.gcda` 计数混入报告：
+
+```bash
+sudo apt-get install -y --no-install-recommends gcovr
+cmake -S . -B build-coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_ENABLE_COVERAGE=ON
+cmake --build build-coverage --parallel 4
+ctest --test-dir build-coverage --output-on-failure --no-tests=error --timeout 60
+gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build-coverage/_deps' \
+  --fail-under-line 95 --txt --json-summary coverage-summary.json build-coverage
+```
+
+95% 是整个 Linux 构建中生产代码的汇总**行覆盖率**，不要求每个文件或分支均为 95%。
+统计包含 `src/` 与 `include/`（包括对外提供的 FakeTransport），排除测试目录和 Catch2，
+不排除某些生产行来提高结果。平台条件编译未进入 Linux 构建的 Windows 代码不在分母中。
+固定提交的已执行结果见 [验证记录](validation.md)，CI 文件存在本身不算通过。
+
+覆盖率静态库的消费者也须在链接时加 `--coverage`，例如配置消费者时传
+`-DCMAKE_CXX_FLAGS=--coverage`。普通 Release 构建保持 coverage OFF。
+
+## Clang、第二标准库与 sanitizer
+
+Clang 质量矩阵在 Linux amd64 与 ARM64 上执行以下三种独立 Debug 构建：
+
+- `libcxx`：使用 Clang 18 与 libc++ 运行全部 CTest，包括两个原生 ABI fixture；该构建以
+  `-Wall -Wextra -Wpedantic -Werror` 编译生产库、测试、fixture 和示例，运行示例，并以
+  相同告警门槛验证安装后的 libc++ 消费者。
+- `asan-ubsan`：使用 libstdc++ 和 `-fsanitize=address,undefined`，启用泄漏检测并在首个
+  ASan/UBSan 错误处失败。普通 CTest 逐例运行；仅排除下述两个原生 ABI fixture。
+- `tsan`：使用 libstdc++ 和 `-fsanitize=thread`，不关闭死锁检查，逐 CTest 进程运行全部测试。
+
+ASan+UBSan 不与 Ubuntu 的系统 libc++ 组合：ARM64 实测会在 libc++/libc++abi 的异常对象
+分配路径报告 `operator new`/`free` 不匹配；该次观测未将报告归因于项目代码。两个 native-loader fixture
+也不进入 ASan+UBSan 运行：它们为模拟无头文件的第三方 C++ 动态库，刻意各自声明布局相同、
+类型身份不同的 ABI 结构；两侧都带 UBSan 元数据时会报告函数类型不匹配。CI 没有关闭相应
+sanitizer 检查来隐藏报告；这些 fixture 仍由 GCC 主矩阵、Clang+libc++ 和 TSan 全量覆盖。
+
+线程检查应保留编译器版本、完整告警和退出码。把所有 Catch2 用例塞入同一进程会因不同测试
+复用栈地址而产生跨用例锁图告警，因此 CI 使用 `catch_discover_tests` 生成的逐例 CTest 进程，
+不能用全局关闭死锁检查或压掉告警替代诊断。
+
+在 Ubuntu 24.04 ARM64 复现 sanitizer 任务时，先安装 Clang 18、LLVM 符号化工具和
+sanitizer 运行库，再使用独立构建目录。以下命令与 CI 一样使用 libstdc++，逐个运行发现的 CTest：
+
+```bash
+sudo apt-get install -y --no-install-recommends \
+  clang-18 llvm-18 libclang-rt-18-dev
+cmake -S . -B build-asan-ubsan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=clang++-18 \
+  '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Wpedantic -fsanitize=address,undefined -fno-omit-frame-pointer' \
+  '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined' \
+  '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined' \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+cmake --build build-asan-ubsan --parallel 4
+env ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer-18)" \
+  ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+  UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+  ctest --test-dir build-asan-ubsan \
+    -E '^(pcan-native-loader|vendor-native-loader)$' \
+    --output-on-failure --no-tests=error --timeout 90
+
+cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=clang++-18 \
+  '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Wpedantic -fsanitize=thread -fno-omit-frame-pointer' \
+  '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread' \
+  '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=thread' \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+cmake --build build-tsan --parallel 4
+env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_path=$(command -v llvm-symbolizer-18)" \
+  ctest --test-dir build-tsan --output-on-failure --no-tests=error --timeout 120
+```
+
+## Clang 格式与静态检查
+
+独立的 Linux ARM64 工作流使用 clang-format 18 检查所有已跟踪的 C++ 源文件和头文件；
+clang-tidy 18 检查 compile database 中的项目、示例、测试翻译单元及下述两个单独文件，头文件
+通过这些翻译单元间接检查。主 compile database 包含 `examples/shared_bus.cpp`，不包含独立
+配置的 `examples/quickstart/main.cpp`，当前 style job 未对该 quickstart 执行 clang-tidy；
+格式检查仍覆盖这两个已跟踪的示例源文件。维护者本地验收同样以 ARM64 为准；amd64 结果由 GitHub CI 提供，
+不能用本地 x86 运行替代 ARM64 证据。Ubuntu 24.04 可安装以下工具：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends \
+  cmake ninja-build git ca-certificates \
+  clang-18 clang-format-18 clang-tidy-18 clang-tools-18 \
+  libc++-18-dev libc++abi-18-dev
+```
+
+从源码根目录执行格式检查：
+
+```bash
+git ls-files -z -- '*.cpp' '*.hpp' '*.h' \
+  | xargs -0 clang-format-18 --dry-run --Werror
+```
+
+生成包含测试和示例的 compile database，再按 CI 的范围执行 clang-tidy：
+
+```bash
+cmake -S . -B build-tidy -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=clang++-18 \
+  '-DCMAKE_CXX_FLAGS=-stdlib=libc++' \
+  '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
+  '-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++' \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  -DLINKERBOT_COMM_BUILD_TESTS=ON \
+  -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+
+run-clang-tidy-18 -p build-tidy -j 2 -quiet \
+  -warnings-as-errors='*' \
+  "^${PWD}/(src|examples)/.*[.]cpp$|^${PWD}/tests/(?!test_).*[.]cpp$"
+
+run-clang-tidy-18 -p build-tidy -j 2 -quiet \
+  -checks=-cert-err58-cpp -warnings-as-errors='*' \
+  "^${PWD}/tests/test_.*[.]cpp$"
+
+clang-tidy-18 tests/vendor_fixture_dependency.cpp \
+  -warnings-as-errors='*' -- -std=c++17
+
+clang-tidy-18 validation/installed-consumer/main.cpp \
+  -warnings-as-errors='*' \
+  -- -std=c++17 -stdlib=libc++ -Iinclude -Icompat
+```
+
+`.clang-tidy` 只对宏展开忽略 `cppcoreguidelines-avoid-do-while`。Catch2 的 `TEST_CASE`
+会生成静态注册对象，而 `cert-err58-cpp` 没有宏忽略选项，因此仅 `tests/test_*.cpp` 在第二轮
+排除该检查；项目源码、测试辅助翻译单元和其余已启用规则仍以告警即错误执行。
+`tests/vendor_fixture_dependency.cpp` 仅由 Windows CMake 构建，不进入 Linux compile database，
+所以在 Linux 中单独检查其可移植分支。`validation/pcan_header_abi.cpp` 需要未随仓库分发的
+官方 PCAN 头，不属于通用 style job；执行或跳过该检查都应在验证记录中明确说明。
+
+格式或静态检查通过不代表编译、CTest、sanitizer、实机或发布已经通过，必须分别保留结果。
+
+`.gitea/workflows/ci.yaml` 是次级离线配置，监听 `main`/`master`，使用固定 Catch2 3.7.1
+镜像，执行 Debug/Release 全目标构建、CTest、示例和安装后 consumer，并在 Debug 要求同一
+95% 行覆盖率门槛。它不包含 GitHub 的双架构 Clang/sanitizer/style 矩阵，runner 架构由具体
+Gitea 实例决定；配置文件存在不等于某个提交已经在 Gitea 运行，验证记录必须附实际 run。
+
+## 源码接入和安装接入
+
+源码接入时，调用者的 CMakeLists 应先定义自己的 `your-sdk` 目标：
+
+```cmake
+add_subdirectory(../linkerbot-transport-cpp linkerbot-transport-cpp)
+target_link_libraries(your-sdk PRIVATE linkerbot::comm)
+```
+
+本项目作为子目录时测试和示例默认关闭；若显式开启测试，顶层工程也需开启 CTest 发现。
+按下面方式安装并验证不依赖源码树的消费者：
+
+```bash
+cmake --install build-release --prefix "$PWD/install/comm"
+cmake -S install/comm/share/linkerbot-comm/validation/installed-consumer \
+  -B build-consumer -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$PWD/install/comm"
+cmake --build build-consumer --parallel 4
+ctest --test-dir build-consumer --output-on-failure --no-tests=error --timeout 60
+```
+
+应用工程使用 `find_package(linkerbot-comm 0.3 CONFIG REQUIRED)`：
+
+- `linkerbot::comm`：实现、头文件、C++17 和线程链接依赖。
+- `linkerbot::comm-compat`：同时提供旧的扁平头文件路径，并链接实现。
+- `linkerbot::comm-values`：头文件路径和 C++17，不链接实现；调用实现仍须链接 comm。
+
+`SameMinorVersion` 的包版本规则要求相同 major/minor，且安装版本不得低于请求版本。
+配套 hand SDK 的补丁版本要求仍须满足，不能只根据 `find_package(... 0.3 ...)` 成功就判断兼容。
+跨架构、CRT、编译器或库版本混用时，先按 [升级顺序](operations.md) 配套重编译。
+
+## 打包与来源
+
+顶层 Linux 构建默认生成 TGZ：
+
+```bash
+cpack --config build-release/CPackConfig.cmake -B dist
+```
+
+CPack 生成相邻 SHA256 文件；Linux 文件名包含版本、系统和架构，**不含 Debug/Release**，
+因此不同配置使用独立的产物目录。Windows ZIP 命名及运行库另见专项说明。
+
+`share/linkerbot-comm/build-info.json` 包含版本、`comm_sha`、`source_dirty`、系统、架构、
+编译器、工具集、配置和运行库。来源信息在 CMake 配置时生成：更换源码提交后应重新配置，
+不能用旧构建目录的 metadata 声称新提交已验证。无 Git 的导出源码可显式传入完整 SHA，
+但它是调用者提供的来源说明，不是内容校验或签名。
+`source_dirty` 来自已跟踪文件的 Git diff，不会证明没有未跟踪文件，也不校验另行安装的厂商二进制。
+
+发行前核对干净源码、版本、配置、架构和 SHA256，并重新执行安装后消费验证。
+本库构建不自动创建 GitHub Release、签名标签或镜像；CI 成功和打包成功都不等于正式发布。

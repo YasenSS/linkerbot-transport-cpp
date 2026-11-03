@@ -1,0 +1,271 @@
+name: Linux comm regression and installed consumer
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-tests:
+    name: GCC 13 (${{ matrix.runner }}, ${{ matrix.build_type }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        build_type: [Debug, Release]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build git ca-certificates gcovr
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DLINKERBOT_COMM_ENABLE_COVERAGE=${{ matrix.build_type == 'Debug' && 'ON' || 'OFF' }} \
+            -DLINKERBOT_COMM_BUILD_TESTS=ON \
+            -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+      - name: Build library, tests and native ABI fixtures
+        run: cmake --build build --parallel 4
+      - name: Run offline regression
+        run: ctest --test-dir build --output-on-failure --no-tests=error --timeout 60 --output-log test-results.log
+      - name: Require 95 percent production line coverage
+        if: matrix.build_type == 'Debug'
+        run: |
+          gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build/_deps' \
+            --fail-under-line 95 --txt --json-summary coverage-summary.json build
+      - name: Repeat Session recovery regression
+        run: |
+          ctest --test-dir build -R '^Session recover' --repeat until-fail:20 \
+            --output-on-failure --no-tests=error --timeout 60 --output-log recovery-results.log
+      - name: Repeat Session registry handoff regressions
+        run: |
+          ctest --test-dir build \
+            -R '^(Session registry waiters recheck a replacement active generation|Session registry ignores waits for a published initialization attempt|Session registry rebinds a waiter to a replacement initialization attempt)$' \
+            --repeat until-fail:20 --output-on-failure --no-tests=error --timeout 60 \
+            --output-log registry-handoff-results.log
+      - name: Run shared-bus example
+        run: ./build/comm-example
+      - name: Install and test a standalone consumer
+        run: |
+          cmake --install build --prefix "$RUNNER_TEMP/comm install"
+          cmake -S "$RUNNER_TEMP/comm install/share/linkerbot-comm/validation/installed-consumer" \
+            -B consumer -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_CXX_FLAGS=${{ matrix.build_type == 'Debug' && '--coverage' || '' }} \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm install"
+          cmake --build consumer --parallel 4
+          ctest --test-dir consumer --output-on-failure --no-tests=error --timeout 60 --output-log consumer-results.log
+      - name: Build and run the installed quickstart
+        run: |
+          cmake -S "$RUNNER_TEMP/comm install/share/linkerbot-comm/examples/quickstart" \
+            -B quickstart -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_CXX_FLAGS=${{ matrix.build_type == 'Debug' && '--coverage' || '' }} \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm install"
+          cmake --build quickstart --parallel 4
+          ctest --test-dir quickstart --output-on-failure --no-tests=error --timeout 60 \
+            --output-log quickstart-results.log
+      - name: Save test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-comm-${{ matrix.runner }}-${{ matrix.build_type }}
+          path: |
+            test-results.log
+            recovery-results.log
+            registry-handoff-results.log
+            consumer-results.log
+            quickstart-results.log
+            coverage-summary.json
+            build/CMakeCache.txt
+            build/Testing/Temporary/LastTest.log
+            consumer/Testing/Temporary/LastTest.log
+            quickstart/Testing/Temporary/LastTest.log
+
+  minimum-cmake:
+    name: CMake 3.16.9 (ubuntu-24.04-arm)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build curl ca-certificates
+      - name: Build the minimum supported CMake from verified source
+        run: |
+          curl --fail --location --retry 3 \
+            https://cmake.org/files/v3.16/cmake-3.16.9.tar.gz \
+            --output "$RUNNER_TEMP/cmake-3.16.9.tar.gz"
+          printf '%s  %s\n' \
+            '1708361827a5a0de37d55f5c9698004c035abb1de6120a376d5d59a81630191f' \
+            "$RUNNER_TEMP/cmake-3.16.9.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/cmake-3.16.9.tar.gz" -C "$RUNNER_TEMP"
+          cmake -S "$RUNNER_TEMP/cmake-3.16.9" -B "$RUNNER_TEMP/cmake-minimum-build" \
+            -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_USE_OPENSSL=OFF -DBUILD_TESTING=OFF \
+            2>&1 | tee minimum-cmake-configure.log
+          cmake --build "$RUNNER_TEMP/cmake-minimum-build" --parallel 4 \
+            2>&1 | tee minimum-cmake-build.log
+          "$RUNNER_TEMP/cmake-minimum-build/bin/cmake" --version | tee minimum-cmake-version.txt
+      - name: Require an actionable error for tests on CMake 3.16.9
+        run: |
+          if "$RUNNER_TEMP/cmake-minimum-build/bin/cmake" -S . -B build-minimum-tests \
+            -G Ninja -DLINKERBOT_COMM_BUILD_TESTS=ON \
+            -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF > minimum-tests-rejection.log 2>&1; then
+            cat minimum-tests-rejection.log
+            echo 'Expected CMake 3.16.9 to reject Catch2 test discovery' >&2
+            exit 1
+          fi
+          cat minimum-tests-rejection.log
+          grep -F 'Tests require CMake 3.19' minimum-tests-rejection.log
+      - name: Configure, build and install with CMake 3.16.9
+        run: |
+          minimum_cmake="$RUNNER_TEMP/cmake-minimum-build/bin/cmake"
+          "$minimum_cmake" -S . -B build-minimum -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF \
+            -DLINKERBOT_COMM_BUILD_EXAMPLES=ON 2>&1 | tee minimum-project-configure.log
+          "$minimum_cmake" --build build-minimum --parallel 4 2>&1 | tee minimum-project-build.log
+          "$minimum_cmake" --install build-minimum --prefix "$RUNNER_TEMP/comm minimum install" \
+            2>&1 | tee minimum-project-install.log
+          ./build-minimum/comm-example
+      - name: Build and run the installed quickstart with CMake 3.16.9
+        run: |
+          minimum_cmake="$RUNNER_TEMP/cmake-minimum-build/bin/cmake"
+          "$minimum_cmake" -S "$RUNNER_TEMP/comm minimum install/share/linkerbot-comm/examples/quickstart" \
+            -B quickstart-minimum -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm minimum install" \
+            2>&1 | tee minimum-quickstart-configure.log
+          "$minimum_cmake" --build quickstart-minimum --parallel 4 \
+            2>&1 | tee minimum-quickstart-build.log
+          grep -F 'linkerbot-quickstart' quickstart-minimum/CTestTestfile.cmake
+          # --test-dir was added after CMake 3.16; run CTest from the build directory.
+          (cd quickstart-minimum && "$RUNNER_TEMP/cmake-minimum-build/bin/ctest" \
+            --output-on-failure --timeout 60 \
+            --output-log ../minimum-quickstart-results.log)
+      - name: Save minimum-version evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: minimum-cmake-ubuntu-24.04-arm
+          path: |
+            minimum-*.log
+            minimum-cmake-version.txt
+            build-minimum/CMakeCache.txt
+            quickstart-minimum/CMakeCache.txt
+            quickstart-minimum/Testing/Temporary/LastTest.log
+
+  clang-quality:
+    name: Clang 18 (${{ matrix.runner }}, ${{ matrix.mode }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        mode: [libcxx, asan-ubsan, tsan]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Clang toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build git ca-certificates \
+            clang-18 llvm-18 libc++-18-dev libc++abi-18-dev libclang-rt-18-dev
+          {
+            uname -a
+            cmake --version
+            clang++-18 --version
+          } | tee clang-toolchain.txt
+      - name: Configure Clang quality build
+        run: |
+          compile_flags='-Wall -Wextra -Wpedantic'
+          link_flags=''
+          case '${{ matrix.mode }}' in
+            libcxx)
+              compile_flags="$compile_flags -Werror -stdlib=libc++"
+              link_flags='-stdlib=libc++'
+              ;;
+            asan-ubsan)
+              compile_flags="$compile_flags -fsanitize=address,undefined -fno-omit-frame-pointer"
+              link_flags='-fsanitize=address,undefined'
+              ;;
+            tsan)
+              compile_flags="$compile_flags -fsanitize=thread -fno-omit-frame-pointer"
+              link_flags='-fsanitize=thread'
+              ;;
+            *)
+              echo "Unsupported Clang mode: ${{ matrix.mode }}" >&2
+              exit 2
+              ;;
+          esac
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            "-DCMAKE_CXX_FLAGS=$compile_flags" \
+            "-DCMAKE_EXE_LINKER_FLAGS=$link_flags" \
+            "-DCMAKE_SHARED_LINKER_FLAGS=$link_flags" \
+            -DLINKERBOT_COMM_BUILD_TESTS=ON \
+            -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+      - name: Build library, tests and native ABI fixtures
+        run: cmake --build build --parallel 4
+      - name: Run Clang regression
+        run: |
+          case '${{ matrix.mode }}' in
+            libcxx)
+              ctest --test-dir build --output-on-failure --no-tests=error --timeout 90 \
+                --output-log clang-test-results.log
+              ;;
+            asan-ubsan)
+              symbolizer="$(command -v llvm-symbolizer-18 || command -v llvm-symbolizer)"
+              export ASAN_SYMBOLIZER_PATH="$symbolizer"
+              export ASAN_OPTIONS='detect_leaks=1:halt_on_error=1'
+              export UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1'
+              ctest --test-dir build -E '^(pcan-native-loader|vendor-native-loader)$' \
+                --output-on-failure --no-tests=error --timeout 90 \
+                --output-log clang-test-results.log
+              ;;
+            tsan)
+              symbolizer="$(command -v llvm-symbolizer-18 || command -v llvm-symbolizer)"
+              export TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_path=$symbolizer"
+              ctest --test-dir build --output-on-failure --no-tests=error --timeout 120 \
+                --output-log clang-test-results.log
+              ;;
+          esac
+      - name: Run shared-bus example with libc++
+        if: matrix.mode == 'libcxx'
+        run: ./build/comm-example
+      - name: Install and test a libc++ consumer
+        if: matrix.mode == 'libcxx'
+        run: |
+          cmake --install build --prefix "$RUNNER_TEMP/comm clang install"
+          cmake -S "$RUNNER_TEMP/comm clang install/share/linkerbot-comm/validation/installed-consumer" \
+            -B consumer -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            '-DCMAKE_CXX_FLAGS=-stdlib=libc++ -Wall -Wextra -Wpedantic -Werror' \
+            '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm clang install"
+          cmake --build consumer --parallel 4
+          ctest --test-dir consumer --output-on-failure --no-tests=error --timeout 60 \
+            --output-log clang-consumer-results.log
+      - name: Save Clang test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-clang-${{ matrix.runner }}-${{ matrix.mode }}
+          path: |
+            clang-toolchain.txt
+            clang-test-results.log
+            clang-consumer-results.log
+            build/CMakeCache.txt
+            build/Testing/Temporary/LastTest.log
+            consumer/Testing/Temporary/LastTest.log

@@ -1,5 +1,7 @@
 # Session、路由与生命周期
 
+[English](../en/session.md) · [文档索引](../README.md) · [公共 API](api.md) · [错误与诊断](troubleshooting.md) · [运行与升级](operations.md)
+
 `include/linkerbot/transport/session.hpp` 是面向设备 SDK 的会话接口。
 它在同一条物理连接上提供精确接收路由和一个发送调度线程。设备协议与请求/回复匹配仍由上层实现。
 
@@ -22,6 +24,39 @@ Pool 对相同 key 共享连接，对同一物理通道的 FD/速率冲突配置
 `close()` 失败时仍持有资源，须由该持有者重试关闭；此时新 acquire 抛 `FaultedError`。
 `Session::close()` 也可重试失败的资源释放。会话关闭后不能重新启用。
 
+如果最后一个 lease 在接收或故障回调中析构，Pool 会把关闭操作交给进程内的清理线程，
+避免等待当前回调所属的 dispatcher。进程退出或销毁相关外部资源前，应由外部线程调用
+`CANBusLease::drain_deferred_cleanup()`；若它抛 `FaultedError`，先排除后端关闭故障，再调用
+`retry_deferred_cleanup()` 和 `drain_deferred_cleanup()`。`pending_deferred_cleanup()` 可用于
+诊断待处理数量。失败任务会继续保留原 Pool 记录、物理 key 和重试所有权，不会为规避错误
+而删除记录或改用新 key。以上 drain/retry 接口不能从接收或故障回调中调用。
+
+`share()` / `lease()` / `borrow()` 复用的是同一个 Session，而不是独立逻辑连接。
+任一共享使用者调用 `close()` 会让所有使用者的路由失效，并释放该 Session 持有的所有 lease；
+`share()` 本身不停止外部 bus，但其他设备不能继续使用已关闭的 Session。
+应由统一所有者关闭会话，单设备退出时只关闭自己的 inbox、取消自己的 endpoint。
+注册表里仍存活的已关闭 Session 会拒绝再次 share/borrow；旧对象释放后才能创建新的会话。
+
+factory 可以在同一线程重入不同的注册表 key（例如不同 `ManagedCANBus`）的 `share()`；同线程
+重入同一 key，或注册表检测到初始化线程之间的等待环时，会抛 `ValidationError`。factory 不应
+等待另一个线程对同一尚未完成 key 的 `share()`，因为这种发生在应用 factory 内的等待无法由
+注册表观察和打断。
+
+后端的 `close()` 及其析构函数不得调用 `Session::share()`、`lease()` 或 `borrow()`；Session
+清理期间进入注册表会抛 `ValidationError`。这一限制同时适用于相同和不同 key，用于避免清理
+线程等待自身 tombstone 或形成跨 key 的清理环。
+
+最后一个 Session 引用消失后，注册表仍保留该代次的清理标记，直到订阅、发送线程、lease 和
+自有总线完成同步或延迟清理；同一 key 的 `share()`、`lease()` 或 `borrow()` 会等待清理结束，
+不会提前发布替代 Session。接收/发送回调不能等待自身触发的清理，此时会抛 `ValidationError`；
+应从外部线程重试。
+
+注册表节点、协调 mutex 和等待图在进程生命周期内保持可达，使静态 Session owner 在进程退出
+阶段也能安全释放。清理完成后节点只保留弱引用和协调状态，不继续持有 Session、总线或驱动
+资源；但不同 `ManagedCANBus` / dispatcher 对象身份产生的节点不会删除。长驻进程应
+复用已管理的总线/dispatcher 对象，不能新建对象或换 Pool key 绕过关闭失败或配置冲突。
+这些状态不写磁盘，不是持久队列或旧确认记录，进程退出后由操作系统回收。
+
 ## 接收路由
 
 `subscribe_routes({{id, extended}, ...}, capacity=512)` 原子注册一组 key，共享一个有界 inbox。
@@ -29,7 +64,8 @@ Pool 对相同 key 共享连接，对同一物理通道的 FD/速率冲突配置
 `update_routes(inbox, keys)` 原子替换路由组，冲突时保留原有注册。
 
 - `receive_until(steady_clock_deadline)` 等待一帧；超时返回 `std::nullopt`。
-- `try_receive()` 立即取帧，没有消息时返回空值。
+- `try_receive()` 不等待新帧到达，但会获取 inbox 互斥锁；有排队帧时取出一帧，否则返回空值。
+  inbox 已关闭时抛 `ClosedError`。
 - 队列满拒绝新帧，并累计 inbox 的 `overflow` 和会话的 `overflows`，不覆盖已有帧。
 - `close()` 清空队列、释放 key 并唤醒等待者；关闭后的接收抛 `ClosedError`。
 - 每帧附带 generation、sequence 和接收时间。FD/BRS、ID 和载荷合法性先由会话检查，
@@ -39,34 +75,51 @@ Pool 对相同 key 共享连接，对同一物理通道的 FD/速率冲突配置
 
 `MessageBatch` 包含 frames、帧间 `gap` 和首帧前 `initial_delay`。
 `submit(batch, options)` 入队并立即返回 `transport::SendReceipt`；队列满抛 `QueueFullError`。
-容量按等待中的批次计，不含正在执行的批次。
+容量按等待中的批次计，不含正在执行的批次。单个批次的帧数、所有路由组数量没有全局上限，
+因此有界队列不等于总内存有界；应用还需限制单批次帧数、提交速率和总路由量。
 `send(batch, options)` 提交后等待，使用相同调度路径。
+
+提交会在入队前校验批次；token 已取消、deadline 已过期或 Session 已关闭时同步抛异常，
+不会返回回执。后端特有的校验仍可能在随后发送时失败，并通过已返回的回执报告。
 
 默认 `SendPolicy::fifo`；priority 越大越先调度，等待时间参与优先级计算，相同排序保留先后顺序。
 `SendPolicy::latest` 要求非空 endpoint 和 family，只替换同组尚未执行的 latest 批次，
 旧回执变为 `superseded`，已经进入执行的批次不被替换。
 Session 与旧 dispatcher/managed-bus 发送共用物理批次锁，批次的间隔内也不允许其他发送插入。
+priority 只影响待执行任务，不能抢占在途批次；很长的 gap/initial_delay 或大批次会阻塞其他设备。
+endpoint/family 是调用者定义的调度键，不自动等同于 CAN ID。使用明确的 endpoint；
+`cancel_endpoint("")` 会匹配未命名任务，不能当作只取消一个设备的安全默认。
 无帧间间隔时，支持 batch 的后端可合并发送。
+MiniCANFD 的单次原生批次上限为 100 帧；`gap=0` 时超过该值会以失败回执结束，详见
+[MiniCANFD 默认值与批次边界](minicanfd.md#打开共享与关闭)。其他后端也可有自己的驱动限制，
+“Session 不设全局帧数上限”不等于任意后端可接受无限批次。
 
 `SendOptions.deadline` 是单调时钟绝对时间，覆盖排队、发送锁等待及帧间等待。
 `cancellation` 可取消未完成任务；`cancel_endpoint(name)` 同时取消该 endpoint 的排队与在途任务。
 进入驱动后的当前写入可能继续完成；最后一帧已被后端接受后到达的取消不会覆盖 `dispatched`。
+`CancellationSource` 和由它生成的 token 共享一个单向状态；`cancel()` 可重复调用但不能撤销，
+也不能中止厂商驱动中没有取消接口的同步调用。
+deadline 在进入后端调用前及调度等待期间检查，最后一次后端调用成功返回后不再检查。
+因此该调用可能在 deadline 之后完成，而回执最终仍为 `dispatched`；仅等待到 deadline 的
+调用者此时可能已经收到等待超时异常。
 
-回执的 `result()` 不等待，提供 outcome、generation、各阶段时间、已接受帧数及异常。
+回执的 `result()` 不等待任务完成，提供 outcome、generation、各阶段时间、已接受帧数及异常。
 `wait()` / `wait_until()` 在失败、过期、取消或被替换时抛出保存的异常。
-只等待超时不会取消任务，可继续查询同一回执。
+回执等待超时不会取消任务，可继续查询同一回执。
+`SendReceipt::result()`、`wait_until()`、`completed()` 和 `RouteInbox::health()` 标为
+`[[nodiscard]]`；确实不使用结果时应显式写 `(void)`，避免在 `-Werror` 消费者中产生告警。
 `sent_frames` 表示已知被后端接受的数量；`current_frame_uncertain=true` 表示报错的当前
 帧或原生批次可能已部分送达，不能据此自动重放。
 后端接受也不等于 CAN 对端 ACK 或设备业务执行成功；CANable SLCAN 甚至只确认本机串口驱动接收字节。
 
-`can::SendReceipt` 是旧 `ManagedCANBus::queue_send()` 的回执，只有完成/异常及
-`wait_for()`，与上述 `transport::SendReceipt` 是不同类型。
+`can::SendReceipt` 是旧 `ManagedCANBus::queue_send()` 的回执，提供完成/异常、
+`wait()` / `wait_for()`，与上述 `transport::SendReceipt` 是不同类型。
 
 ## 恢复、关闭与诊断
 
 从 `session->health().generation` 保存观测值，传给 `recover(observed_generation)`。
 使用同一旧 generation 的并发调用只进行一次成功重开；恢复失败可重试。
-恢复关闭旧 inbox、取消旧批次，且不重放控制帧。恢复后必须重新注册路由并重新核验设备身份。
+恢复关闭旧 inbox、取消旧的未完成批次，且不重放控制帧；已完成回执仍可读取。恢复后必须重新注册路由并重新核验设备身份。
 `own()` / `borrow()` 没有重建连接的 factory，不能执行物理恢复。
 
 `health()` 提供队列、帧/字节计数、无路由帧、非法帧、溢出、恢复次数及最后错误。
@@ -76,3 +129,25 @@ Session 与旧 dispatcher/managed-bus 发送共用物理批次锁，批次的间
 同步 `close()`、`recover()` 必须由外部线程调用；从接收或发送回调调用会抛 `ValidationError`。
 在回调内释放最后一个 Session 引用会交给清理线程处理。借用的 dispatcher 必须保持存活，
 并在销毁前由外部线程调用 `Session::drain_deferred_cleanup()` 等待延迟清理结束。
+
+## 恢复调用示例
+
+下面是使用已有可恢复 `session` 的片段，不是独立程序。factory 每次必须创建新的可用后端；
+不能重复返回已关闭的同一适配器。
+
+```cpp
+const auto observed = session->health().generation;
+const auto generation = session->recover(observed);
+auto inbox = session->subscribe_routes({{0x28, false}});
+// 此处由上层重新核验设备身份/状态；不自动重发恢复前的控制命令。
+(void)generation;
+```
+
+成功重开后，同一旧 observed_generation 的其他调用者取得当前代次而不再重开。
+失败恢复不会记为成功 recoveries；后续可再次尝试。显式 close 是最终关闭，不允许 recover。
+底层 write/write_batch 接口没有 deadline 参数，进入驱动后的调用不能由 Session 强制打断；
+`recover()` 和 `close()` 可能等待它返回，deadline 不是整个生命周期操作的硬超时保证。
+
+`result()` 可在异常后查看 outcome 和已接受帧数。回执的 `accepted_at`、`claimed_at`、
+`completed_at`、接收的 `received_at` 均基于单调时钟，不能直接当 Unix 时间写入报表。
+空的默认构造 SendReceipt 不可等待/读取，会抛 ValidationError。

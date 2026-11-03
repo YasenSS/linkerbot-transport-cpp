@@ -1,0 +1,104 @@
+name: C++ style and static analysis
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: style-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clang-style:
+    name: Clang 18 style (ubuntu-24.04-arm)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Clang tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build git ca-certificates \
+            clang-18 clang-format-18 clang-tidy-18 clang-tools-18 \
+            libc++-18-dev libc++abi-18-dev
+          {
+            uname -a
+            cmake --version
+            clang++-18 --version
+            clang-format-18 --version
+            clang-tidy-18 --version
+          } | tee clang-style-toolchain.txt
+      - name: Require clang-format-clean sources
+        shell: bash
+        run: |
+          set -o pipefail
+          git ls-files -z -- '*.cpp' '*.hpp' '*.h' \
+            | xargs -0 clang-format-18 --dry-run --Werror 2>&1 \
+            | tee clang-format.log
+      - name: Configure the static-analysis database
+        run: |
+          cmake -S . -B build-tidy -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            '-DCMAKE_CXX_FLAGS=-stdlib=libc++' \
+            '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
+            '-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++' \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DLINKERBOT_COMM_BUILD_TESTS=ON \
+            -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+      - name: Check project and test-support translation units
+        shell: bash
+        run: |
+          set -o pipefail
+          run-clang-tidy-18 -p build-tidy -j 2 -quiet \
+            -warnings-as-errors='*' \
+            "^${GITHUB_WORKSPACE}/(src|examples)/.*[.]cpp$|^${GITHUB_WORKSPACE}/tests/(?!test_).*[.]cpp$" \
+            2>&1 | tee clang-tidy-project.log
+      - name: Check Catch2 test cases
+        shell: bash
+        run: |
+          set -o pipefail
+          # TEST_CASE creates a static Catch2 registrar. cert-err58-cpp has no
+          # macro-ignore option, so only Catch2 case translation units exclude it.
+          run-clang-tidy-18 -p build-tidy -j 2 -quiet \
+            -checks=-cert-err58-cpp \
+            -warnings-as-errors='*' \
+            "^${GITHUB_WORKSPACE}/tests/test_.*[.]cpp$" \
+            2>&1 | tee clang-tidy-tests.log
+      - name: Check the Windows-only fixture source
+        shell: bash
+        run: |
+          set -o pipefail
+          # This source is absent from the Linux compile database because CMake
+          # only builds it on Windows; its non-Windows branch remains portable.
+          clang-tidy-18 tests/vendor_fixture_dependency.cpp \
+            -warnings-as-errors='*' -- -std=c++17 \
+            2>&1 | tee clang-tidy-windows-fixture.log
+      - name: Check the installed-consumer source
+        shell: bash
+        run: |
+          set -o pipefail
+          clang-tidy-18 validation/installed-consumer/main.cpp \
+            -warnings-as-errors='*' \
+            -- -std=c++17 -stdlib=libc++ -Iinclude -Icompat \
+            2>&1 | tee clang-tidy-consumer.log
+      - name: Save style evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: clang-style-ubuntu-24.04-arm
+          path: |
+            clang-style-toolchain.txt
+            clang-format.log
+            clang-tidy-project.log
+            clang-tidy-tests.log
+            clang-tidy-windows-fixture.log
+            clang-tidy-consumer.log
+            build-tidy/CMakeCache.txt
+            build-tidy/compile_commands.json

@@ -22,6 +22,18 @@ endif()
 option(LINKERBOT_COMM_BUILD_TESTS "Build Catch2 unit tests" ${LINKERBOT_COMM_IS_TOP_LEVEL})
 option(LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS "Allow missing test dependencies to be fetched" ON)
 option(LINKERBOT_COMM_BUILD_EXAMPLES "Build example programs" ${LINKERBOT_COMM_IS_TOP_LEVEL})
+option(LINKERBOT_COMM_ENABLE_COVERAGE "Instrument Linux tests for gcovr line coverage" OFF)
+
+if(LINKERBOT_COMM_ENABLE_COVERAGE)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR "Coverage requires Linux and GCC")
+    endif()
+    if(NOT LINKERBOT_COMM_BUILD_TESTS)
+        message(FATAL_ERROR "Coverage requires LINKERBOT_COMM_BUILD_TESTS=ON")
+    endif()
+    add_compile_options(--coverage -O0 -g)
+    add_link_options(--coverage)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -76,6 +88,9 @@ target_include_directories(linkerbot-comm-compat
 )
 
 if(LINKERBOT_COMM_BUILD_TESTS)
+    if(CMAKE_VERSION VERSION_LESS 3.19)
+        message(FATAL_ERROR "Tests require CMake 3.19+ for Catch2 discovery; use LINKERBOT_COMM_BUILD_TESTS=OFF for the CMake 3.16 library-only build")
+    endif()
     find_package(Catch2 3 QUIET)
     if(NOT Catch2_FOUND)
         if(NOT LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS)
@@ -98,6 +113,7 @@ if(LINKERBOT_COMM_BUILD_TESTS)
         tests/main.cpp
         tests/test_dispatcher.cpp
         tests/test_session.cpp
+        tests/test_fault_contracts.cpp
         tests/test_fake_transport.cpp
         tests/test_frame.cpp
         tests/test_managed_bus.cpp
@@ -110,6 +126,15 @@ if(LINKERBOT_COMM_BUILD_TESTS)
     if(NOT LINKERBOT_COMM_IS_TOP_LEVEL)
         set_target_properties(comm-tests PROPERTIES EXCLUDE_FROM_ALL TRUE)
     endif()
+
+    add_executable(session-static-exit tests/session_static_exit.cpp)
+    target_link_libraries(session-static-exit PRIVATE linkerbot-comm)
+    if(NOT LINKERBOT_COMM_IS_TOP_LEVEL)
+        set_target_properties(session-static-exit PROPERTIES EXCLUDE_FROM_ALL TRUE)
+    endif()
+    add_test(NAME session-static-share-exit COMMAND session-static-exit shared)
+    add_test(NAME session-static-borrow-exit COMMAND session-static-exit borrowed)
+    set_tests_properties(session-static-share-exit session-static-borrow-exit PROPERTIES TIMEOUT 30)
 
     include(Catch)
     catch_discover_tests(comm-tests)
@@ -205,13 +230,15 @@ write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/linkerbot-comm-conf
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/linkerbot-comm-config.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/linkerbot-comm-config-version.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/linkerbot-comm)
-install(FILES LICENSE NOTICE README.md CHANGELOG.md CONTRIBUTING.md
+install(FILES LICENSE NOTICE README.md README.zh-CN.md CHANGELOG.md CHANGELOG.en.md
+    CONTRIBUTING.md CONTRIBUTING.zh-CN.md SECURITY.md SECURITY.zh-CN.md
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm)
 install(FILES examples/shared_bus.cpp
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/examples)
-install(FILES docs/zh/session.md docs/zh/minicanfd.md docs/zh/pcan.md docs/zh/slcan.md
-    docs/zh/windows-build.md
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/docs/zh)
+install(FILES examples/quickstart/CMakeLists.txt examples/quickstart/main.cpp
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/examples/quickstart)
+install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/docs
+    FILES_MATCHING PATTERN "*.md")
 
 include(cmake/ReleasePackage.cmake)
 install(FILES validation/installed-consumer/CMakeLists.txt validation/installed-consumer/main.cpp

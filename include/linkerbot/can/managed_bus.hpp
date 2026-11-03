@@ -85,7 +85,8 @@ namespace linkerbot::can {
             FaultCallback on_fault;
         };
 
-        explicit ManagedCANBus(TransportFactory factory) : ManagedCANBus(std::move(factory), Options{}) {}
+        explicit ManagedCANBus(TransportFactory factory)
+            : ManagedCANBus(std::move(factory), Options{}) {}
 
         ManagedCANBus(TransportFactory factory, Options options)
             : factory_(std::move(factory)), options_(std::move(options)) {
@@ -158,11 +159,11 @@ namespace linkerbot::can {
                               std::chrono::steady_clock::time_point deadline,
                               std::chrono::microseconds gap,
                               std::chrono::microseconds initial_delay,
-                              const std::function<bool()> &cancelled,
-                              size_t &sent, bool &uncertain) -> void {
+                              const std::function<bool()> &cancelled, size_t &sent,
+                              bool &uncertain) -> void {
             const auto dispatcher = require_dispatcher();
-            dispatcher->send_batch_until(frames, deadline, gap, initial_delay,
-                                         cancelled, sent, uncertain);
+            dispatcher->send_batch_until(frames, deadline, gap, initial_delay, cancelled, sent,
+                                         uncertain);
         }
 
         auto queue_send(const Message &message) -> SendReceipt {
@@ -251,15 +252,13 @@ namespace linkerbot::can {
                 }
                 created = std::make_unique<CANDispatcher>(std::move(transport),
                                                           std::move(dispatcher_options));
-                created->subscribe([this, token](const Message &message) {
-                    on_message(token, message);
-                });
+                created->subscribe(
+                    [this, token](const Message &message) { on_message(token, message); });
                 {
                     const std::scoped_lock lock(state_mutex_);
                     if (state_ == TransportState::kFaulted) {
-                        throw FaultedError(last_error_.empty()
-                                               ? "dispatcher failed while starting"
-                                               : last_error_);
+                        throw FaultedError(last_error_.empty() ? "dispatcher failed while starting"
+                                                               : last_error_);
                     }
                     dispatcher_ = std::shared_ptr<CANDispatcher>(created.release());
                     ++generation_;
@@ -505,8 +504,8 @@ namespace linkerbot::can {
             }
         }
 
-        auto on_dispatcher_fault(const std::shared_ptr<void> &token, const CANError &error)
-            -> void {
+        auto on_dispatcher_fault(const std::shared_ptr<void> &token,
+                                 const CANError &error) -> void {
             {
                 const std::scoped_lock lock(state_mutex_);
                 if (token != active_token_) {

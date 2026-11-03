@@ -11,18 +11,18 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <system_error>
-#include <stdexcept>
 #include <thread>
 #include <vector>
 
 using linkerbot::can::CANDispatcher;
-using linkerbot::can::FakeTransport;
-using linkerbot::can::Message;
 using linkerbot::can::ClosedError;
 using linkerbot::can::ErrorCode;
+using linkerbot::can::FakeTransport;
 using linkerbot::can::FaultedError;
+using linkerbot::can::Message;
 using linkerbot::can::TransportIOError;
 using linkerbot::can::TransportState;
 using linkerbot::can::ValidationError;
@@ -180,9 +180,7 @@ TEST_CASE("unsubscribe cancels a callback already copied into an in-flight snaps
     }
     cv.notify_all();
 
-    REQUIRE(wait_until([&] {
-        return dispatcher.get_health().state == TransportState::kOpen;
-    }));
+    REQUIRE(wait_until([&] { return dispatcher.get_health().state == TransportState::kOpen; }));
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     REQUIRE(later_calls.load() == 0);
 }
@@ -234,8 +232,7 @@ TEST_CASE("unsubscribe waits for an in-flight external callback to finish",
     releaser.join();
 }
 
-TEST_CASE("a subscriber can unsubscribe itself without deadlocking",
-          "[dispatcher][unsubscribe]") {
+TEST_CASE("a subscriber can unsubscribe itself without deadlocking", "[dispatcher][unsubscribe]") {
     auto transport = std::make_unique<FakeTransport>();
     auto *raw = transport.get();
     CANDispatcher dispatcher(std::move(transport));
@@ -344,22 +341,19 @@ TEST_CASE("a read that throws does not kill the receive thread", "[dispatcher]")
 TEST_CASE("dispatcher validates its fault policy", "[dispatcher][health]") {
     CANDispatcher::Options zero_threshold;
     zero_threshold.max_consecutive_errors = 0;
-    REQUIRE_THROWS_AS(
-        CANDispatcher(std::make_unique<FakeTransport>(), std::move(zero_threshold)),
-        ValidationError);
+    REQUIRE_THROWS_AS(CANDispatcher(std::make_unique<FakeTransport>(), std::move(zero_threshold)),
+                      ValidationError);
 
     CANDispatcher::Options invalid_backoff;
     invalid_backoff.error_backoff_base = std::chrono::milliseconds(10);
     invalid_backoff.error_backoff_max = std::chrono::milliseconds(5);
-    REQUIRE_THROWS_AS(
-        CANDispatcher(std::make_unique<FakeTransport>(), std::move(invalid_backoff)),
-        ValidationError);
+    REQUIRE_THROWS_AS(CANDispatcher(std::make_unique<FakeTransport>(), std::move(invalid_backoff)),
+                      ValidationError);
 
     CANDispatcher::Options zero_backoff;
     zero_backoff.error_backoff_base = std::chrono::milliseconds(0);
-    REQUIRE_THROWS_AS(
-        CANDispatcher(std::make_unique<FakeTransport>(), std::move(zero_backoff)),
-        ValidationError);
+    REQUIRE_THROWS_AS(CANDispatcher(std::make_unique<FakeTransport>(), std::move(zero_backoff)),
+                      ValidationError);
 }
 
 TEST_CASE("transient receive error backs off then recovers health", "[dispatcher][health]") {
@@ -404,8 +398,7 @@ TEST_CASE("transient receive error backs off then recovers health", "[dispatcher
     REQUIRE(health.last_successful_rx.has_value());
 }
 
-TEST_CASE("consecutive receive errors fault once and reject sends",
-          "[dispatcher][health]") {
+TEST_CASE("consecutive receive errors fault once and reject sends", "[dispatcher][health]") {
     class BrokenTransport final : public linkerbot::can::CANTransport {
       public:
         auto read() -> std::optional<Message> override {
@@ -438,9 +431,7 @@ TEST_CASE("consecutive receive errors fault once and reject sends",
     };
     CANDispatcher dispatcher(std::move(transport), options);
 
-    REQUIRE(wait_until([&] {
-        return dispatcher.get_health().state == TransportState::kFaulted;
-    }));
+    REQUIRE(wait_until([&] { return dispatcher.get_health().state == TransportState::kFaulted; }));
     const auto health = dispatcher.get_health();
     REQUIRE(health.consecutive_errors == 3);
     REQUIRE(health.last_error_code == ErrorCode::kTransportIo);
@@ -516,8 +507,8 @@ TEST_CASE("send preserves typed backend error details", "[dispatcher][errors]") 
         }
 
         auto write(const Message &) -> void override {
-            throw TransportIOError("USB transmit failed",
-                                   std::make_error_code(std::errc::io_error), -17);
+            throw TransportIOError("USB transmit failed", std::make_error_code(std::errc::io_error),
+                                   -17);
         }
 
         auto close() -> void override {}
@@ -548,9 +539,7 @@ TEST_CASE("stop from callback prevents later copied callbacks", "[dispatcher][st
     dispatcher.subscribe([&](const Message &) { ++later_calls; });
     raw->inject(make_frame(0x28, 0x35));
 
-    REQUIRE(wait_until([&] {
-        return dispatcher.get_health().state == TransportState::kClosed;
-    }));
+    REQUIRE(wait_until([&] { return dispatcher.get_health().state == TransportState::kClosed; }));
     REQUIRE(later_calls.load() == 0);
     REQUIRE_NOTHROW(dispatcher.stop());
 }
@@ -609,8 +598,7 @@ TEST_CASE("stop preserves close failure and a later stop can complete",
         dispatcher.stop();
         FAIL("first stop should preserve close failure");
     } catch (const TransportIOError &error) {
-        REQUIRE(error.system_error() ==
-                std::make_error_code(std::errc::device_or_resource_busy));
+        REQUIRE(error.system_error() == std::make_error_code(std::errc::device_or_resource_busy));
     }
     REQUIRE(dispatcher.get_health().state == TransportState::kFaulted);
     REQUIRE_NOTHROW(dispatcher.stop());
@@ -618,8 +606,7 @@ TEST_CASE("stop preserves close failure and a later stop can complete",
     REQUIRE(dispatcher.get_health().state == TransportState::kClosed);
 }
 
-TEST_CASE("stop rejects new sends while draining an in-flight send",
-          "[dispatcher][stop]") {
+TEST_CASE("stop rejects new sends while draining an in-flight send", "[dispatcher][stop]") {
     class BlockingSendTransport final : public linkerbot::can::CANTransport {
       public:
         auto read() -> std::optional<Message> override {
@@ -660,9 +647,7 @@ TEST_CASE("stop rejects new sends while draining an in-flight send",
     raw->wait_until_entered();
 
     std::thread stopper([&] { dispatcher.stop(); });
-    REQUIRE(wait_until([&] {
-        return dispatcher.get_health().state == TransportState::kStopping;
-    }));
+    REQUIRE(wait_until([&] { return dispatcher.get_health().state == TransportState::kStopping; }));
     const auto before = std::chrono::steady_clock::now();
     REQUIRE_THROWS_AS(dispatcher.send(make_frame(0x28, 0x38)), ClosedError);
     REQUIRE(std::chrono::steady_clock::now() - before < std::chrono::milliseconds(50));
@@ -717,7 +702,7 @@ TEST_CASE("stop's clear and a concurrent unsubscribe rendezvous on the same in-f
         // return before the callback has actually finished.
         dispatcher.unsubscribe(id);
         unsubscribe_saw_finished.store(callback_finished.load(std::memory_order_acquire),
-                                        std::memory_order_release);
+                                       std::memory_order_release);
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -765,4 +750,218 @@ TEST_CASE("a subscriber disabled after repeated failures is reported via health"
     REQUIRE(health.disabled_subscriber_count == 1);
     REQUIRE(health.last_subscriber_error.find("subscriber blew up repeatedly") !=
             std::string::npos);
+}
+
+TEST_CASE("batch send validates pacing and uses a native batch when available",
+          "[dispatcher][batch]") {
+    auto transport = std::make_unique<FakeTransport>();
+    auto *raw = transport.get();
+    raw->set_prefer_batch(true);
+    CANDispatcher dispatcher(std::move(transport));
+
+    REQUIRE_NOTHROW(dispatcher.send_batch({}));
+
+    size_t sent = 99;
+    bool uncertain = true;
+    REQUIRE_THROWS_AS(dispatcher.send_batch_until(
+                          {make_frame(0x28, 1)}, std::chrono::steady_clock::now() + kTimeout,
+                          std::chrono::microseconds(-1), std::chrono::microseconds(0), {}, sent,
+                          uncertain),
+                      ValidationError);
+    REQUIRE(sent == 0);
+    REQUIRE_FALSE(uncertain);
+
+    const std::vector frames{make_frame(0x28, 2), make_frame(0x29, 3)};
+    REQUIRE_NOTHROW(dispatcher.send_batch_until(frames, std::chrono::steady_clock::now() + kTimeout,
+                                                std::chrono::microseconds(0),
+                                                std::chrono::microseconds(0), {}, sent, uncertain));
+    REQUIRE(sent == frames.size());
+    REQUIRE_FALSE(uncertain);
+    const auto batches = raw->batch_writes();
+    REQUIRE(batches.size() == 1);
+    REQUIRE(batches[0].size() == 2);
+    REQUIRE(batches[0][0].id == 0x28);
+    REQUIRE(batches[0][1].id == 0x29);
+}
+
+TEST_CASE("batch send cancellation is observed while waiting for the physical send boundary",
+          "[dispatcher][batch][concurrency]") {
+    class BlockingSendTransport final : public linkerbot::can::CANTransport {
+      public:
+        auto read() -> std::optional<Message> override {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            return std::nullopt;
+        }
+
+        auto write(const Message &) -> void override {
+            std::unique_lock lock(mutex_);
+            entered_ = true;
+            cv_.notify_all();
+            cv_.wait(lock, [&] { return released_; });
+        }
+
+        auto close() -> void override {}
+
+        auto wait_until_entered() -> void {
+            std::unique_lock lock(mutex_);
+            cv_.wait(lock, [&] { return entered_; });
+        }
+
+        auto release() -> void {
+            const std::scoped_lock lock(mutex_);
+            released_ = true;
+            cv_.notify_all();
+        }
+
+      private:
+        std::mutex mutex_;
+        std::condition_variable cv_;
+        bool entered_ = false;
+        bool released_ = false;
+    };
+
+    auto transport = std::make_unique<BlockingSendTransport>();
+    auto *raw = transport.get();
+    CANDispatcher dispatcher(std::move(transport));
+    std::thread sender([&] { dispatcher.send(make_frame(0x28, 1)); });
+    raw->wait_until_entered();
+
+    size_t sent = 0;
+    bool uncertain = false;
+    int cancellation_checks = 0;
+    REQUIRE_THROWS_AS(dispatcher.send_batch_until(
+                          {make_frame(0x29, 2)}, std::chrono::steady_clock::now() + kTimeout,
+                          std::chrono::microseconds(0), std::chrono::microseconds(0),
+                          [&] { return ++cancellation_checks > 1; }, sent, uncertain),
+                      linkerbot::transport::CancelledError);
+    REQUIRE(cancellation_checks > 1);
+    REQUIRE(sent == 0);
+    REQUIRE_FALSE(uncertain);
+
+    raw->release();
+    sender.join();
+}
+
+TEST_CASE("receive error backoff saturates and a later frame still recovers the dispatcher",
+          "[dispatcher][health]") {
+    class RecoveringTransport final : public linkerbot::can::CANTransport {
+      public:
+        auto read() -> std::optional<Message> override {
+            const auto call = ++read_calls;
+            if (call <= 4) {
+                throw TransportIOError("transient receive failure");
+            }
+            if (call == 5) {
+                return make_frame(0x28, 0x71);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            return std::nullopt;
+        }
+
+        auto write(const Message &) -> void override {}
+        auto close() -> void override {}
+
+        std::atomic<int> read_calls{0};
+    };
+
+    auto transport = std::make_unique<RecoveringTransport>();
+    auto *raw = transport.get();
+    CANDispatcher::Options options;
+    options.max_consecutive_errors = 6;
+    options.error_backoff_base = std::chrono::milliseconds(1);
+    options.error_backoff_max = std::chrono::milliseconds(2);
+    CANDispatcher dispatcher(std::move(transport), options);
+    FrameCollector collector;
+    dispatcher.subscribe(collector.callback());
+
+    REQUIRE(collector.wait_for(1, kTimeout));
+    REQUIRE(raw->read_calls.load() >= 5);
+    REQUIRE(dispatcher.get_health().state == TransportState::kOpen);
+    REQUIRE(dispatcher.get_health().consecutive_errors == 0);
+}
+
+TEST_CASE("external stop owns finalization when a callback has already requested stop",
+          "[dispatcher][stop][concurrency]") {
+    class GatedFaultCloseTransport final : public linkerbot::can::CANTransport {
+      public:
+        auto read() -> std::optional<Message> override {
+            std::unique_lock lock(mutex_);
+            cv_.wait(lock, [&] { return read_released_; });
+            throw TransportIOError("injected receive failure");
+        }
+
+        auto write(const Message &) -> void override {}
+
+        auto close() -> void override {
+            std::unique_lock lock(mutex_);
+            close_entered_ = true;
+            cv_.notify_all();
+            cv_.wait(lock, [&] { return close_released_; });
+        }
+
+        auto release_read() -> void {
+            const std::scoped_lock lock(mutex_);
+            read_released_ = true;
+            cv_.notify_all();
+        }
+
+        auto wait_until_close_entered() -> void {
+            std::unique_lock lock(mutex_);
+            cv_.wait(lock, [&] { return close_entered_; });
+        }
+
+        auto release_close() -> void {
+            const std::scoped_lock lock(mutex_);
+            close_released_ = true;
+            cv_.notify_all();
+        }
+
+      private:
+        std::mutex mutex_;
+        std::condition_variable cv_;
+        bool read_released_ = false;
+        bool close_entered_ = false;
+        bool close_released_ = false;
+    };
+
+    auto transport = std::make_unique<GatedFaultCloseTransport>();
+    auto *raw = transport.get();
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool self_stop_returned = false;
+    bool release_callback = false;
+    std::atomic<bool> callback_released{false};
+    CANDispatcher *dispatcher_ptr = nullptr;
+    CANDispatcher::Options options;
+    options.max_consecutive_errors = 1;
+    options.on_fault = [&](const linkerbot::can::CANError &) {
+        dispatcher_ptr->stop();
+        std::unique_lock lock(mutex);
+        self_stop_returned = true;
+        cv.notify_all();
+        cv.wait(lock, [&] { return release_callback; });
+        callback_released.store(true, std::memory_order_release);
+    };
+    CANDispatcher dispatcher(std::move(transport), options);
+    dispatcher_ptr = &dispatcher;
+
+    raw->release_read();
+    {
+        std::unique_lock lock(mutex);
+        cv.wait(lock, [&] { return self_stop_returned; });
+    }
+    std::thread external_stop([&] { dispatcher.stop(); });
+    raw->wait_until_close_entered();
+
+    {
+        const std::scoped_lock lock(mutex);
+        release_callback = true;
+    }
+    cv.notify_all();
+    REQUIRE(wait_until([&] { return callback_released.load(std::memory_order_acquire); }));
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    raw->release_close();
+    external_stop.join();
+    REQUIRE(dispatcher.get_health().state == TransportState::kClosed);
 }
