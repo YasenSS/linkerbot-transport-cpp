@@ -25,9 +25,9 @@ cmake --install build --prefix "$PWD/install/comm"
 The default build includes tests and examples. Tests require Catch2 3: CMake first
 looks for an installed package, then downloads v3.8.1 if permitted. For offline
 builds, provide `Catch2_DIR` and set `-DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF`.
-The library itself does not require Catch2. See the [build guide](docs/zh/build.md)
+The library itself does not require Catch2. See the [build guide](docs/en/build.md)
 for prerequisites, library-only builds and dependency-specific CMake requirements.
-For MSVC and multi-configuration commands, use the [Windows guide](docs/zh/windows-build.md).
+For MSVC and multi-configuration commands, use the [Windows guide](docs/en/windows-build.md).
 
 <a id="receive-and-send"></a>
 
@@ -80,30 +80,30 @@ matching headers, architecture, compiler and runtime.
 - **FakeTransport:** in-memory transport for offline development and tests.
 
 Linux amd64/ARM64 and Windows x64 have offline CI. Hardware support depends on
-the adapter, driver and firmware; see [validation evidence and limits](docs/zh/validation.md).
-Coverage and Clang quality-check commands are in the [build guide](docs/zh/build.md).
+the adapter, driver and firmware; see [validation evidence and limits](docs/en/validation.md).
+Coverage and Clang quality-check commands are in the [build guide](docs/en/build.md).
 
 <a id="frame-and-backend-contracts"></a>
 
 ## API and device integration
 
-Start with [public API and ownership](docs/zh/api.md), then
-[Session routing and recovery](docs/zh/session.md). Detailed guides are maintained
-in Chinese; both README files describe the current implementation.
+Start with [public API and ownership](docs/en/api.md), then
+[Session routing and recovery](docs/en/session.md). The detailed guides and README
+are maintained in English and Chinese; see the [terminology guide](docs/en/terminology.md).
 
 `Message.dlc` counts bytes: Classic 0–8, FD 0–64. Set extended-ID and FD/BRS
 flags explicitly; untagged-frame behavior varies by backend. A send receipt
 describes backend acceptance, while CAN ACK and device execution require separate
 confirmation. A receipt timeout does not cancel an in-flight write.
 
-Backend guides: [SocketCAN](docs/zh/socketcan.md), [MiniCANFD](docs/zh/minicanfd.md),
-[PCAN](docs/zh/pcan.md), [SLCAN](docs/zh/slcan.md).
-See [diagnostics](docs/zh/troubleshooting.md) and [upgrade/rollback](docs/zh/operations.md)
+Backend guides: [SocketCAN](docs/en/socketcan.md), [MiniCANFD](docs/en/minicanfd.md),
+[PCAN](docs/en/pcan.md), [SLCAN](docs/en/slcan.md).
+See [diagnostics](docs/en/troubleshooting.md) and [upgrade/rollback](docs/en/operations.md)
 before deploying with devices.
 
 ## Project information
 
-[MIT license](LICENSE) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·
+[MIT license](LICENSE) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.en.md) ·
 [Third-party notices](NOTICE) · [Support and sensitive reports](SECURITY.md)
 
 Installed documentation lives under `share/linkerbot-comm`. Vendor drivers, DLLs

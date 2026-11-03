@@ -1,6 +1,6 @@
 # SLCAN：Windows / Linux 原生串口
 
-[文档索引](../README.md) · [诊断](troubleshooting.md) · [运行与升级](operations.md) · [验证边界](validation.md)
+[文档索引](../README.md) · [English](../en/slcan.md) · [诊断](troubleshooting.md) · [运行与升级](operations.md) · [验证边界](validation.md)
 
 SDK 提供两个显式固件配置：Lawicel Classic 和 CANable 2.0 FD 扩展。
 原生串口实现使用系统驱动，不依赖额外厂商 DLL。
@@ -33,6 +33,8 @@ FD 使用 CAN DLC 映射 `0..8,12,16,20,24,32,48,64`。`Message.dlc` 是字节�
 这是指定扩展协议的实现，不承诺所有厂商的 SLCAN FD 固件互通。
 
 ## 连接示例
+
+下面是程序片段：头文件放在源文件顶部，其余语句放在应用函数内。
 
 ```cpp
 #include <linkerbot/can/slcan_transport.hpp>

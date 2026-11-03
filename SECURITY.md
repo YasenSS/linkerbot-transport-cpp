@@ -1,5 +1,7 @@
 # Support and sensitive reports
 
+[English](SECURITY.md) · [简体中文](SECURITY.zh-CN.md)
+
 The source currently identifies itself as 0.3.0 and has no stable release or tag.
 Maintenance is best-effort for the current `main` branch; historical commits and
 unpublished CI artifacts do not have a separate support commitment.

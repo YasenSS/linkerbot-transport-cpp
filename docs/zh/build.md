@@ -1,6 +1,6 @@
 # 构建、安装与 CMake 接入
 
-[文档索引](../README.md) · [Windows 专项说明](windows-build.md)
+[English](../en/build.md) · [文档索引](../README.md) · [Windows 专项说明](windows-build.md)
 
 ## 前置条件与目录约定
 
@@ -143,7 +143,7 @@ Clang 质量矩阵在 Linux amd64 与 ARM64 上执行以下三种独立 Debug �
 - `tsan`：使用 libstdc++ 和 `-fsanitize=thread`，不关闭死锁检查，逐 CTest 进程运行全部测试。
 
 ASan+UBSan 不与 Ubuntu 的系统 libc++ 组合：ARM64 实测会在 libc++/libc++abi 的异常对象
-分配路径报告 `operator new`/`free` 不匹配，这不是项目代码缺陷。两个 native-loader fixture
+分配路径报告 `operator new`/`free` 不匹配；该次观测未将报告归因于项目代码。两个 native-loader fixture
 也不进入 ASan+UBSan 运行：它们为模拟无头文件的第三方 C++ 动态库，刻意各自声明布局相同、
 类型身份不同的 ABI 结构；两侧都带 UBSan 元数据时会报告函数类型不匹配。CI 没有关闭相应
 sanitizer 检查来隐藏报告；这些 fixture 仍由 GCC 主矩阵、Clang+libc++ 和 TSan 全量覆盖。

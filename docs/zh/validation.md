@@ -1,5 +1,7 @@
 # 验证记录与支持边界
 
+[English](../en/validation.md) · 简体中文
+
 [文档索引](../README.md) · [构建复现](build.md)
 
 本文将实现能力、离线验证和实机验收分开记录。源码版本在 CMake 中为 0.3.0，
@@ -8,6 +10,15 @@ CHANGELOG 仍标记未发布。更新文档或 CI 不代表已经发布新的 SD
 ## 已执行的通信库验证
 
 截至 2026-11-03，下面的精确提交记录可在本仓库公开核对：
+
+最近补充的文档与最小接入回归已在 PR #9 合并提交
+`79f1731c355fbd46eeb63224d89aaa9039c2df27` 上通过
+[Linux](https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41559611149)、
+[ARM64 格式与静态检查](https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41559611240) 和
+[Windows](https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41559611152) 工作流。
+其中新增 ARM64 CMake 3.16.9 核心库构建/安装、安装后 quickstart 运行，以及旧版本启用
+完整测试时预期拒绝配置的检查；GCC 矩阵也运行安装后的 quickstart。这些是固定提交的离线
+记录，不是本文后续编辑提交的验证，也不证明真实适配器可用。以下保留较早修复的历史证据：
 
 | 源码 | Linux amd64/ARM64 | ARM64 格式与静态检查 | Windows x64 |
 | --- | --- | --- | --- |
@@ -49,7 +60,7 @@ PR #5 head 的本地 ARM64 验证结果如下；Linux 构建在 Ubuntu 24.04 容
 
 静态 owner 在 `main()` 中取得 `Session::share()` 或 `Session::borrow()` 并保留到进程退出时，
 修复前的 ARM64 ASan 对照会在 registry release 报告 heap-use-after-free；修复后的两个独立退出
-用例及完整 ASan 套件通过。这是进程退出阶段的可靠性问题，不是认证或权限问题。修复保持原有
+用例及完整 ASan 套件通过。这是进程退出阶段的可靠性问题。修复保持原有
 registry key、记录保留和校验行为，未删除或改写旧记录。
 
 本地未运行 x86；amd64 由上述 GitHub CI 验证。没有执行真实硬件验收，也没有编译需要外部官方

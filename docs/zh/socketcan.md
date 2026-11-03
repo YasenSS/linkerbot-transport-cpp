@@ -1,6 +1,6 @@
 # SocketCAN：Linux Classic CAN / CAN FD
 
-[文档索引](../README.md) · [Session](session.md) · [运行与升级](operations.md) · [验证边界](validation.md)
+[文档索引](../README.md) · [English](../en/socketcan.md) · [Session](session.md) · [运行与升级](operations.md) · [验证边界](validation.md)
 
 `SocketCANTransport(interface_name, fd_mode=false)` 使用 Linux CAN 网络接口。
 构造时创建 raw CAN socket、选择接口并绑定；它不配置接口速率、不启动接口，也不安装驱动。

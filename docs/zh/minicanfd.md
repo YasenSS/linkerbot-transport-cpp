@@ -1,6 +1,6 @@
 # MiniCANFD：平台 ABI、枚举与资源归属
 
-[文档索引](../README.md) · [诊断](troubleshooting.md) · [运行与升级](operations.md) · [验证边界](validation.md)
+[文档索引](../README.md) · [English](../en/minicanfd.md) · [诊断](troubleshooting.md) · [运行与升级](operations.md) · [验证边界](validation.md)
 
 MiniCANFD 通过运行时加载厂商库工作，核心 SDK 构建不依赖厂商开发包。
 Linux 使用 `libcanbus.so`，Windows x64 使用 `HCanbus.dll`；库和驱动由用户另行安装。

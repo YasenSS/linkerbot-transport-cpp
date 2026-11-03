@@ -1,5 +1,7 @@
 # 运行、升级与回滚
 
+[English](../en/operations.md) · 简体中文
+
 [文档索引](../README.md) · [Session 生命周期](session.md) · [诊断](troubleshooting.md)
 
 ## 运行配置与部署
@@ -25,7 +27,8 @@ MiniCANFD 和 PCAN 的库选择优先级为配置参数 → 各自环境变量 �
 ## 共享、退出与异常清理
 
 多个设备可共享同一 Session，但 Session 不是每个调用者独立的连接句柄。
-共享使用者中任一方 `close()` 会关闭整个会话、释放其持有的所有 lease，并使其他使用者的 inbox 失效。
+共享使用者中任一方 `close()` 会关闭整个会话、清理该会话持有的资源，并使其他使用者的 inbox 失效；
+外部总线或借用 dispatcher 的所有权不因此转移给 Session。
 每个设备结束时优先关闭自身 inbox、取消自身 endpoint；最后由统一的所有者关闭 Session。
 
 退出顺序为：停止上层生产新任务 → 取消不再需要的 endpoint → 核对在途回执/业务状态 →
