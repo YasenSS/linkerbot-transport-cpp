@@ -397,18 +397,6 @@ namespace linkerbot::transport {
         // edges and Session lifetimes hold node pointers, which stay stable across
         // insertions into std::map but would be invalidated by erasing a node.
         using SessionRegistry = std::map<const void *, RegistryEntry>;
-        auto registry_mutex() -> std::mutex & {
-            static std::mutex mutex;
-            return mutex;
-        }
-        auto bus_sessions() -> SessionRegistry & {
-            static SessionRegistry sessions;
-            return sessions;
-        }
-        auto borrowed_sessions() -> SessionRegistry & {
-            static SessionRegistry sessions;
-            return sessions;
-        }
         // A thread can initialize several independent backends recursively, but can
         // wait for at most one other initializer at a time. Guard this wait-for graph
         // with registry_mutex and reject an edge that would close a cycle.
@@ -417,9 +405,31 @@ namespace linkerbot::transport {
             std::thread::id initializer;
             uint64_t initialization_attempt;
         };
+        struct RegistryState {
+            std::mutex mutex;
+            SessionRegistry bus_sessions;
+            SessionRegistry borrowed_sessions;
+            std::map<std::thread::id, RegistryWaitEdge> waits;
+        };
+        auto registry_state() -> RegistryState & {
+            // Static Session owners can be destroyed after function-local statics.
+            // Keep the registry reachable until process teardown so every stored
+            // RegistryEntry pointer and its mutex remain valid during their release.
+            // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+            static auto *const state = new RegistryState;
+            return *state;
+        }
+        auto registry_mutex() -> std::mutex & {
+            return registry_state().mutex;
+        }
+        auto bus_sessions() -> SessionRegistry & {
+            return registry_state().bus_sessions;
+        }
+        auto borrowed_sessions() -> SessionRegistry & {
+            return registry_state().borrowed_sessions;
+        }
         auto registry_waits() -> std::map<std::thread::id, RegistryWaitEdge> & {
-            static std::map<std::thread::id, RegistryWaitEdge> waits;
-            return waits;
+            return registry_state().waits;
         }
 
         bool wait_would_cycle(std::thread::id waiter, std::thread::id initializer) {
