@@ -1,6 +1,6 @@
 # PCAN Classic CAN / CAN FD
 
-[文档索引](../README.md) · [诊断](troubleshooting.md) · [运行与升级](operations.md) · [验证边界](validation.md)
+[文档索引](../README.md) · [English](../en/pcan.md) · [诊断](troubleshooting.md) · [运行与升级](operations.md) · [验证边界](validation.md)
 
 `PcanTransport` 提供真实通道枚举和运行时加载，核心 SDK 构建不需要厂商开发包。
 硬件支持目标为 Windows x64 / MSVC。Linux 测试动态库用于离线 ABI 验证。
@@ -28,7 +28,7 @@ FD 时间戳 8 字节、通道信息 52 字节；消息 data 偏移为 6，通�
 
 加载优先级：显式 UTF-8 `PcanConfig::library_path` → `LINKERBOT_PCAN_LIB` → 系统
 `PCANBasic.dll`。显式或环境路径失败不换另一份 DLL。Windows 使用宽字符 loader；
-显式库转为绝对路径，依赖从库目录和安全默认目录搜索，`AddDllDirectory` cookie 跟随
+显式库转为绝对路径，依赖从库目录和 `LOAD_LIBRARY_SEARCH_DEFAULT_DIRS` 指定的目录搜索，`AddDllDirectory` cookie 跟随
 模块生命周期。失败保留原始系统错误码，API 保存实际解析模块路径。
 
 `enumerate_pcan_channels()` 返回厂商实际连接通道，保留原生 handle、硬件名、device ID、

@@ -1,6 +1,6 @@
 # Session、路由与生命周期
 
-[文档索引](../README.md) · [公共 API](api.md) · [错误与诊断](troubleshooting.md) · [运行与升级](operations.md)
+[English](../en/session.md) · [文档索引](../README.md) · [公共 API](api.md) · [错误与诊断](troubleshooting.md) · [运行与升级](operations.md)
 
 `include/linkerbot/transport/session.hpp` 是面向设备 SDK 的会话接口。
 它在同一条物理连接上提供精确接收路由和一个发送调度线程。设备协议与请求/回复匹配仍由上层实现。
@@ -96,9 +96,9 @@ MiniCANFD 的单次原生批次上限为 100 帧；`gap=0` 时超过该值会以
 `CancellationSource` 和由它生成的 token 共享一个单向状态；`cancel()` 可重复调用但不能撤销，
 也不能中止厂商驱动中没有取消接口的同步调用。
 
-回执的 `result()` 不等待，提供 outcome、generation、各阶段时间、已接受帧数及异常。
+回执的 `result()` 不等待任务完成，提供 outcome、generation、各阶段时间、已接受帧数及异常。
 `wait()` / `wait_until()` 在失败、过期、取消或被替换时抛出保存的异常。
-只等待超时不会取消任务，可继续查询同一回执。
+回执等待超时不会取消任务，可继续查询同一回执。
 `SendReceipt::result()`、`wait_until()`、`completed()` 和 `RouteInbox::health()` 标为
 `[[nodiscard]]`；确实不使用结果时应显式写 `(void)`，避免在 `-Werror` 消费者中产生告警。
 `sent_frames` 表示已知被后端接受的数量；`current_frame_uncertain=true` 表示报错的当前
@@ -112,7 +112,7 @@ MiniCANFD 的单次原生批次上限为 100 帧；`gap=0` 时超过该值会以
 
 从 `session->health().generation` 保存观测值，传给 `recover(observed_generation)`。
 使用同一旧 generation 的并发调用只进行一次成功重开；恢复失败可重试。
-恢复关闭旧 inbox、取消旧批次，且不重放控制帧。恢复后必须重新注册路由并重新核验设备身份。
+恢复关闭旧 inbox、取消旧的未完成批次，且不重放控制帧；已完成回执仍可读取。恢复后必须重新注册路由并重新核验设备身份。
 `own()` / `borrow()` 没有重建连接的 factory，不能执行物理恢复。
 
 `health()` 提供队列、帧/字节计数、无路由帧、非法帧、溢出、恢复次数及最后错误。

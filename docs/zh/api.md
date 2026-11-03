@@ -1,6 +1,6 @@
 # 公共 API、线程与所有权契约
 
-[文档索引](../README.md) · [Session](session.md) · [错误与诊断](troubleshooting.md) ·
+[English](../en/api.md) · [文档索引](../README.md) · [Session](session.md) · [错误与诊断](troubleshooting.md) ·
 [运行、升级与回滚](operations.md)
 
 本文给出 `include/linkerbot/` 下公共接口的选择和边界。项目使用 C++17；设备命令、身份核验、
@@ -41,7 +41,8 @@
 
 自定义后端继承 `can::CANTransport` 时必须满足：
 
-- `read()` 有界返回；正常等待超时返回 `std::nullopt`，链路故障才抛异常。
+- `read()` 使用有限接收等待；正常等待超时返回 `std::nullopt`。链路故障、已关闭状态或非法接收数据
+  可抛异常；操作系统或驱动调用可能延长实际耗时，不能将接收等待配置解释为硬性返回时限。
 - dispatcher 线程可与发送线程并发调用 `read()` / `write()`；实现须保护相应资源。
 - `write()` 在后端接受帧后返回，失败使用稳定的 `CANError` 子类，并尽量保留系统错误或原生状态。
 - 默认 `write_batch()` 逐帧调用 `write()`；合并为一个原生调用的后端无法可靠指出部分成功帧。
@@ -105,7 +106,7 @@ Session 对象生命周期，重建后重置且不持久化。单调时钟字段
 
 `0.3.x` 不承诺任意编译器、CRT 或构建选项之间的二进制 ABI；应用应使用配套头文件和静态库重新
 编译。新增 `[[nodiscard]]` 会让启用 `-Werror` 且忽略结果的源码需要显式 `(void)`，但不改变
-符号 ABI。旧扁平头只用于迁移，新增代码使用 `include/linkerbot/...` 路径。
+符号 ABI。旧扁平头只用于迁移，新增代码使用 `<linkerbot/...>` include 路径。
 
 本库没有数据库、Redis、磁盘队列或跨重启确认记录，也不要求自身持久卷。进程内 registry、
 扫描快照、inbox、回执和 deferred cleanup 都不是持久状态。上层的日志、校准、设备身份和业务

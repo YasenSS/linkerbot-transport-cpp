@@ -108,7 +108,8 @@ namespace linkerbot::transport {
         // Empty receipts have no state: result(), completed(), wait_until() and
         // wait() throw can::ValidationError until assigned a valid receipt.
         SendReceipt() = default;
-        // Nonblocking snapshot; saved task errors are returned, not rethrown.
+        // Snapshot without waiting for task completion; takes the state mutex.
+        // Saved task errors are returned, not rethrown.
         [[nodiscard]] SendResult result() const;
         // Wait on the steady-clock deadline. A wait timeout throws can::TimeoutError
         // without cancelling the task; a claimed driver write may still complete.

@@ -2,6 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [完整文档](docs/README.md)
 
+术语定义见[术语与可观测行为](docs/zh/terminology.md)，详细指南均提供中英文版本。
+
 Linkerbot SDK 的 C++17 CAN / CAN FD 通信层，负责物理连接、共享总线、接收路由和批次发送。
 设备命令、请求回复关联与控制业务由上层 SDK 实现。
 
@@ -80,7 +82,7 @@ Linux amd64/ARM64 和 Windows x64 有离线 CI。硬件能力取决于适配器�
 
 ## 项目信息
 
-[MIT 许可证](LICENSE) · [贡献流程](CONTRIBUTING.md) · [版本变更](CHANGELOG.md) ·
-[第三方组件](NOTICE) · [支持范围与敏感报告](SECURITY.md)
+[MIT 许可证](LICENSE) · [贡献流程](CONTRIBUTING.zh-CN.md) · [版本变更](CHANGELOG.md) ·
+[第三方组件](NOTICE) · [支持范围与敏感报告](SECURITY.zh-CN.md)
 
 安装文档位于 `share/linkerbot-comm`。运行时包不包含厂商驱动、DLL 或测试 fixture。

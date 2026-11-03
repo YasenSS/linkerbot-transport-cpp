@@ -1,6 +1,6 @@
 # Windows 构建与独立通信包
 
-[文档索引](../README.md) · [通用构建](build.md) · [验证记录](validation.md)
+[English](../en/windows-build.md) · [文档索引](../README.md) · [通用构建](build.md) · [验证记录](validation.md)
 
 使用 Visual Studio 2022、v143 14.44、CMake 3.31.8 和 C++17，目标架构为 x64。
 当前 GitHub 工作流在 windows-2022 上执行 Debug/Release 离线回归、原生 ABI fixture、

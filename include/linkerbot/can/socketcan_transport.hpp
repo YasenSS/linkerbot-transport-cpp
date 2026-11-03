@@ -25,14 +25,12 @@
 
 namespace linkerbot::can {
 
-    // 10ms SO_RCVTIMEO keeps read() bounded so CANDispatcher can observe its
-    // stop flag promptly.
+    // Request a 10 ms socket receive timeout so the dispatcher can check its
+    // stop flag between reads. This is not a hard driver or shutdown deadline.
     inline constexpr long kSocketCANReceiveTimeoutUs = 10000;
-    // write() previously had no bound at all (R18): a full driver TX queue
-    // (bus-off, no other node ACKing) could block forever, and close()
-    // waiting on that in-flight write would then also hang. 50ms is short
-    // enough to keep close() and callers responsive, generous enough not to
-    // spuriously fail short bursts under normal load.
+    // Request a 50 ms socket send timeout to limit ordinary TX-queue waits.
+    // close() still waits for in-flight calls; the timeout does not guarantee
+    // driver completion or imply that a failed write sent no frame.
     inline constexpr long kSocketCANSendTimeoutUs = 50000;
 
     // Linux SocketCAN backend (classic CAN and CAN FD).
