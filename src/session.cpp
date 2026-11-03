@@ -432,8 +432,8 @@ namespace linkerbot::transport {
             return registry_state().waits;
         }
 
-        bool wait_would_cycle(std::thread::id waiter, std::thread::id initializer) {
-            auto current = initializer;
+        bool wait_would_cycle(std::thread::id waiter, const RegistryEntry &initializing_entry) {
+            auto current = initializing_entry.initializer;
             for (size_t steps = 0; steps <= registry_waits().size(); ++steps) {
                 if (current == waiter) {
                     return true;
@@ -533,7 +533,7 @@ namespace linkerbot::transport {
                 const auto waiter = std::this_thread::get_id();
                 const auto initializer = entry.initializer;
                 const auto initialization_attempt = entry.initialization_attempt;
-                if (wait_would_cycle(waiter, initializer)) {
+                if (wait_would_cycle(waiter, entry)) {
                     throw can::ValidationError("cyclic Session backend initialization");
                 }
                 RegistryWait waiting(waiter, &entry, initializer, initialization_attempt);
@@ -640,7 +640,10 @@ namespace linkerbot::transport {
                     SessionCleanupScope cleanup_scope;
                     try {
                         impl->close();
-                    } catch (...) { /* backend retains its retry ownership */
+                    } catch (...) { // NOLINT(bugprone-empty-catch)
+                        // Destroy retained ownership after leaving the handler,
+                        // with the cleanup marker still active. This preserves
+                        // the backend destructor's exception context.
                     }
                     impl.reset();
                 }
@@ -799,7 +802,9 @@ namespace linkerbot::transport {
         }
         try {
             impl_->close();
-        } catch (...) {
+        } catch (...) { // NOLINT(bugprone-empty-catch)
+            // The reset below runs after this handler exits, preserving the
+            // original exception context of backend destruction.
         }
         // Keep the marker active through member destruction too: a lease or owned
         // backend destructor may retry a virtual close after close() failed.
@@ -939,7 +944,8 @@ namespace linkerbot::transport {
     }
     void Session::send(MessageBatch batch, SendOptions options) {
         const auto deadline = options.deadline;
-        (void)submit(std::move(batch), std::move(options)).wait_until(deadline);
+        auto receipt = submit(std::move(batch), std::move(options));
+        (void)receipt.wait_until(deadline);
     }
     void Session::cancel_endpoint(const std::string &endpoint) {
         auto &p = *impl_;

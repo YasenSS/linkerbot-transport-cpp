@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "frame_tx_cases.hpp"
+#include "optional_value.hpp"
 
 #include <linkerbot/can/frame.hpp>
 #include <linkerbot/can/vendor_canfd_transport.hpp>
@@ -29,6 +30,8 @@ using linkerbot::can::vendor_length_to_dlc;
 using linkerbot::can::VendorCanFdApi;
 using linkerbot::can::VendorCanFdTransport;
 namespace life = linkerbot::can::vendor_canfd_lifecycle;
+
+using linkerbot::test_support::require_value;
 
 namespace {
 
@@ -529,13 +532,13 @@ TEST_CASE("write and read convert DLC and payload", "[vendor_canfd]") {
 
     auto got = transport.read();
     REQUIRE(got.has_value());
-    REQUIRE(got->id == 0x456);
-    REQUIRE_FALSE(got->is_extended);
-    REQUIRE(got->is_fd);
-    REQUIRE_FALSE(got->is_brs);
-    REQUIRE(got->dlc == 64);
-    REQUIRE(got->data[0] == 0xAB);
-    REQUIRE(got->data[63] == 0xCD);
+    REQUIRE(require_value(got).id == 0x456);
+    REQUIRE_FALSE(require_value(got).is_extended);
+    REQUIRE(require_value(got).is_fd);
+    REQUIRE_FALSE(require_value(got).is_brs);
+    REQUIRE(require_value(got).dlc == 64);
+    REQUIRE(require_value(got).data[0] == 0xAB);
+    REQUIRE(require_value(got).data[63] == 0xCD);
 
     REQUIRE_FALSE(transport.read().has_value());
     transport.close();
@@ -623,8 +626,8 @@ TEST_CASE("vendor TX/RX follow the shared FrameType vectors", "[vendor_canfd][fr
         }
         auto got = transport.read();
         REQUIRE(got.has_value());
-        REQUIRE(got->is_fd == row.expect_is_fd);
-        REQUIRE(got->is_brs == row.expect_is_brs);
+        REQUIRE(require_value(got).is_fd == row.expect_is_fd);
+        REQUIRE(require_value(got).is_brs == row.expect_is_brs);
         transport.close();
     }
 }
@@ -653,8 +656,8 @@ TEST_CASE("a malformed frame in a vendor RX batch does not drop neighbours",
     auto second = transport.read();
     REQUIRE(first.has_value());
     REQUIRE(second.has_value());
-    REQUIRE(first->id == 0x10);
-    REQUIRE(second->id == 0x12);
+    REQUIRE(require_value(first).id == 0x10);
+    REQUIRE(require_value(second).id == 0x12);
     REQUIRE_FALSE(transport.read().has_value());
     transport.close();
 }

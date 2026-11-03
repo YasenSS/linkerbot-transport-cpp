@@ -481,7 +481,7 @@ namespace linkerbot::can {
         // either lease is modified. This preserves the target as the explicit
         // retry owner instead of silently orphaning a faulted pool entry.
         // NOLINTNEXTLINE(cppcoreguidelines-noexcept-move-operations,performance-noexcept-move-constructor)
-        auto operator=(CANBusLease &&other) -> CANBusLease & {
+        auto operator=(CANBusLease &&other) noexcept(false) -> CANBusLease & {
             if (this != &other) {
                 close();
                 const std::scoped_lock lock(mutex_, other.mutex_);

@@ -1,4 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
+
+#include "optional_value.hpp"
+
 #include <linkerbot/can/vendor_canfd_transport.hpp>
 
 #include <array>
@@ -20,6 +23,7 @@
 #endif
 
 using namespace linkerbot::can;
+using linkerbot::test_support::require_value;
 namespace fs = std::filesystem;
 namespace {
     std::string fixture_path(const char *name = "LINKERBOT_TEST_VENDOR_LIBRARY") {
@@ -59,6 +63,8 @@ namespace {
             try {
                 vendor_canfd_lifecycle::retry_deferred_cleanup(api->lifecycle_key);
             } catch (...) {
+                // Fixture destruction cannot propagate a deferred cleanup failure.
+                return;
             }
         }
     };
@@ -148,12 +154,13 @@ TEST_CASE("native ABI transfers all payload lengths and frame flags", "[vendor_l
             for (const auto &sent : messages) {
                 const auto received = transport.read();
                 REQUIRE(received);
-                CHECK(received->id == sent.id);
-                CHECK(received->is_extended == extended);
-                CHECK(received->is_fd);
-                CHECK(received->is_brs == brs);
-                CHECK(received->dlc == vendor_dlc_to_length(vendor_length_to_dlc(sent.dlc)));
-                CHECK(received->data ==
+                const auto received_message = require_value(received);
+                CHECK(received_message.id == sent.id);
+                CHECK(received_message.is_extended == extended);
+                CHECK(received_message.is_fd);
+                CHECK(received_message.is_brs == brs);
+                CHECK(received_message.dlc == vendor_dlc_to_length(vendor_length_to_dlc(sent.dlc)));
+                CHECK(received_message.data ==
                       sent.data); // Includes zero padding of noncanonical lengths.
             }
             CHECK_FALSE(transport.read());
@@ -166,9 +173,10 @@ TEST_CASE("native ABI transfers all payload lengths and frame flags", "[vendor_l
     REQUIRE(fixture.api->transmit(5, 0, &classic, 1, 10) == 1);
     const auto received = transport.read();
     REQUIRE(received);
-    CHECK_FALSE(received->is_fd);
-    CHECK_FALSE(received->is_brs);
-    CHECK(received->data[7] == 42);
+    const auto received_message = require_value(received);
+    CHECK_FALSE(received_message.is_fd);
+    CHECK_FALSE(received_message.is_brs);
+    CHECK(received_message.data[7] == 42);
     transport.close();
 }
 
@@ -231,6 +239,8 @@ TEST_CASE("native read write and close finish within configured waits", "[vendor
                 (void)transport.read();
             }
         } catch (const ClosedError &) {
+            // Closing the transport is an expected way to finish this worker.
+            return;
         }
     });
     auto writing = std::async(std::launch::async, [&] {
@@ -242,6 +252,8 @@ TEST_CASE("native read write and close finish within configured waits", "[vendor
                 transport.write(message);
             }
         } catch (const ClosedError &) {
+            // Closing the transport is an expected way to finish this worker.
+            return;
         }
     });
     start.set_value();
@@ -410,7 +422,7 @@ TEST_CASE("independent native loads remain owned until the last live user", "[ve
     second->write(message);
     const auto received = second->read();
     REQUIRE(received);
-    CHECK(received->data[0] == 42);
+    CHECK(require_value(received).data[0] == 42);
     second->close();
     CHECK(first_owner.expired());
     CHECK_FALSE(second_owner.expired()); // this Transport's independent loader reference
@@ -435,7 +447,7 @@ TEST_CASE("native Linux adapter preserves both device and channel indices", "[ve
     CHECK_FALSE(first.read());
     const auto received = second.read();
     REQUIRE(received);
-    CHECK(received->data[0] == 17);
+    CHECK(require_value(received).data[0] == 17);
     second.close();
     CHECK(fixture.get(19) == 1);
     CHECK(fixture.get(0) == 1);

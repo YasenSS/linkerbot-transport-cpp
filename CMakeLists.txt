@@ -258,7 +258,7 @@ install(FILES .github/cppreportcard/badge.svg .github/cppreportcard/README.md
 install(FILES examples/quickstart/CMakeLists.txt examples/quickstart/main.cpp
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/examples/quickstart)
 install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/docs
-    FILES_MATCHING PATTERN "*.md")
+    FILES_MATCHING PATTERN "*.md" PATTERN "*.csv")
 install(FILES benchmarks/README.md benchmarks/summarize.py
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/benchmarks)
 install(DIRECTORY benchmarks/results/
@@ -267,6 +267,8 @@ install(DIRECTORY benchmarks/results/
 
 include(cmake/ReleasePackage.cmake)
 install(FILES validation/installed-consumer/CMakeLists.txt validation/installed-consumer/main.cpp
+    validation/installed-consumer/allocation_failure.cpp
+    validation/installed-consumer/expect-allocation-failure.cmake
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/validation/installed-consumer)
 if(LINKERBOT_COMM_IS_TOP_LEVEL)
     include(CPack)

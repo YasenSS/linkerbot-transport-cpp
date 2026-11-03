@@ -319,8 +319,19 @@ namespace linkerbot::can {
         }
     };
 
+    // Open from owned configuration before moving it into the transport; two
+    // delegating-constructor arguments would have unspecified evaluation order.
+    struct SlcanTransport::Prepared {
+        SlcanConfig config;
+        std::shared_ptr<SlcanSerialPort> serial;
+
+        explicit Prepared(SlcanConfig incoming)
+            : config(std::move(incoming)), serial(open_slcan_serial(config)) {}
+    };
     SlcanTransport::SlcanTransport(SlcanConfig config)
-        : SlcanTransport(config, open_slcan_serial(config)) {}
+        : SlcanTransport(Prepared{std::move(config)}) {}
+    SlcanTransport::SlcanTransport(Prepared prepared)
+        : SlcanTransport(std::move(prepared.config), std::move(prepared.serial)) {}
     SlcanTransport::SlcanTransport(SlcanConfig config, std::shared_ptr<SlcanSerialPort> serial) {
         validate_slcan_config(config);
         if (!serial) {
@@ -347,7 +358,9 @@ namespace linkerbot::can {
             // bus close as well as local release, without replacing the root error.
             try {
                 s.serial->write_all("C\r", s.config.command_timeout);
-            } catch (...) {
+            } catch (...) { // NOLINT(bugprone-empty-catch)
+                // Keep the initialization error authoritative, then still try
+                // local release below; a failed bus-close command cannot skip it.
             }
             try {
                 s.serial->close();

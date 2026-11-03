@@ -330,6 +330,9 @@ namespace linkerbot::can {
                 try {
                     close();
                 } catch (...) {
+                    // Linux native-close errors refer to consumed descriptors;
+                    // this destructor must not propagate a close diagnostic.
+                    return;
                 }
             }
             auto read_some(size_t max_bytes,

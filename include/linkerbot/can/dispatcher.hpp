@@ -456,7 +456,10 @@ namespace linkerbot::can {
                               std::chrono::steady_clock::time_point deadline,
                               std::chrono::microseconds gap,
                               std::chrono::microseconds initial_delay,
-                              const std::function<bool()> &cancelled, size_t &sent,
+                              // These non-const output references cannot bind to
+                              // each other's type; the public signature is retained.
+                              const std::function<bool()> &cancelled,
+                              size_t &sent, // NOLINT(bugprone-easily-swappable-parameters)
                               bool &uncertain) -> void {
             sent = 0;
             uncertain = false;
@@ -675,6 +678,7 @@ namespace linkerbot::can {
                 if (!frame) {
                     continue;
                 }
+                const Message &received = *frame;
                 {
                     const std::scoped_lock lock(health_mutex_);
                     health_.last_successful_rx = std::chrono::steady_clock::now();
@@ -685,7 +689,7 @@ namespace linkerbot::can {
                     if (!running_.load(std::memory_order_acquire)) {
                         break;
                     }
-                    detail::SubscriberRegistry<FrameCallback>::invoke(*entry, *frame);
+                    detail::SubscriberRegistry<FrameCallback>::invoke(*entry, received);
                 }
             }
 
@@ -725,6 +729,7 @@ namespace linkerbot::can {
                     options_.on_fault(error);
                 } catch (...) {
                     // Fault reporting must not terminate the receive thread.
+                    return true;
                 }
             }
             return true;

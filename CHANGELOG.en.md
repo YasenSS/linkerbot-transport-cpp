@@ -4,6 +4,10 @@ English · [简体中文](CHANGELOG.md)
 
 ## 0.3.0 (unreleased)
 
+- Review all 156 records in the fixed-commit quality report and document confirmed defects, analyzer limitations and intentional contracts. Add a bilingual review and a per-diagnostic ledger; retain the existing analysis rules and scoring.
+- Handle allocation exceptions at the installed consumer's program boundary instead of aborting. Add a permanent Linux GNU/Clang allocation-failure regression while preserving its normal behavior and existing explicit return values.
+- Model the project's Catch2 macros for Cppcheck without hiding test bodies or assertion operands. Verify the model with 17 static sentinels and two runtime probes; make optional access and lifecycle contracts explicit without changing public APIs, vendor ABIs or cleanup ownership.
+
 - Cache subscriber snapshots for dispatch when subscriptions are unchanged. ARM64 measurements show lower steady-state dispatch time and no snapshot allocation for nonempty registries; rebuilding after subscription changes costs more. Add a Linux benchmark harness, separate timing/allocation modes, raw results, and an ARM64 CI smoke check. No idle-wakeup improvement is claimed.
 - Preserve the active subscription if allocation fails while preparing unsubscribe bookkeeping; add a regression that injects the failure. Cancellation and callback-lifetime contracts are unchanged.
 - The snapshot cache changes the layout of registry-containing types. Rebuild downstream applications and libraries together; do not mix objects built against the old and new headers.

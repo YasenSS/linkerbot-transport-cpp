@@ -1,3 +1,5 @@
+#include "optional_value.hpp"
+
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
@@ -19,6 +21,8 @@
 #endif
 using namespace linkerbot::can;
 namespace fs = std::filesystem;
+using linkerbot::test_support::require_value;
+
 namespace {
     std::string path(const char *key = "LINKERBOT_TEST_PCAN_LIBRARY") {
         auto *const value = std::getenv(key);
@@ -60,6 +64,8 @@ namespace {
             try {
                 retry_pcan_cleanup(api);
             } catch (...) {
+                // Fixture teardown cannot replace the test's original failure.
+                return;
             }
         }
         [[nodiscard]] PcanConfig config(PcanMode mode = PcanMode::kClassic) const {
@@ -107,11 +113,11 @@ TEST_CASE("PCAN Classic initialization frames and bounded empty receive", "[pcan
             transport.write(message);
             const auto received = transport.read();
             REQUIRE(received);
-            CHECK(received->id == message.id);
-            CHECK(received->is_extended == extended);
-            CHECK_FALSE(received->is_fd);
-            CHECK(received->dlc == length);
-            CHECK(received->data == message.data);
+            CHECK(require_value(received).id == message.id);
+            CHECK(require_value(received).is_extended == extended);
+            CHECK_FALSE(require_value(received).is_fd);
+            CHECK(require_value(received).dlc == length);
+            CHECK(require_value(received).data == message.data);
         }
     }
     CHECK(fixture.get(6) == 0);
@@ -154,13 +160,13 @@ TEST_CASE("PCAN FD uses FD API and explicit Classic FD BRS flags for every lengt
                 transport.write(message);
                 const auto received = transport.read();
                 REQUIRE(received);
-                CHECK(received->is_fd);
-                CHECK(received->is_brs == brs);
-                CHECK(received->is_extended == extended);
-                CHECK(received->id == message.id);
-                CHECK(received->dlc ==
+                CHECK(require_value(received).is_fd);
+                CHECK(require_value(received).is_brs == brs);
+                CHECK(require_value(received).is_extended == extended);
+                CHECK(require_value(received).id == message.id);
+                CHECK(require_value(received).dlc ==
                       *std::lower_bound(std::begin(lengths), std::end(lengths), n));
-                CHECK(received->data == message.data);
+                CHECK(require_value(received).data == message.data);
             }
         }
     }
@@ -170,8 +176,8 @@ TEST_CASE("PCAN FD uses FD API and explicit Classic FD BRS flags for every lengt
     transport.write(classic);
     const auto received = transport.read();
     REQUIRE(received);
-    CHECK_FALSE(received->is_fd);
-    CHECK_FALSE(received->is_brs);
+    CHECK_FALSE(require_value(received).is_fd);
+    CHECK_FALSE(require_value(received).is_brs);
     CHECK(fixture.get(3) == 0);
     CHECK(fixture.get(5) == 0);
     CHECK(fixture.get(6) == 261);
@@ -330,6 +336,7 @@ TEST_CASE("PCAN close interrupts empty polling and concurrent callers are idempo
         try {
             (void)transport.read();
         } catch (const ClosedError &) {
+            return; // Expected when close interrupts the pending read.
         }
     });
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
@@ -442,7 +449,9 @@ TEST_CASE("PCAN enumeration rejects unsafe metadata and records per-channel fail
     CHECK(attached_queries == 3);
 
     auto malformed = std::make_shared<PcanApi>(*fixture.api);
-    malformed->get_value = [](uint16_t channel, uint8_t parameter, void *buffer, uint32_t) {
+    // The parameter order is fixed by PcanApi::get_value and the vendor ABI.
+    malformed->get_value = [](uint16_t channel, uint8_t parameter, void *buffer,
+                              uint32_t) { // NOLINT(bugprone-easily-swappable-parameters)
         if (parameter == pcan_abi::attached_count) {
             *static_cast<uint32_t *>(buffer) = 3;
             return pcan_abi::ok;
@@ -537,7 +546,9 @@ TEST_CASE("PCAN validates every supported Classic bitrate and explicit loader co
         auto api = std::make_shared<PcanApi>(*fixture.api);
         auto initialize = api->initialize;
         uint16_t actual = 0;
-        api->initialize = [&](uint16_t ch, uint16_t baud, uint8_t old1, uint32_t old2,
+        // Preserve PcanApi::initialize's native ABI argument order.
+        api->initialize = [&](uint16_t ch, uint16_t baud, uint8_t old1,
+                              uint32_t old2, // NOLINT(bugprone-easily-swappable-parameters)
                               uint16_t old3) {
             actual = baud;
             // The native fixture intentionally accepts only 1 Mbit/s. Keep

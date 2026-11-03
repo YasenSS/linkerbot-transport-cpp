@@ -265,7 +265,8 @@ TEST_CASE("pool lease move assignment closes the old owner and retains the new k
     a = std::move(b);
     REQUIRE(pool.lease_count(first) == 0);
     REQUIRE(pool.lease_count(second) == 1);
-    // NOLINTNEXTLINE(bugprone-use-after-move) -- the moved-from state is the contract under test.
+    // This public operation must reject the valid empty state after a move.
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     REQUIRE_THROWS_AS(b.bus(), can::ClosedError);
     a.close();
     REQUIRE(pool.active_keys().empty());

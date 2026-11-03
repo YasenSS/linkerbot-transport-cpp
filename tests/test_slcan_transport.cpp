@@ -1,3 +1,5 @@
+#include "optional_value.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 #include <condition_variable>
 #include <deque>
@@ -7,6 +9,8 @@
 
 using namespace linkerbot::can;
 using namespace std::chrono_literals;
+using linkerbot::test_support::require_value;
+
 namespace {
     struct Serial final : SlcanSerialPort {
         std::mutex mutex;
@@ -105,6 +109,9 @@ TEST_CASE("SLCAN validates ports UART and CAN profiles before I/O", "[slcan]") {
     c.brs = true;
     REQUIRE_THROWS_AS(validate_slcan_config(c), ValidationError);
     c = config();
+    // A scoped enum has fixed underlying type int; 99 is representable. Verify
+    // that the public validator rejects an unknown protocol value.
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     c.protocol = static_cast<SlcanProtocol>(99);
     REQUIRE_THROWS_AS(validate_slcan_config(c), ValidationError);
     c = config();
@@ -190,18 +197,18 @@ TEST_CASE("SLCAN startup ACKs and split coalesced frames", "[slcan]") {
     REQUIRE_FALSE(transport.read());
     auto m = transport.read();
     REQUIRE(m);
-    REQUIRE(m->id == 0x123);
-    REQUIRE(m->data[0] == 0xab);
+    REQUIRE(require_value(m).id == 0x123);
+    REQUIRE(require_value(m).data[0] == 0xab);
     m = transport.read();
     REQUIRE(m);
-    REQUIRE(m->id == 0x321);
+    REQUIRE(require_value(m).id == 0x321);
     REQUIRE_FALSE(transport.read());
     serial->chunks = {"t4560\r"};
     transport.write(frame()); // Queues a real frame while awaiting the adapter ACK.
     REQUIRE(serial->sent.back() == "t1232ABCD\r");
     m = transport.read();
     REQUIRE(m);
-    REQUIRE(m->id == 0x456);
+    REQUIRE(require_value(m).id == 0x456);
     transport.close();
     REQUIRE(serial->closed);
     REQUIRE(serial->sent.back() == "C\r");
@@ -224,7 +231,7 @@ TEST_CASE("SLCAN reports malformed ASCII and bounds partial lines and queues", "
     REQUIRE_FALSE(transport.read());
     REQUIRE_FALSE(transport.read());
     serial->chunks = {"0\r"};
-    REQUIRE(transport.read()->id == 0x123);
+    REQUIRE(require_value(transport.read()).id == 0x123);
 
     auto oversized = std::make_shared<Serial>();
     SlcanTransport oversized_transport(config(), oversized);
@@ -314,6 +321,7 @@ TEST_CASE("SLCAN close interrupts a pending read", "[slcan]") {
         try {
             transport.read();
         } catch (const ClosedError &) {
+            return; // Expected when close interrupts the pending read.
         }
     });
     {
@@ -417,9 +425,9 @@ TEST_CASE("SLCAN CANable FD is explicitly selected and never waits for nonexiste
         REQUIRE_FALSE(transport.read());
         const auto decoded = transport.read();
         REQUIRE(decoded);
-        REQUIRE(decoded->dlc == 64);
-        REQUIRE(decoded->is_extended);
-        REQUIRE(decoded->is_brs);
+        REQUIRE(require_value(decoded).dlc == 64);
+        REQUIRE(require_value(decoded).is_extended);
+        REQUIRE(require_value(decoded).is_brs);
         REQUIRE_NOTHROW(transport.close());
     }
     c.nominal_bitrate = 750000;
@@ -456,6 +464,8 @@ TEST_CASE("SLCAN rejects malformed device paths and unknown profiles at codec en
          {std::string{}, std::string{"COM\n10"}, std::string{"/dev/"}, std::string{"/dev/tty/"}}) {
         REQUIRE_THROWS_AS(slcan_port_name(port), ValidationError);
     }
+    // Unknown but representable scoped-enum values must be rejected at the API.
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     const auto unknown = static_cast<SlcanProtocol>(99);
     REQUIRE_THROWS_AS(encode_slcan_frame(frame(), unknown), ValidationError);
     REQUIRE_THROWS_AS(decode_slcan_frame("t1230", unknown), ValidationError);

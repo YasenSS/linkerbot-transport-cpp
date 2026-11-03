@@ -148,6 +148,8 @@ namespace linkerbot::can {
         auto close() -> void override;
 
       private:
+        struct Prepared;
+        explicit PcanTransport(Prepared prepared);
         struct State;
         std::unique_ptr<State> state_;
     };
