@@ -260,7 +260,7 @@ install(FILES .github/cppreportcard/badge.svg .github/cppreportcard/README.md
 install(FILES examples/quickstart/CMakeLists.txt examples/quickstart/main.cpp
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/examples/quickstart)
 install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/docs
-    FILES_MATCHING PATTERN "*.md" PATTERN "*.csv")
+    FILES_MATCHING PATTERN "*.md" PATTERN "*.csv" PATTERN "ci-performance-*.json")
 install(FILES benchmarks/README.md benchmarks/summarize.py
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/benchmarks)
 install(DIRECTORY benchmarks/results/

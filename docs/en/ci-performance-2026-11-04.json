@@ -1,0 +1,507 @@
+{
+  "date_utc": "2026-11-04",
+  "method": "GitHub REST job/step timestamps; wall=last non-skipped job completion minus run_started_at; seconds; no billing inference",
+  "analysis": [
+    {
+      "workflow": "style",
+      "jobs": 2,
+      "run_id": 41832182203,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41832182203",
+      "source_sha": "aa9be29113cb4ce8b75571c3b4603a654811eeed",
+      "attempt": 1,
+      "available_cpus": 4,
+      "source_config_sha256": "7f9a119cee1e4a5365ea449e89c85fdfbf7d3105ac01b52b124f787c42a94477",
+      "analysis_seconds": 165.0,
+      "wall_seconds": 213.0,
+      "gnu_time_maximum_rss_kbytes": {
+        "clang-tidy-tests-time.txt": 633548,
+        "clang-tidy-project-time.txt": 384132
+      }
+    },
+    {
+      "workflow": "style",
+      "jobs": 2,
+      "run_id": 41832984740,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41832984740",
+      "source_sha": "aa9be29113cb4ce8b75571c3b4603a654811eeed",
+      "attempt": 1,
+      "available_cpus": 4,
+      "source_config_sha256": "7f9a119cee1e4a5365ea449e89c85fdfbf7d3105ac01b52b124f787c42a94477",
+      "analysis_seconds": 152.0,
+      "wall_seconds": 205.0,
+      "gnu_time_maximum_rss_kbytes": {
+        "clang-tidy-tests-time.txt": 633568,
+        "clang-tidy-project-time.txt": 383896
+      }
+    },
+    {
+      "workflow": "style",
+      "jobs": 2,
+      "run_id": 41834199574,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41834199574",
+      "source_sha": "aa9be29113cb4ce8b75571c3b4603a654811eeed",
+      "attempt": 1,
+      "available_cpus": 4,
+      "source_config_sha256": "7f9a119cee1e4a5365ea449e89c85fdfbf7d3105ac01b52b124f787c42a94477",
+      "analysis_seconds": 158.0,
+      "wall_seconds": 208.0,
+      "gnu_time_maximum_rss_kbytes": {
+        "clang-tidy-tests-time.txt": 633580,
+        "clang-tidy-project-time.txt": 384140
+      }
+    },
+    {
+      "workflow": "style",
+      "jobs": 4,
+      "run_id": 41832189792,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41832189792",
+      "source_sha": "aa9be29113cb4ce8b75571c3b4603a654811eeed",
+      "attempt": 1,
+      "available_cpus": 4,
+      "source_config_sha256": "7f9a119cee1e4a5365ea449e89c85fdfbf7d3105ac01b52b124f787c42a94477",
+      "analysis_seconds": 97.0,
+      "wall_seconds": 140.0,
+      "gnu_time_maximum_rss_kbytes": {
+        "clang-tidy-tests-time.txt": 633544,
+        "clang-tidy-project-time.txt": 384000
+      }
+    },
+    {
+      "workflow": "style",
+      "jobs": 4,
+      "run_id": 41832991047,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41832991047",
+      "source_sha": "aa9be29113cb4ce8b75571c3b4603a654811eeed",
+      "attempt": 1,
+      "available_cpus": 4,
+      "source_config_sha256": "7f9a119cee1e4a5365ea449e89c85fdfbf7d3105ac01b52b124f787c42a94477",
+      "analysis_seconds": 94.0,
+      "wall_seconds": 221.0,
+      "gnu_time_maximum_rss_kbytes": {
+        "clang-tidy-tests-time.txt": 633540,
+        "clang-tidy-project-time.txt": 384008
+      }
+    },
+    {
+      "workflow": "style",
+      "jobs": 4,
+      "run_id": 41834206447,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41834206447",
+      "source_sha": "aa9be29113cb4ce8b75571c3b4603a654811eeed",
+      "attempt": 1,
+      "available_cpus": 4,
+      "source_config_sha256": "7f9a119cee1e4a5365ea449e89c85fdfbf7d3105ac01b52b124f787c42a94477",
+      "analysis_seconds": 91.0,
+      "wall_seconds": 161.0,
+      "gnu_time_maximum_rss_kbytes": {
+        "clang-tidy-tests-time.txt": 633580,
+        "clang-tidy-project-time.txt": 383988
+      }
+    },
+    {
+      "workflow": "report",
+      "jobs": 2,
+      "run_id": 41832198071,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41832198071",
+      "source_sha": "aa9be29113cb4ce8b75571c3b4603a654811eeed",
+      "attempt": 1,
+      "available_cpus": 4,
+      "source_config_sha256": "7f9a119cee1e4a5365ea449e89c85fdfbf7d3105ac01b52b124f787c42a94477",
+      "analysis_seconds": 326.0,
+      "wall_seconds": 369.0,
+      "checks": [
+        {
+          "tool": "clang-format",
+          "version": "Ubuntu clang-format version 18.1.3 (1ubuntu1)",
+          "status": "passed",
+          "analyzed": 56,
+          "total": 56
+        },
+        {
+          "tool": "cppcheck",
+          "version": "Cppcheck 2.13.0",
+          "status": "passed",
+          "analyzed": 39,
+          "total": 39
+        },
+        {
+          "tool": "clang-tidy",
+          "version": "Ubuntu LLVM version 18.1.3",
+          "status": "passed",
+          "analyzed": 39,
+          "total": 39
+        }
+      ]
+    },
+    {
+      "workflow": "report",
+      "jobs": 2,
+      "run_id": 41832998361,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41832998361",
+      "source_sha": "aa9be29113cb4ce8b75571c3b4603a654811eeed",
+      "attempt": 1,
+      "available_cpus": 4,
+      "source_config_sha256": "7f9a119cee1e4a5365ea449e89c85fdfbf7d3105ac01b52b124f787c42a94477",
+      "analysis_seconds": 302.0,
+      "wall_seconds": 343.0,
+      "checks": [
+        {
+          "tool": "clang-format",
+          "version": "Ubuntu clang-format version 18.1.3 (1ubuntu1)",
+          "status": "passed",
+          "analyzed": 56,
+          "total": 56
+        },
+        {
+          "tool": "cppcheck",
+          "version": "Cppcheck 2.13.0",
+          "status": "passed",
+          "analyzed": 39,
+          "total": 39
+        },
+        {
+          "tool": "clang-tidy",
+          "version": "Ubuntu LLVM version 18.1.3",
+          "status": "passed",
+          "analyzed": 39,
+          "total": 39
+        }
+      ]
+    },
+    {
+      "workflow": "report",
+      "jobs": 2,
+      "run_id": 41834213791,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41834213791",
+      "source_sha": "aa9be29113cb4ce8b75571c3b4603a654811eeed",
+      "attempt": 1,
+      "available_cpus": 4,
+      "source_config_sha256": "7f9a119cee1e4a5365ea449e89c85fdfbf7d3105ac01b52b124f787c42a94477",
+      "analysis_seconds": 327.0,
+      "wall_seconds": 369.0,
+      "checks": [
+        {
+          "tool": "clang-format",
+          "version": "Ubuntu clang-format version 18.1.3 (1ubuntu1)",
+          "status": "passed",
+          "analyzed": 56,
+          "total": 56
+        },
+        {
+          "tool": "cppcheck",
+          "version": "Cppcheck 2.13.0",
+          "status": "passed",
+          "analyzed": 39,
+          "total": 39
+        },
+        {
+          "tool": "clang-tidy",
+          "version": "Ubuntu LLVM version 18.1.3",
+          "status": "passed",
+          "analyzed": 39,
+          "total": 39
+        }
+      ]
+    },
+    {
+      "workflow": "report",
+      "jobs": 4,
+      "run_id": 41832204824,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41832204824",
+      "source_sha": "aa9be29113cb4ce8b75571c3b4603a654811eeed",
+      "attempt": 1,
+      "available_cpus": 4,
+      "source_config_sha256": "7f9a119cee1e4a5365ea449e89c85fdfbf7d3105ac01b52b124f787c42a94477",
+      "analysis_seconds": 186.0,
+      "wall_seconds": 248.0,
+      "checks": [
+        {
+          "tool": "clang-format",
+          "version": "Ubuntu clang-format version 18.1.3 (1ubuntu1)",
+          "status": "passed",
+          "analyzed": 56,
+          "total": 56
+        },
+        {
+          "tool": "cppcheck",
+          "version": "Cppcheck 2.13.0",
+          "status": "passed",
+          "analyzed": 39,
+          "total": 39
+        },
+        {
+          "tool": "clang-tidy",
+          "version": "Ubuntu LLVM version 18.1.3",
+          "status": "passed",
+          "analyzed": 39,
+          "total": 39
+        }
+      ]
+    },
+    {
+      "workflow": "report",
+      "jobs": 4,
+      "run_id": 41833005061,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41833005061",
+      "source_sha": "aa9be29113cb4ce8b75571c3b4603a654811eeed",
+      "attempt": 1,
+      "available_cpus": 4,
+      "source_config_sha256": "7f9a119cee1e4a5365ea449e89c85fdfbf7d3105ac01b52b124f787c42a94477",
+      "analysis_seconds": 202.0,
+      "wall_seconds": 245.0,
+      "checks": [
+        {
+          "tool": "clang-format",
+          "version": "Ubuntu clang-format version 18.1.3 (1ubuntu1)",
+          "status": "passed",
+          "analyzed": 56,
+          "total": 56
+        },
+        {
+          "tool": "cppcheck",
+          "version": "Cppcheck 2.13.0",
+          "status": "passed",
+          "analyzed": 39,
+          "total": 39
+        },
+        {
+          "tool": "clang-tidy",
+          "version": "Ubuntu LLVM version 18.1.3",
+          "status": "passed",
+          "analyzed": 39,
+          "total": 39
+        }
+      ]
+    },
+    {
+      "workflow": "report",
+      "jobs": 4,
+      "run_id": 41834220982,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41834220982",
+      "source_sha": "aa9be29113cb4ce8b75571c3b4603a654811eeed",
+      "attempt": 1,
+      "available_cpus": 4,
+      "source_config_sha256": "7f9a119cee1e4a5365ea449e89c85fdfbf7d3105ac01b52b124f787c42a94477",
+      "analysis_seconds": 196.0,
+      "wall_seconds": 232.0,
+      "checks": [
+        {
+          "tool": "clang-format",
+          "version": "Ubuntu clang-format version 18.1.3 (1ubuntu1)",
+          "status": "passed",
+          "analyzed": 56,
+          "total": 56
+        },
+        {
+          "tool": "cppcheck",
+          "version": "Cppcheck 2.13.0",
+          "status": "passed",
+          "analyzed": 39,
+          "total": 39
+        },
+        {
+          "tool": "clang-tidy",
+          "version": "Ubuntu LLVM version 18.1.3",
+          "status": "passed",
+          "analyzed": 39,
+          "total": 39
+        }
+      ]
+    }
+  ],
+  "windows": [
+    {
+      "run_id": 41833657805,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41833657805",
+      "source_sha": "9a7ac6428c2a1d347a02532c5d3919156323302c",
+      "attempt": 1,
+      "cache_enabled": false,
+      "wall_seconds": 271.0,
+      "jobs": [
+        {
+          "job": "Native ARM64 (Debug)",
+          "setup_steps_seconds": {
+            "Resolve independently published CMake checksum": 1.0,
+            "Verify cached installation or install authenticated CMake": 44.0
+          },
+          "setup_seconds": 45.0,
+          "integrity": {
+            "version": "4.2.3",
+            "architecture": "arm64",
+            "archive_sha256": "751b206b1cf65151b72c525d26267c1d9beebf8fafc365ae00286571d9fd3ed9",
+            "verified_files": 8525,
+            "cache_enabled": false,
+            "exact_cache_hit": false,
+            "reused_verified_installation": false,
+            "verify_or_install_seconds": 42.795731
+          }
+        },
+        {
+          "job": "Native ARM64 (Release)",
+          "setup_steps_seconds": {
+            "Resolve independently published CMake checksum": 1.0,
+            "Verify cached installation or install authenticated CMake": 43.0
+          },
+          "setup_seconds": 44.0,
+          "integrity": {
+            "version": "4.2.3",
+            "architecture": "arm64",
+            "archive_sha256": "751b206b1cf65151b72c525d26267c1d9beebf8fafc365ae00286571d9fd3ed9",
+            "verified_files": 8525,
+            "cache_enabled": false,
+            "exact_cache_hit": false,
+            "reused_verified_installation": false,
+            "verify_or_install_seconds": 42.3250785
+          }
+        },
+        {
+          "job": "Native x64 (Debug)",
+          "setup_steps_seconds": {
+            "Resolve independently published CMake checksum": 1.0,
+            "Verify cached installation or install authenticated CMake": 20.0
+          },
+          "setup_seconds": 21.0,
+          "integrity": {
+            "version": "3.31.8",
+            "architecture": "x86_64",
+            "archive_sha256": "81aa9964dbabd71fe02e7ec50472fd3ad56138c49944515ece9001efbff8d719",
+            "verified_files": 8032,
+            "cache_enabled": false,
+            "exact_cache_hit": false,
+            "reused_verified_installation": false,
+            "verify_or_install_seconds": 19.3113619
+          }
+        },
+        {
+          "job": "Native x64 (Release)",
+          "setup_steps_seconds": {
+            "Resolve independently published CMake checksum": 1.0,
+            "Verify cached installation or install authenticated CMake": 19.0
+          },
+          "setup_seconds": 20.0,
+          "integrity": {
+            "version": "3.31.8",
+            "architecture": "x86_64",
+            "archive_sha256": "81aa9964dbabd71fe02e7ec50472fd3ad56138c49944515ece9001efbff8d719",
+            "verified_files": 8032,
+            "cache_enabled": false,
+            "exact_cache_hit": false,
+            "reused_verified_installation": false,
+            "verify_or_install_seconds": 19.2457569
+          }
+        }
+      ]
+    },
+    {
+      "run_id": 41834871785,
+      "url": "https://github.com/soulteary/linkerbot-transport-cpp/actions/runs/41834871785",
+      "source_sha": "9a7ac6428c2a1d347a02532c5d3919156323302c",
+      "attempt": 1,
+      "cache_enabled": true,
+      "wall_seconds": 232.0,
+      "jobs": [
+        {
+          "job": "Native ARM64 (Debug)",
+          "setup_steps_seconds": {
+            "Resolve independently published CMake checksum": 2.0,
+            "Restore exact fixed CMake installation": 14.0,
+            "Verify cached installation or install authenticated CMake": 5.0
+          },
+          "setup_seconds": 21.0,
+          "integrity": {
+            "version": "4.2.3",
+            "architecture": "arm64",
+            "archive_sha256": "751b206b1cf65151b72c525d26267c1d9beebf8fafc365ae00286571d9fd3ed9",
+            "verified_files": 8525,
+            "cache_enabled": true,
+            "exact_cache_hit": true,
+            "reused_verified_installation": true,
+            "verify_or_install_seconds": 5.3386473
+          }
+        },
+        {
+          "job": "Native ARM64 (Release)",
+          "setup_steps_seconds": {
+            "Resolve independently published CMake checksum": 1.0,
+            "Restore exact fixed CMake installation": 13.0,
+            "Verify cached installation or install authenticated CMake": 6.0
+          },
+          "setup_seconds": 20.0,
+          "integrity": {
+            "version": "4.2.3",
+            "architecture": "arm64",
+            "archive_sha256": "751b206b1cf65151b72c525d26267c1d9beebf8fafc365ae00286571d9fd3ed9",
+            "verified_files": 8525,
+            "cache_enabled": true,
+            "exact_cache_hit": true,
+            "reused_verified_installation": true,
+            "verify_or_install_seconds": 5.2081327
+          }
+        },
+        {
+          "job": "Native x64 (Debug)",
+          "setup_steps_seconds": {
+            "Resolve independently published CMake checksum": 1.0,
+            "Restore exact fixed CMake installation": 2.0,
+            "Verify cached installation or install authenticated CMake": 6.0
+          },
+          "setup_seconds": 9.0,
+          "integrity": {
+            "version": "3.31.8",
+            "architecture": "x86_64",
+            "archive_sha256": "81aa9964dbabd71fe02e7ec50472fd3ad56138c49944515ece9001efbff8d719",
+            "verified_files": 8032,
+            "cache_enabled": true,
+            "exact_cache_hit": true,
+            "reused_verified_installation": true,
+            "verify_or_install_seconds": 5.2678546
+          }
+        },
+        {
+          "job": "Native x64 (Release)",
+          "setup_steps_seconds": {
+            "Resolve independently published CMake checksum": 1.0,
+            "Restore exact fixed CMake installation": 3.0,
+            "Verify cached installation or install authenticated CMake": 5.0
+          },
+          "setup_seconds": 9.0,
+          "integrity": {
+            "version": "3.31.8",
+            "architecture": "x86_64",
+            "archive_sha256": "81aa9964dbabd71fe02e7ec50472fd3ad56138c49944515ece9001efbff8d719",
+            "verified_files": 8032,
+            "cache_enabled": true,
+            "exact_cache_hit": true,
+            "reused_verified_installation": true,
+            "verify_or_install_seconds": 4.9320867
+          }
+        }
+      ]
+    }
+  ],
+  "historical_reference": {
+    "source_sha": "3cfe1dab33aedf2341b6aba1c60667413867547c",
+    "tag_validation": {
+      "url": "https://github.com/linker-bot/linkerbot-transport-cpp/actions/runs/41822738061",
+      "job_seconds": 1482
+    },
+    "draft_rebuild": {
+      "url": "https://github.com/linker-bot/linkerbot-transport-cpp/actions/runs/41823543022",
+      "job_seconds": 1529
+    },
+    "full_ubuntu_ros1": {
+      "url": "https://github.com/linker-bot/linkerbot-transport-cpp/actions/runs/41821652955",
+      "wall_seconds": 120
+    },
+    "read_only_local_artifact_smoke": {
+      "source_run": "https://github.com/linker-bot/linkerbot-transport-cpp/actions/runs/41822738061",
+      "sdk_artifacts": 12,
+      "download_zip_bytes": 11620608,
+      "verified_objects": 84,
+      "metadata_seconds": 11.163,
+      "download_digest_unpack_seconds": 52.872,
+      "package_verification_seconds": 0.185,
+      "limitation": "Local timing, not a hosted-runner before/after release benchmark; legacy unsealed source rejected by production reuse"
+    }
+  }
+}

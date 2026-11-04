@@ -126,6 +126,9 @@ bytes require a new version instead of replacement. Changing these workflows doe
 
 ## CI timing and reproducible comparisons
 
+See the [measured results and limitations](ci-performance.md), including all baseline and
+optimized run URLs, three-run medians, Windows cache overhead and remaining release validation.
+
 Style and full-report manual runs accept `analysis_jobs=2` (baseline) or `4` (optimized),
 bounded by the runner's available CPU affinity. Both preserve every existing rule, translation
 unit and complete-report gate. Evidence records requested/effective concurrency, source SHA
