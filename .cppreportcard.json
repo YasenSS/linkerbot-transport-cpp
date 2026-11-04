@@ -8,7 +8,7 @@
   "tidy_checks": "-*,clang-analyzer-*,bugprone-*",
   "format_style": "LLVM",
   "timeout_seconds": 300,
-  "jobs": 2,
+  "jobs": 4,
   "tools": {
     "clang-format": "clang-format-18",
     "clang-tidy": "clang-tidy-18",

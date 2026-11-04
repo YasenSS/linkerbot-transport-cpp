@@ -5,12 +5,18 @@ on:
     branches: [main, master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      analysis_jobs:
+        description: Analyzer concurrency (2 for baseline, 4 for comparison)
+        type: choice
+        options: ['2', '4']
+        default: '4'
 
 permissions:
   contents: read
 
 concurrency:
-  group: cppreportcard-${{ github.ref }}
+  group: cppreportcard-${{ github.ref }}-${{ inputs.analysis_jobs || '4' }}
   cancel-in-progress: true
 
 env:
@@ -32,6 +38,10 @@ jobs:
           key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-report-clang18-libstdcxx-${{ github.sha }}
           restore-keys: |
             ccache-v1-${{ runner.os }}-${{ runner.arch }}-report-clang18-libstdcxx-
+      - name: Record bounded analysis concurrency
+        env:
+          REQUESTED_JOBS: ${{ inputs.analysis_jobs || '4' }}
+        run: python3 ci/analysis/configure-jobs.py --jobs "$REQUESTED_JOBS" --output build/analysis-benchmark
       - name: Install build and analysis tools
         run: |
           echo "CCACHE_DIR=$RUNNER_TEMP/comm-ccache" >> "$GITHUB_ENV"
@@ -78,7 +88,7 @@ jobs:
         uses: soulteary/cppreportcard-action@9458d052f286c576d557c34d8ad43096cedbf561 # v1.0.2
         with:
           mode: full
-          config: .cppreportcard.json
+          config: build/analysis-benchmark/config.json
           compile_commands: build/report-compile-commands.json
           output_dir: .github/cppreportcard
           install_tools: 'false'
@@ -96,6 +106,7 @@ jobs:
         with:
           name: cppreportcard-ubuntu-24.04-arm
           path: |
+            build/analysis-benchmark/
             .github/cppreportcard/report.json
             .github/cppreportcard/report.md
             .github/cppreportcard/badge.svg

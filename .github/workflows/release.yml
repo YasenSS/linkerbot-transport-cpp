@@ -9,6 +9,10 @@ on:
         description: 'Create a draft Release for the selected immutable version tag after all gates pass'
         type: boolean
         default: false
+      validated_run_id:
+        description: 'Exact successful sealed tag-push run to promote; required for create_draft'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -23,12 +27,16 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tag_object: ${{ steps.version.outputs.tag_object }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Require a matching version tag on main history
         id: version
+        env:
+          CREATE_DRAFT: ${{ inputs.create_draft }}
+          VALIDATED_RUN_ID: ${{ inputs.validated_run_id }}
         shell: bash
         run: |
           test "$GITHUB_REF_TYPE" = tag
@@ -36,13 +44,24 @@ jobs:
           python3 - <<'PY'
           import os
           import re
+          import subprocess
           from pathlib import Path
           tag = os.environ['GITHUB_REF_NAME']
           assert re.fullmatch(r'v\d+\.\d+\.\d+', tag), tag
           version = re.search(r'project\(linkerbot-comm VERSION ([0-9.]+)', Path('CMakeLists.txt').read_text()).group(1)
           assert tag == 'v' + version, (tag, version)
+          if os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch':
+              source = os.environ['VALIDATED_RUN_ID']
+              if os.environ['CREATE_DRAFT'] == 'true':
+                  assert re.fullmatch(r'[1-9][0-9]*', source), 'Draft promotion requires an explicit validated_run_id'
+              else:
+                  assert not source, 'validated_run_id is only used with create_draft=true'
+          tag_object = subprocess.check_output(['git', 'rev-parse', 'refs/tags/' + tag], text=True).strip()
+          peeled = subprocess.check_output(['git', 'rev-parse', 'refs/tags/' + tag + '^{commit}'], text=True).strip()
+          assert peeled == os.environ['GITHUB_SHA'], 'Checked-out tag source SHA mismatch'
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('version=' + version + '\n')
+              output.write('tag_object=' + tag_object + '\n')
           PY
   quality-gate:
     needs: validate-tag
@@ -75,47 +94,75 @@ jobs:
               print(path, run['html_url'])
           PYTHON
   packages:
+    if: github.event_name == 'push' || !inputs.create_draft
     needs: validate-tag
     uses: ./.github/workflows/package.yml
     with:
       baseline_only: false
   windows-packages:
+    if: github.event_name == 'push' || !inputs.create_draft
     needs: validate-tag
     uses: ./.github/workflows/windows-minicanfd.yml
   compatibility:
+    if: github.event_name == 'push' || !inputs.create_draft
     needs: packages
     uses: ./.github/workflows/compatibility.yml
     with:
       full_matrix: true
       packages_ready: true
-  draft:
-    # Tag pushes validate only. Draft creation is an explicit manual opt-in;
-    # this workflow never publishes or replaces release assets.
-    if: github.event_name == 'workflow_dispatch' && inputs.create_draft
+  seal-validation:
+    if: github.event_name == 'push'
     needs: [validate-tag, quality-gate, packages, windows-packages, compatibility]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Seal exact tag, attempt, matrix and original SDK artifact bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_OBJECT: ${{ needs.validate-tag.outputs.tag_object }}
+          VERSION: ${{ needs.validate-tag.outputs.version }}
+        run: |
+          python3 validation/package/test-release-provenance.py
+          python3 validation/package/release-provenance.py seal \
+            --run-id "$GITHUB_RUN_ID" --tag-object "$TAG_OBJECT" --version "$VERSION" \
+            --assets build/validated-sdk --output build/release-seal
+      - name: Save immutable validation seal for this exact attempt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-validation-attempt-${{ github.run_attempt }}
+          path: |
+            build/release-seal/validation.json
+            build/release-seal/release-manifest.json
+          if-no-files-found: error
+  draft:
+    # Promotion reuses an explicit completed tag-push run; it never rebuilds,
+    # selects latest implicitly, publishes, or replaces existing release assets.
+    if: github.event_name == 'workflow_dispatch' && inputs.create_draft
+    needs: [validate-tag, quality-gate]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: sdk-*
-          path: release-assets
-          merge-multiple: true
-      - name: Verify all twelve tested native archives and assemble manifest
+      - name: Revalidate and reuse only the explicitly sealed tag-push artifacts
         env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATED_RUN_ID: ${{ inputs.validated_run_id }}
+          TAG_OBJECT: ${{ needs.validate-tag.outputs.tag_object }}
           VERSION: ${{ needs.validate-tag.outputs.version }}
         shell: bash
         run: |
           python3 validation/package/test-verify-package.py
           python3 validation/package/test-release-manifest.py
-          python3 validation/package/make-release-manifest.py release-assets \
-            --sha "$GITHUB_SHA" --version "$VERSION" --targets ci/package-targets.json \
-            --validation-run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          python3 validation/package/test-release-provenance.py
+          python3 validation/package/release-provenance.py reuse \
+            --run-id "$VALIDATED_RUN_ID" --tag-object "$TAG_OBJECT" --version "$VERSION" \
+            --assets release-assets
       - name: Create a new draft without overwriting any existing release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG_OBJECT: ${{ needs.validate-tag.outputs.tag_object }}
         shell: bash
         run: |
           python3 - <<'PY'
@@ -129,6 +176,7 @@ jobs:
               with urllib.request.urlopen(urllib.request.Request(base + path, headers=headers)) as response:
                   return json.load(response)
           target = get('/git/ref/tags/' + os.environ['GITHUB_REF_NAME'])['object']
+          assert target['sha'] == os.environ['TAG_OBJECT'], 'Version tag object changed since validation'
           for _ in range(8):
               if target['type'] != 'tag':
                   break
