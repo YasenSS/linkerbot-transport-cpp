@@ -2,7 +2,7 @@
 
 [English](SECURITY.md) · [简体中文](SECURITY.zh-CN.md)
 
-The published stable release is [0.3.0](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.0).
+Published stable versions are listed on the [Releases page](https://github.com/linker-bot/linkerbot-transport-cpp/releases/latest).
 Maintenance is best-effort on the current `main` branch. The release does not imply
 a separate long-term-support branch or a response-time guarantee. Historical
 commits and unpublished CI artifacts have no separate support commitment.

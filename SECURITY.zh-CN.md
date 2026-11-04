@@ -2,7 +2,7 @@
 
 [English](SECURITY.md) · [简体中文](SECURITY.zh-CN.md)
 
-已发布的稳定版为 [0.3.0](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.0)。
+已发布稳定版见[发行页面](https://github.com/linker-bot/linkerbot-transport-cpp/releases/latest)。
 维护以当前 `main` 分支为准，尽力处理问题。发布稳定版不代表另设长期支持分支或承诺响应时限；
 历史提交和未发布的 CI 产物没有单独的支持承诺。
 

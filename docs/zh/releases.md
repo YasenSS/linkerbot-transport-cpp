@@ -4,6 +4,22 @@
 
 [文档索引](../README.md) · [源码构建](build.md) · [升级与回滚](operations.md)
 
+## 0.3.1 产物政策
+
+[发行页面 v0.3.1](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.1)
+在发行验证和发布完成后提供下载；源码版本号本身不代表已经发布。
+
+- Linux x86_64/aarch64 Release 静态 SDK 使用 Ubuntu 20.04、GCC 9、libstdc++ ABI1。
+  新包名包含构建发行版、编译器、标准库/ABI 和配置。
+- Windows x64 MSVC v143 ZIP 提供 Release `/MD` 和 Debug `/MDd`，Debug 仍需开发运行库。
+- 完整发行验证在 Ubuntu 20.04/22.04/24.04/26.04 双架构消费相同 Linux 归档，并在 Focal
+  运行 Noetic 节点/nodelet 集成。
+- 每份归档附 SHA256 文件。`release-manifest.json` 记录来源、构建身份和验证运行；
+  `SHA256SUMS.txt` 覆盖其余九个上传附件。核对签名标签和清单，不根据文件名推断兼容性。
+
+静态 SDK 不含厂商驱动或库，用户态检查不等于原生内核或硬件验收。范围见 [CI 指南](ci.md)。
+下方既有 0.3.0 资产保留原名、来源 SHA 和校验值。
+
 ## 0.3.0
 
 从上游仓库[下载 0.3.0](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.0)。

@@ -4,6 +4,26 @@ English · [简体中文](../zh/releases.md)
 
 [Documentation index](../README.md) · [Build from source](build.md) · [Upgrade and rollback](operations.md)
 
+## 0.3.1 package policy
+
+The [v0.3.1 release page](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.1)
+is the download destination once release validation and publication complete. The source
+version alone does not establish that a release has been published.
+
+- Linux x86_64/aarch64 Release static SDKs use Ubuntu 20.04, GCC 9 and libstdc++ ABI1.
+  New names include the build distribution, compiler, standard library/ABI and configuration.
+- Windows x64 MSVC v143 ZIPs provide Release `/MD` and Debug `/MDd`; Debug still requires
+  development runtime support.
+- Full release validation consumes the same Linux archives in Ubuntu 20.04/22.04/24.04/26.04
+  on both architectures and runs Noetic node/nodelet integration on Focal.
+- Each archive has a SHA256 file. `release-manifest.json` records source/build identity and
+  the validation run; `SHA256SUMS.txt` covers the other nine uploaded assets. Verify the
+  signed tag and manifest rather than inferring compatibility from the filename.
+
+These are static SDKs without vendor drivers or libraries. Userspace checks are not native
+kernel or hardware acceptance. See [CI scope and limits](ci.md). Existing 0.3.0 assets below
+retain their names, source SHA and checksums.
+
 ## 0.3.0
 
 [Download 0.3.0](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.0)
