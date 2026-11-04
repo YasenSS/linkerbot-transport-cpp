@@ -83,7 +83,8 @@ jobs:
                   return json.load(response)
           runs = get('/actions/runs?head_sha=' + os.environ['GITHUB_SHA'] + '&per_page=100')['workflow_runs']
           required = {'.github/workflows/linux.yml': 12, '.github/workflows/windows-minicanfd.yml': 4,
-                      '.github/workflows/style.yml': 1, '.github/workflows/cppreportcard.yml': 1}
+                      '.github/workflows/style.yml': 1, '.github/workflows/cppreportcard.yml': 1,
+                      '.github/workflows/focal-session.yml': 2}
           for path, minimum_jobs in required.items():
               candidates = [r for r in runs if r['path'] == path and r['event'] in ('push', 'workflow_dispatch')]
               assert candidates, 'Run the quality workflow on this exact commit first: ' + path
