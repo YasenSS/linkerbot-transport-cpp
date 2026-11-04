@@ -5,7 +5,17 @@ on:
     branches: [main, master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      use_tool_cache:
+        description: Reuse verified fixed CMake tools (disable for same-SHA cold A/B runs)
+        type: boolean
+        default: true
   workflow_call:
+    inputs:
+      use_tool_cache:
+        description: Reuse verified fixed CMake tools
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -44,24 +54,100 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install fixed CMake
+      - name: Test CMake cache integrity checks
+        run: |
+          python validation/tool-cache/test-verify-cmake-tree.py
+          if ($LASTEXITCODE -ne 0) { throw 'CMake cache integrity regression failed' }
+      - name: Resolve independently published CMake checksum
+        id: cmake-tool
+        env:
+          REQUESTED_CACHE: ${{ inputs.use_tool_cache }}
         run: |
           $Version = '${{ matrix.cmake }}'
-          $Name = "cmake-$Version-windows-${{ matrix.cmake_arch }}.zip"
+          $Architecture = '${{ matrix.cmake_arch }}'
+          $Name = "cmake-$Version-windows-$Architecture.zip"
           $Base = "https://github.com/Kitware/CMake/releases/download/v$Version"
-          Invoke-WebRequest "$Base/$Name" -OutFile "$env:RUNNER_TEMP/$Name"
-          Invoke-WebRequest "$Base/cmake-$Version-SHA-256.txt" -OutFile "$env:RUNNER_TEMP/cmake-checksums.txt"
-          $Line = Get-Content "$env:RUNNER_TEMP/cmake-checksums.txt" | Where-Object { $_ -match " $([regex]::Escape($Name))$" }
+          # Never trust checksum metadata restored from the cache itself.
+          $Checksums = Join-Path $env:RUNNER_TEMP "cmake-$Version-checksums.txt"
+          Invoke-WebRequest "$Base/cmake-$Version-SHA-256.txt" -OutFile $Checksums
+          $Line = Get-Content $Checksums | Where-Object { $_ -match " $([regex]::Escape($Name))$" }
           if (@($Line).Count -ne 1) { throw 'CMake checksum entry missing or ambiguous' }
-          $Expected = ($Line -split '\s+')[0]
-          if ((Get-FileHash "$env:RUNNER_TEMP/$Name" -Algorithm SHA256).Hash -ne $Expected) { throw 'CMake SHA256 mismatch' }
-          Expand-Archive "$env:RUNNER_TEMP/$Name" -DestinationPath "$env:RUNNER_TEMP/cmake"
-          "$env:RUNNER_TEMP/cmake/cmake-$Version-windows-${{ matrix.cmake_arch }}/bin" >> $env:GITHUB_PATH
+          $Expected = (($Line -split '\s+')[0]).ToLowerInvariant()
+          if ($Expected -notmatch '^[0-9a-f]{64}$') { throw 'Invalid official CMake SHA256' }
+          $Enabled = if ($env:REQUESTED_CACHE -eq 'false') { 'false' } else { 'true' }
+          "enabled=$Enabled" >> $env:GITHUB_OUTPUT
+          "sha256=$Expected" >> $env:GITHUB_OUTPUT
+          "key=cmake-windows-v1-$Version-$Architecture-$Expected" >> $env:GITHUB_OUTPUT
+          "directory=$(Join-Path $env:RUNNER_TEMP "cmake-tools-$Version-$Architecture")" >> $env:GITHUB_OUTPUT
+      - name: Restore exact fixed CMake installation
+        if: steps.cmake-tool.outputs.enabled == 'true'
+        id: cmake-cache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ steps.cmake-tool.outputs.directory }}
+          key: ${{ steps.cmake-tool.outputs.key }}
+      - name: Verify cached installation or install authenticated CMake
+        env:
+          TOOL_DIRECTORY: ${{ steps.cmake-tool.outputs.directory }}
+          EXPECTED_SHA256: ${{ steps.cmake-tool.outputs.sha256 }}
+          CACHE_ENABLED: ${{ steps.cmake-tool.outputs.enabled }}
+          CACHE_HIT: ${{ steps.cmake-cache.outputs.cache-hit }}
+        run: |
+          $Timer = [System.Diagnostics.Stopwatch]::StartNew()
+          $Version = '${{ matrix.cmake }}'
+          $Name = "cmake-$Version-windows-${{ matrix.cmake_arch }}.zip"
+          $Archive = Join-Path $env:TOOL_DIRECTORY $Name
+          $Directory = Join-Path $env:TOOL_DIRECTORY "cmake-$Version-windows-${{ matrix.cmake_arch }}"
+          $Evidence = Join-Path $env:RUNNER_TEMP 'cmake-tool-validation.json'
+          $VerifiedCache = $false
+          if ($env:CACHE_ENABLED -eq 'true' -and (Test-Path $Archive) -and (Test-Path $Directory)) {
+            # Check the original ZIP against the fresh official digest, then hash
+            # every installed file against that ZIP; a version string is insufficient.
+            python validation/tool-cache/verify-cmake-tree.py --archive $Archive --directory $Directory --sha256 $env:EXPECTED_SHA256 > $Evidence
+            $VerifiedCache = $LASTEXITCODE -eq 0
+            if (!$VerifiedCache) { Write-Warning 'Rejected modified CMake cache; downloading an authenticated replacement' }
+          }
+          if (!$VerifiedCache) {
+            if (Test-Path $env:TOOL_DIRECTORY) { Remove-Item $env:TOOL_DIRECTORY -Recurse -Force }
+            New-Item $env:TOOL_DIRECTORY -ItemType Directory -Force | Out-Null
+            $Base = "https://github.com/Kitware/CMake/releases/download/v$Version"
+            Invoke-WebRequest "$Base/$Name" -OutFile $Archive
+            if ((Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:EXPECTED_SHA256) { throw 'CMake archive SHA256 mismatch' }
+            Expand-Archive $Archive -DestinationPath $env:TOOL_DIRECTORY
+            python validation/tool-cache/verify-cmake-tree.py --archive $Archive --directory $Directory --sha256 $env:EXPECTED_SHA256 > $Evidence
+            if ($LASTEXITCODE -ne 0) { throw 'Installed CMake failed full content verification' }
+          }
+          $Validated = Get-Content $Evidence -Raw | ConvertFrom-Json
+          $Timer.Stop()
+          [ordered]@{
+            version = $Version
+            architecture = '${{ matrix.cmake_arch }}'
+            archive_sha256 = $Validated.sha256
+            verified_files = $Validated.verified_files
+            cache_enabled = $env:CACHE_ENABLED -eq 'true'
+            exact_cache_hit = $env:CACHE_HIT -eq 'true'
+            reused_verified_installation = $VerifiedCache
+            verify_or_install_seconds = $Timer.Elapsed.TotalSeconds
+          } | ConvertTo-Json | Set-Content $Evidence
+          "$Directory/bin" >> $env:GITHUB_PATH
+          "CMake cache enabled: $env:CACHE_ENABLED; exact action hit: $env:CACHE_HIT; reused verified installation: $VerifiedCache; archive SHA256: $env:EXPECTED_SHA256" >> $env:GITHUB_STEP_SUMMARY
+      - name: Save authenticated CMake installation from trusted branch runs
+        # PRs may read branch-scoped/default-branch caches but never publish one.
+        # Manual dispatch requires repository write access; exact-key restore only.
+        if: steps.cmake-tool.outputs.enabled == 'true' && steps.cmake-cache.outputs.cache-hit != 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/')
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ steps.cmake-tool.outputs.directory }}
+          key: ${{ steps.cmake-tool.outputs.key }}
       - name: Record source and tools
         run: |
           if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -ne '${{ matrix.os_arch }}') { throw 'Native runner OS architecture mismatch' }
           git rev-parse HEAD
-          cmake --version
+          $ExpectedExecutable = Join-Path '${{ steps.cmake-tool.outputs.directory }}' 'cmake-${{ matrix.cmake }}-windows-${{ matrix.cmake_arch }}/bin/cmake.exe'
+          if ([IO.Path]::GetFullPath((Get-Command cmake).Source) -ne [IO.Path]::GetFullPath($ExpectedExecutable)) { throw 'PATH did not select the authenticated CMake installation' }
+          $CMakeVersion = @(cmake --version)
+          if ($LASTEXITCODE -ne 0 -or $CMakeVersion[0] -ne 'cmake version ${{ matrix.cmake }}') { throw 'Fixed CMake version mismatch' }
+          $CMakeVersion
           Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsBuildNumber
           & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -format json
       - name: Configure without a vendor SDK
@@ -138,6 +224,7 @@ jobs:
         with:
           name: native-adapters-${{ matrix.arch }}-${{ matrix.configuration }}
           path: |
+            ${{ runner.temp }}/cmake-tool-validation.json
             build-results.log
             build-machine-results.log
             consumer-machine-results.log
