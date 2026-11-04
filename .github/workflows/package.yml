@@ -30,6 +30,7 @@ jobs:
         run: |
           python3 validation/package/test-release-manifest.py
           python3 validation/package/test-release-provenance.py
+          python3 validation/test-release-quality-gate.py
       - id: targets
         env:
           BASELINE_ONLY: ${{ inputs.baseline_only }}

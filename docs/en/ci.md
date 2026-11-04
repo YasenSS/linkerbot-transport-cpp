@@ -88,8 +88,9 @@ All ordinary build jobs have read-only repository permissions.
 
 A release tag must match the CMake version and main history. Tag pushes validate only. The
 release workflow requires exact-source trusted Linux/Windows/style/report success, builds all
-12 packages in the same run, and waits for full compatibility checks. Windows quality now
-requires four successful jobs. Pending or failed quality checks block release preparation.
+12 packages in the same run, and waits for full compatibility checks. Windows quality
+requires four successful jobs; Focal Session requires both native GCC 9 jobs on the exact
+source commit. Pending, missing or failed quality checks block release preparation.
 
 The final tag-push job seals the exact tag object, source SHA, workflow attempt, successful
 job identities, twelve artifact IDs/digests and fully verified package manifest. Its seal is

@@ -73,7 +73,8 @@ compatibility** 的 `full_matrix=true` 执行完整基线消费矩阵。普通 j
 
 标签须匹配 CMake 版本且属于 main 历史。标签 push 仅验证。发行流程要求相同源码的可信
 Linux/Windows/style/report 成功，在同次运行构建全部 12 份包并等待完整兼容检查。
-Windows 质量门禁要求四个成功 job；未完成或失败的检查阻止发行准备。
+Windows 质量门禁要求四个成功 job；Focal Session 要求相同源码提交的两个原生 GCC 9 job
+均成功。未完成、缺失或失败的检查阻止发行准备。
 
 标签 push 的最后一个 job 将原始标签对象、源码 SHA、运行 attempt、成功 job 身份、
 十二个 artifact 的 ID/摘要和完整包清单保存为只读验证记录；记录不是二进制签名。
