@@ -4,6 +4,16 @@ English · [简体中文](../zh/releases.md)
 
 [Documentation index](../README.md) · [Build from source](build.md) · [Upgrade and rollback](operations.md)
 
+## Next release artifact matrix
+
+Future release workflows require eight actual Ubuntu-specific Release SDKs (20.04, 22.04,
+24.04 and 26.04 × x86_64/aarch64) and four Windows SDKs (x64/ARM64 × Debug/Release).
+Each Ubuntu package is built and consumed in its own distribution; the Focal baseline is
+also retained for cross-distribution and Noetic checks. Twelve archives, twelve adjacent
+checksums, a manifest and a total checksum list make 26 uploaded assets. Native Windows
+ARM64 execution and object-machine checks are mandatory before its packages can be released.
+See [CI package policy](ci.md). This does not add or replace any 0.3.1 assets below.
+
 ## 0.3.1 package policy
 
 The [v0.3.1 release page](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.1)

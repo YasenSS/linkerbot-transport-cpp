@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "linux": [
+    {
+      "ubuntu": "20.04",
+      "distribution": "ubuntu20.04",
+      "arch": "x86_64",
+      "runner": "ubuntu-24.04"
+    },
+    {
+      "ubuntu": "20.04",
+      "distribution": "ubuntu20.04",
+      "arch": "aarch64",
+      "runner": "ubuntu-24.04-arm"
+    },
+    {
+      "ubuntu": "22.04",
+      "distribution": "ubuntu22.04",
+      "arch": "x86_64",
+      "runner": "ubuntu-24.04"
+    },
+    {
+      "ubuntu": "22.04",
+      "distribution": "ubuntu22.04",
+      "arch": "aarch64",
+      "runner": "ubuntu-24.04-arm"
+    },
+    {
+      "ubuntu": "24.04",
+      "distribution": "ubuntu24.04",
+      "arch": "x86_64",
+      "runner": "ubuntu-24.04"
+    },
+    {
+      "ubuntu": "24.04",
+      "distribution": "ubuntu24.04",
+      "arch": "aarch64",
+      "runner": "ubuntu-24.04-arm"
+    },
+    {
+      "ubuntu": "26.04",
+      "distribution": "ubuntu26.04",
+      "arch": "x86_64",
+      "runner": "ubuntu-24.04"
+    },
+    {
+      "ubuntu": "26.04",
+      "distribution": "ubuntu26.04",
+      "arch": "aarch64",
+      "runner": "ubuntu-24.04-arm"
+    }
+  ],
+  "windows": [
+    {
+      "arch": "x64",
+      "configuration": "Debug",
+      "runtime": "MDd",
+      "toolset": "143"
+    },
+    {
+      "arch": "x64",
+      "configuration": "Release",
+      "runtime": "MD",
+      "toolset": "143"
+    },
+    {
+      "arch": "ARM64",
+      "configuration": "Debug",
+      "runtime": "MDd",
+      "toolset": "143"
+    },
+    {
+      "arch": "ARM64",
+      "configuration": "Release",
+      "runtime": "MD",
+      "toolset": "143"
+    }
+  ]
+}

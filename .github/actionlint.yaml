@@ -1,0 +1,6 @@
+# Official hosted image absent from actionlint 1.7.12's built-in label list:
+# https://github.com/actions/runner-images/blob/main/images/windows/Windows11-VS2026-Arm64-Readme.md
+# This extends the linter allowlist; the workflow does not use a self-hosted runner.
+self-hosted-runner:
+  labels:
+    - windows-11-vs2026-arm
