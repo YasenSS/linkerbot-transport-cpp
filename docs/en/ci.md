@@ -10,7 +10,9 @@ has passed. Use the run for the exact source commit to establish the observed re
 
 The baseline package workflow builds native x86_64 and aarch64 Release static SDKs with
 Ubuntu 20.04's default GCC 9 and CMake. It disables test dependency downloads, coverage and
-sanitizers. The production static library uses PIC so a consumer can link it into a shared
+sanitizers. Packaging uses an absolute output path because CPack 3.16 can silently produce
+an empty archive with a relative `-B` directory; the unpack regression rejects an empty SDK
+even when its SHA256 is correct. The production static library uses PIC so a consumer can link it into a shared
 library or ROS nodelet. C++17 remains required; the library does not acquire a ROS dependency.
 
 Pull requests run Ubuntu 20.04 and 26.04 userspace checks on both architectures, plus Noetic
@@ -57,7 +59,9 @@ Windows packages are currently allowed; a 64-bit pointer alone is not proof of x
 
 `share/linkerbot-comm/build-info.json` records source SHA, dirty state (including untracked
 non-ignored files), distribution, compiler, standard library, C++ standard, PIC, instrumentation,
-configuration, CRT and optional build-image identity. It is captured at configure time.
+configuration, CRT, probed libstdc++ dual ABI and optional build-image identity.
+Standard-library probes use configuration-specific flags; multi-config CPack selects its
+identity from `-C` so Debug and Release archives cannot overwrite one another. It is captured at configure time.
 Reconfigure after changing inputs. Custom flags/toolchains still need consumer validation;
 metadata is not an exhaustive binary attestation or ABI guarantee.
 

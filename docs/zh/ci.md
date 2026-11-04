@@ -8,7 +8,9 @@ CI 将质量构建、基线 SDK 打包和用户态兼容性检查分开。工作
 ## 构建与验证目标
 
 基线工作流使用 Ubuntu 20.04 默认 GCC 9 和 CMake，原生构建 x86_64、aarch64 Release
-静态 SDK，关闭测试依赖下载、coverage 和 sanitizer。生产静态库开启 PIC，以支持共享库
+静态 SDK，关闭测试依赖下载、coverage 和 sanitizer。CPack 使用绝对输出路径，避免
+3.16 在相对 `-B` 路径下静默生成空归档；解包回归要求拒绝校验值正确的空 SDK。
+生产静态库开启 PIC，以支持共享库
 和 ROS nodelet 消费。项目仍要求 C++17，核心库不新增 ROS 依赖。
 
 PR 检查 Ubuntu 20.04、26.04 双架构用户态，以及 Ubuntu 20.04 的 Noetic 节点和 nodelet。
@@ -47,7 +49,8 @@ Apt 软件仓库仍可能变化，因此这里提供构建来源，不承诺字�
 
 `share/linkerbot-comm/build-info.json` 记录源码 SHA、脏树状态（含未忽略的未跟踪文件）、
 发行版、编译器、标准库、C++ 标准、PIC、插桩状态、配置、CRT 和可选镜像身份。
-信息在配置时生成，输入变化后须重新配置。自定义编译参数和工具链仍需消费验证；
+同时记录探测得到的 libstdc++ dual ABI；标准库探测包含配置专用编译参数，多配置 CPack
+按 `-C` 选择包名，避免 Debug/Release 重名。信息在配置时生成，输入变化后须重新配置。自定义编译参数和工具链仍需消费验证；
 metadata 不是完整二进制证明或任意 ABI 兼容保证。
 
 `LINKERBOT_COMM_RELEASE_BUILD=ON` 要求干净源码和完整 SHA，拒绝已识别的 coverage/

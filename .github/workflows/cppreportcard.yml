@@ -56,11 +56,17 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_PREFIX_PATH="$PWD/build/report-install"
           cmake --build build/report-consumer --parallel 4
+          cmake -S validation/shared-consumer -B build/report-shared-consumer -G Ninja \
+            -DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_PREFIX_PATH="$PWD/build/report-install"
+          cmake --build build/report-shared-consumer --parallel 4
+          ctest --test-dir build/report-shared-consumer --output-on-failure --no-tests=error
           python3 validation/prepare-report-db.py \
             --output build/report-compile-commands.json \
             build/report/compile_commands.json \
             build/report-quickstart/compile_commands.json \
-            build/report-consumer/compile_commands.json
+            build/report-consumer/compile_commands.json \
+            build/report-shared-consumer/compile_commands.json
       - name: Verify test-framework analysis model
         run: |
           python3 validation/test-cppcheck-model.py --compile-commands build/report-compile-commands.json

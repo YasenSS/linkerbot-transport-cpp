@@ -210,12 +210,14 @@ env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_pa
 
 独立的 `C++ Report Card` 工作流在 Linux ARM64 上运行固定完整提交 SHA 的
 [cppreportcard-action](https://github.com/soulteary/cppreportcard-action) v1.0.2。
-构建项目、quickstart 和安装后消费者后，合并三份编译数据库，以 `full` 模式运行
-clang-format 18、clang-tidy 18 和 Cppcheck，覆盖主工程源码、测试及两个独立示例。
+构建项目、quickstart、安装后消费者和共享库消费者后，合并四份编译数据库，以 `full`
+模式运行 clang-format 18、clang-tidy 18 和 Cppcheck，覆盖主工程源码、测试及独立消费者。
 
-配置位于 `.cppreportcard.json`。项目源文件仅排除两项：Windows 专用依赖测试文件
-`tests/vendor_fixture_dependency.cpp`，以及需要外部厂商头文件的
-`validation/pcan_header_abi.cpp`。构建产物目录与第三方依赖也不参与分析。
+配置位于 `.cppreportcard.json`。平台依赖排除项包括 Windows 专用文件
+`tests/vendor_fixture_dependency.cpp`、需要厂商头文件的 `validation/pcan_header_abi.cpp`，
+以及需要本报告环境未安装的外部 Noetic SDK 的 `validation/ros1-consumer`。ROS fixture
+在 Noetic 工作流以 warnings-as-errors 编译并运行节点/nodelet；独立全局 style job 仍对
+全部已跟踪 C++ 源码检查格式。构建产物目录与第三方依赖也不参与分析。
 报告启用 `clang-analyzer-*` 和 `bugprone-*`，不替代现有 style 工作流中不同的规则集
 或平台验证。
 
@@ -353,7 +355,7 @@ ctest --test-dir build-consumer --output-on-failure --no-tests=error --timeout 6
 顶层 Linux 构建默认生成 TGZ：
 
 ```bash
-cpack --config build-release/CPackConfig.cmake -B dist
+cpack --config build-release/CPackConfig.cmake -B "$PWD/dist"
 ```
 
 CPack 生成相邻 SHA256 文件；新 Linux 包名包含版本、系统、架构、构建发行版、编译器、

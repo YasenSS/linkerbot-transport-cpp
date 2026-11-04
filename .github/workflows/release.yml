@@ -139,6 +139,7 @@ jobs:
                   assert info['system'] == 'Linux' and info['configuration'] == 'Release'
                   assert info['distribution'] == 'ubuntu20.04' and info['compiler'].startswith('GNU 9.')
                   assert info['standard_library'] == 'libstdcxx'
+                  assert info['libstdcxx_dual_abi'] == '1'
               assert info['comm_sha'] == os.environ['GITHUB_SHA']
               assert info['version'] == os.environ['VERSION'] and info['source_dirty'] is False
               assert info['instrumented'] is False and info['pic'] is True

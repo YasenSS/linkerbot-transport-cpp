@@ -326,6 +326,9 @@ jobs:
             cmake --version
             clang++-18 --version
           } | tee clang-toolchain.txt
+      - name: Check configuration-specific package identities
+        if: matrix.runner == 'ubuntu-24.04-arm' && matrix.mode == 'libcxx'
+        run: python3 validation/package/test-cmake-package.py --compiler clang++-18
       - name: Configure Clang quality build
         run: |
           compile_flags='-Wall -Wextra -Wpedantic'

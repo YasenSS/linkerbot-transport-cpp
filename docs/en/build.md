@@ -230,14 +230,17 @@ env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_pa
 The separate `C++ Report Card` workflow runs
 [cppreportcard-action](https://github.com/soulteary/cppreportcard-action) v1.0.2,
 pinned to a full commit SHA, on Linux ARM64. It runs clang-format 18, clang-tidy 18
-and Cppcheck in `full` mode after building the project, quickstart and installed
-consumer. Their compilation databases are combined so both standalone examples
-are analyzed as well as the main project's sources and tests.
+and Cppcheck in `full` mode after building the project, quickstart, installed
+consumer and shared-library consumer. Their four compilation databases are combined
+so the standalone consumers are analyzed with the main project's sources and tests.
 
-The configuration is `.cppreportcard.json`. Only two project source files are
-excluded: `tests/vendor_fixture_dependency.cpp` is a Windows-only dependency
-fixture, and `validation/pcan_header_abi.cpp` requires an external vendor header.
-Build/output directories and third-party dependencies are also excluded.
+The configuration is `.cppreportcard.json`. Platform-dependent exclusions are
+`tests/vendor_fixture_dependency.cpp` (Windows-only), `validation/pcan_header_abi.cpp`
+(external vendor header), and `validation/ros1-consumer` (external Noetic SDK absent
+from this report environment). ROS fixtures instead compile with warnings as errors
+and execute node/nodelet tests in the Noetic workflow; the separate global style
+job still formats every tracked C++ source. Build/output directories and third-party
+dependencies are also excluded.
 The report uses `clang-analyzer-*` and `bugprone-*`; it does not replace the
 existing style workflow's different rule set or platform checks.
 
@@ -396,7 +399,7 @@ matching components before mixing architectures, CRTs, compilers or library vers
 Top-level Linux builds produce TGZ by default:
 
 ```bash
-cpack --config build-release/CPackConfig.cmake -B dist
+cpack --config build-release/CPackConfig.cmake -B "$PWD/dist"
 ```
 
 CPack generates adjacent SHA256 files. New Linux filenames include version, OS, architecture,
