@@ -1,0 +1,5 @@
+<library path="lib/libcomm_smoke_nodelet">
+  <class name="linkerbot_comm_ros1_smoke/CommSmoke" type="linkerbot_ros1_smoke::CommSmoke" base_class_type="nodelet::Nodelet">
+    <description>Offline SDK integration fixture; no hardware access.</description>
+  </class>
+</library>

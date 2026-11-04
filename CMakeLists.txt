@@ -64,6 +64,8 @@ add_library(linkerbot-comm STATIC
     src/slcan_serial.cpp
 )
 add_library(linkerbot::comm ALIAS linkerbot-comm)
+# Support consumers that embed this static SDK in nodelets and other shared libraries.
+set_target_properties(linkerbot-comm PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_compile_features(linkerbot-comm PUBLIC cxx_std_17)
 target_include_directories(linkerbot-comm

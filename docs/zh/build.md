@@ -356,14 +356,17 @@ ctest --test-dir build-consumer --output-on-failure --no-tests=error --timeout 6
 cpack --config build-release/CPackConfig.cmake -B dist
 ```
 
-CPack 生成相邻 SHA256 文件；Linux 文件名包含版本、系统和架构，**不含 Debug/Release**，
-因此不同配置使用独立的产物目录。Windows ZIP 命名及运行库另见专项说明。
+CPack 生成相邻 SHA256 文件；新 Linux 包名包含版本、系统、架构、构建发行版、编译器、
+标准库和配置。不同配置仍使用独立构建目录，已发布资产保留原名。Windows ZIP 命名及
+运行库另见专项说明。
 
 `share/linkerbot-comm/build-info.json` 包含版本、`comm_sha`、`source_dirty`、系统、架构、
 编译器、工具集、配置和运行库。来源信息在 CMake 配置时生成：更换源码提交后应重新配置，
 不能用旧构建目录的 metadata 声称新提交已验证。无 Git 的导出源码可显式传入完整 SHA，
 但它是调用者提供的来源说明，不是内容校验或签名。
-`source_dirty` 来自已跟踪文件的 Git diff，不会证明没有未跟踪文件，也不校验另行安装的厂商二进制。
+`source_dirty` 包含 Git status 中的已跟踪变更和未忽略的未跟踪文件，不检查被忽略文件
+或另行安装的厂商二进制。严格发行输入、扩展 metadata 与验证目标见 [CI 产物与兼容性](ci.md)。
 
 发行前核对干净源码、版本、配置、架构和 SHA256，并重新执行安装后消费验证。
-本库构建不自动创建 GitHub Release、签名标签或镜像；CI 成功和打包成功都不等于正式发布。
+本库构建不自动创建 GitHub Release、签名标签或镜像。独立发行工作流仅在显式手动请求
+且门禁通过后创建草稿；CI 成功和打包成功都不等于正式发布。

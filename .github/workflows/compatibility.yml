@@ -1,0 +1,141 @@
+name: Ubuntu and ROS1 compatibility
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      full_matrix:
+        description: Check all Ubuntu releases (otherwise only 20.04 and 26.04)
+        type: boolean
+        default: true
+  schedule:
+    - cron: '23 2 * * *'
+  workflow_call:
+    inputs:
+      packages_ready:
+        description: Caller already built SDK artifacts in this workflow run
+        type: boolean
+        default: false
+      full_matrix:
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compatibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # A reusable caller must first call package.yml in the same workflow run.
+  packages:
+    if: ${{ !inputs.packages_ready }}
+    uses: ./.github/workflows/package.yml
+  matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      ubuntu: ${{ steps.matrix.outputs.ubuntu }}
+    steps:
+      - id: matrix
+        env:
+          FULL: ${{ github.event_name == 'schedule' || inputs.full_matrix }}
+        run: |
+          if [ "$FULL" = true ]; then
+            echo 'ubuntu=["20.04","22.04","24.04","26.04"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ubuntu=["20.04","26.04"]' >> "$GITHUB_OUTPUT"
+          fi
+  ubuntu:
+    name: Ubuntu ${{ matrix.ubuntu }} (${{ matrix.arch }})
+    needs: [packages, matrix]
+    if: always() && needs.matrix.result == 'success' && (needs.packages.result == 'success' || needs.packages.result == 'skipped')
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: ${{ fromJSON(needs.matrix.outputs.ubuntu) }}
+        include:
+          - {arch: x86_64, runner: ubuntu-24.04}
+          - {arch: aarch64, runner: ubuntu-24.04-arm}
+        arch: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: sdk-linux-${{ matrix.arch }}
+          path: sdk-download
+      - name: Source and relocated package smoke with default target tools
+        env:
+          UBUNTU: ${{ matrix.ubuntu }}
+        run: |
+          docker pull "ubuntu:$UBUNTU"
+          docker image inspect "ubuntu:$UBUNTU" --format '{{index .RepoDigests 0}}' > compatibility-image.txt
+          docker run --rm -v "$PWD:/src" -w /src -e SOURCE_SHA="$GITHUB_SHA" \
+            "$(cat compatibility-image.txt)" bash -euc '
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends build-essential cmake ninja-build python3 binutils
+              prefix=$(bash ci/unpack-sdk.sh /src/sdk-download "/tmp/SDK with spaces")
+              python3 validation/package/verify-package.py "$prefix" --sha "$SOURCE_SHA" \
+                --arch "$(uname -m)" --configuration Release --require-clean
+              bash ci/ubuntu-smoke.sh "$prefix"
+            '
+      - name: Save userspace compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ubuntu-${{ matrix.ubuntu }}-${{ matrix.arch }}
+          path: |
+            compatibility-image.txt
+            build/evidence/
+            build/source-smoke/CMakeCache.txt
+            build/smoke-*/CMakeCache.txt
+            build/smoke-*/Testing/Temporary/LastTest.log
+  noetic:
+    name: Noetic catkin node and nodelet (${{ matrix.arch }})
+    needs: packages
+    if: always() && (needs.packages.result == 'success' || needs.packages.result == 'skipped')
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, runner: ubuntu-24.04}
+          - {arch: aarch64, runner: ubuntu-24.04-arm}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: sdk-linux-${{ matrix.arch }}
+          path: sdk-download
+      - name: Build and execute real ROS1 integration without hardware
+        run: |
+          docker pull ros:noetic-ros-base-focal
+          docker image inspect ros:noetic-ros-base-focal --format '{{index .RepoDigests 0}}' > ros-image.txt
+          docker run --rm -v "$PWD:/src" -w /src "$(cat ros-image.txt)" bash -euc '
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends build-essential cmake python3 ros-noetic-nodelet ros-noetic-pluginlib ros-noetic-rostest
+              source /opt/ros/noetic/setup.bash
+              prefix=$(bash ci/unpack-sdk.sh /src/sdk-download "/tmp/SDK with spaces")
+              mkdir -p /tmp/catkin_ws/src
+              cp -a validation/ros1-consumer /tmp/catkin_ws/src/linkerbot_comm_ros1_smoke
+              cd /tmp/catkin_ws
+              catkin_make -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$prefix;/opt/ros/noetic"
+              source devel/setup.bash
+              catkin_make run_tests
+              catkin_test_results --verbose
+              mkdir -p /src/ros-evidence
+              cp -a build/test_results /src/ros-evidence/
+            '
+      - name: Save ROS1 evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: noetic-${{ matrix.arch }}
+          path: |
+            ros-image.txt
+            ros-evidence/

@@ -399,8 +399,9 @@ Top-level Linux builds produce TGZ by default:
 cpack --config build-release/CPackConfig.cmake -B dist
 ```
 
-CPack generates adjacent SHA256 files. Linux filenames include version, OS and architecture,
-**not Debug/Release**, so use separate artifact directories for different configurations.
+CPack generates adjacent SHA256 files. New Linux filenames include version, OS, architecture,
+build distribution, compiler, standard library and configuration. Keep separate build directories
+for different configurations. Existing release assets retain their original names.
 See the Windows guide for ZIP naming and CRT details.
 
 `share/linkerbot-comm/build-info.json` contains version, `comm_sha`, `source_dirty`, OS,
@@ -408,9 +409,11 @@ architecture, compiler, toolset, configuration and CRT. Provenance is generated 
 configuration time; reconfigure after changing source commits. Metadata from an old build
 directory does not validate a new commit. Source exports without Git may supply a full SHA
 explicitly, but that is caller-provided provenance, not a content checksum or signature.
-`source_dirty` comes from Git diff of tracked files; it does not establish absence of
-untracked files or validate separately installed vendor binaries.
+`source_dirty` includes tracked changes and untracked non-ignored files from Git status; it
+does not inspect ignored files or separately installed vendor binaries. See [CI packages and
+compatibility](ci.md) for strict release inputs, extended metadata and validation targets.
 
 Before distribution, check clean source, version, configuration, architecture and SHA256,
 then rerun installed-consumer validation. Building does not automatically create a GitHub
-Release, signed tag or image; CI and packaging success are not release completion.
+Release, signed tag or image. The separate release workflow can create a draft only after an
+explicit manual request and its validation gates; CI and packaging success are not release completion.
