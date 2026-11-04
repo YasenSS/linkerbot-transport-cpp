@@ -58,8 +58,8 @@ uses a verified-source installed-tool cache and checks its version on every run.
 cancels superseded workflow/ref runs. None of these changes claims a controlled speedup.
 
 A native producer builds the SDK/example once, then runs `ci/ubuntu-smoke.sh --consume-only`
-against the package rather than compiling the source again. Cross-distribution jobs retain
-source and package smoke checks. Container digests are recorded and executed by digest;
+against the package rather than compiling the source again. Cross-distribution jobs separately consume the Focal package without repeating the native
+source build. Container digests are recorded and executed by digest;
 apt inputs can change, so byte-reproducible builds are not promised. Prebuilt toolchain images
 and further matrix reduction need separate measurements.
 

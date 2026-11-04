@@ -67,13 +67,15 @@ jobs:
       - name: Build and consume this distribution native SDK
         env:
           DISTRIBUTION: ${{ matrix.distribution }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
           docker run --rm -v "$PWD:/src" -w /src -e PYTHONDONTWRITEBYTECODE=1 \
-            -e SOURCE_SHA="$GITHUB_SHA" -e EXPECTED_DISTRIBUTION="$DISTRIBUTION" -e BUILD_IMAGE="$(cat build/build-image.txt)" \
+            -e SOURCE_SHA="$GITHUB_SHA" -e EXPECTED_ARCH="$EXPECTED_ARCH" -e EXPECTED_DISTRIBUTION="$DISTRIBUTION" -e BUILD_IMAGE="$(cat build/build-image.txt)" \
             "$(cat build/build-image.txt)" bash -euc '
               export DEBIAN_FRONTEND=noninteractive
               apt-get update
               apt-get install -y --no-install-recommends build-essential cmake ninja-build git ca-certificates python3 binutils
+              test "$(uname -m)" = "$EXPECTED_ARCH"
               git config --global --add safe.directory /src
               python3 validation/package/test-verify-package.py
               python3 ci/test-unpack-sdk.py
@@ -92,7 +94,7 @@ jobs:
               cpack --config build/package/CPackConfig.cmake -C Release -B "$PWD/dist"
               prefix=$(bash ci/unpack-sdk.sh /src/dist "/tmp/SDK with spaces")
               python3 validation/package/verify-package.py "$prefix" --sha "$SOURCE_SHA" \
-                --arch "$(uname -m)" --distribution "$EXPECTED_DISTRIBUTION" \
+                --arch "$EXPECTED_ARCH" --distribution "$EXPECTED_DISTRIBUTION" \
                 --configuration Release --require-clean
               bash ci/ubuntu-smoke.sh "$prefix" --consume-only
             '

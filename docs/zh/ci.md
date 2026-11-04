@@ -49,7 +49,7 @@ producer 不恢复该缓存。最低 CMake 3.16.9 缓存已校验源码构建的
 Windows 取消同工作流/ref 的过期运行，不预先宣称受控实测提速。
 
 原生 producer 只构建一次 SDK/示例，再以 `ci/ubuntu-smoke.sh --consume-only` 消费归档，
-不重复编译源码；跨发行版 job 保留源码和包 smoke。容器记录并使用 digest，但 apt 输入
+不重复编译源码；跨发行版 job 独立消费 Focal 包，不重复原生源码构建。容器记录并使用 digest，但 apt 输入
 可变，因此不承诺字节级可复现。预制工具链镜像及进一步减少矩阵需另行测量。
 
 ## 包身份与校验
