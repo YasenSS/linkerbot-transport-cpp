@@ -211,6 +211,29 @@ TEST_CASE("Session queued deadline and latest never replace a claimed batch", "[
     REQUIRE(sent[2].data[0] == 3);
 }
 
+TEST_CASE("Session unbounded receipt deadlines preserve completion and saved errors", "[session]") {
+    for (const bool failure : {false, true}) {
+        SessionRig rig;
+        if (failure) {
+            rig.fake->fail_writes("planned unbounded send failure");
+        }
+        rig.fake->arm_tx_gate();
+        const auto receipt = rig.session->submit({{frame(0x28)}});
+        REQUIRE(rig.fake->wait_until_tx_entered(500ms));
+        auto release = std::async(std::launch::async, [&] {
+            std::this_thread::sleep_for(10ms);
+            rig.fake->release_tx_gate();
+        });
+        const auto no_deadline = transport::Deadline::max();
+        if (failure) {
+            REQUIRE_THROWS_AS(receipt.wait_until(no_deadline), can::TransportIOError);
+        } else {
+            REQUIRE(receipt.wait_until(no_deadline).outcome == transport::SendOutcome::dispatched);
+        }
+        release.get();
+    }
+}
+
 TEST_CASE("Session enforces send capacity while priority still orders queued work", "[session]") {
     can::FakeTransport *raw = nullptr;
     auto session = transport::Session::create(
