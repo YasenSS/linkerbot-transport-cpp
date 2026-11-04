@@ -63,7 +63,7 @@ jobs:
               with urllib.request.urlopen(urllib.request.Request(base + path, headers=headers)) as response:
                   return json.load(response)
           runs = get('/actions/runs?head_sha=' + os.environ['GITHUB_SHA'] + '&per_page=100')['workflow_runs']
-          required = {'.github/workflows/linux.yml': 12, '.github/workflows/windows-minicanfd.yml': 2,
+          required = {'.github/workflows/linux.yml': 12, '.github/workflows/windows-minicanfd.yml': 4,
                       '.github/workflows/style.yml': 1, '.github/workflows/cppreportcard.yml': 1}
           for path, minimum_jobs in required.items():
               candidates = [r for r in runs if r['path'] == path and r['event'] in ('push', 'workflow_dispatch')]
@@ -77,6 +77,8 @@ jobs:
   packages:
     needs: validate-tag
     uses: ./.github/workflows/package.yml
+    with:
+      baseline_only: false
   windows-packages:
     needs: validate-tag
     uses: ./.github/workflows/windows-minicanfd.yml
@@ -101,60 +103,16 @@ jobs:
           pattern: sdk-*
           path: release-assets
           merge-multiple: true
-      - name: Verify the exact tested archives and assemble manifest
+      - name: Verify all twelve tested native archives and assemble manifest
         env:
           VERSION: ${{ needs.validate-tag.outputs.version }}
         shell: bash
         run: |
-          python3 - <<'PY'
-          import hashlib
-          import json
-          import os
-          import tarfile
-          import zipfile
-          from pathlib import Path
-          root = Path('release-assets')
-          archives = sorted(list(root.glob('*.tar.gz')) + list(root.glob('*.zip')))
-          assert len(archives) == 4, archives
-          assets = []
-          identities = set()
-          for archive in archives:
-              digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-              checksum = Path(str(archive) + '.sha256')
-              assert checksum.is_file() and checksum.read_text().split()[0].lower() == digest
-              if archive.suffix == '.zip':
-                  with zipfile.ZipFile(archive) as package:
-                      entries = [name for name in package.namelist() if name.endswith('/share/linkerbot-comm/build-info.json')]
-                      assert len(entries) == 1
-                      info = json.loads(package.read(entries[0]))
-                  assert info['system'] == 'Windows' and info['architecture'] == 'x64'
-                  assert info['compiler'].startswith('MSVC ') and info['toolset'] == '143'
-                  assert info['standard_library'] == 'msvc'
-                  assert info['runtime'] == {'Release': 'MD', 'Debug': 'MDd'}[info['configuration']]
-              else:
-                  with tarfile.open(archive) as package:
-                      entries = [m for m in package.getmembers() if m.name.endswith('/share/linkerbot-comm/build-info.json')]
-                      assert len(entries) == 1
-                      info = json.load(package.extractfile(entries[0]))
-                  assert info['system'] == 'Linux' and info['configuration'] == 'Release'
-                  assert info['distribution'] == 'ubuntu20.04' and info['compiler'].startswith('GNU 9.')
-                  assert info['standard_library'] == 'libstdcxx'
-                  assert info['libstdcxx_dual_abi'] == '1'
-              assert info['comm_sha'] == os.environ['GITHUB_SHA']
-              assert info['version'] == os.environ['VERSION'] and info['source_dirty'] is False
-              assert info['instrumented'] is False and info['pic'] is True
-              identities.add((info['system'], info['architecture'], info['configuration']))
-              assets.append({'file': archive.name, 'sha256': digest, 'bytes': archive.stat().st_size, 'build': info})
-          assert identities == {('Linux', 'x86_64', 'Release'), ('Linux', 'aarch64', 'Release'),
-                                ('Windows', 'x64', 'Debug'), ('Windows', 'x64', 'Release')}
-          manifest = {'schema_version': 1, 'version': os.environ['VERSION'],
-                      'source_sha': os.environ['GITHUB_SHA'], 'assets': assets,
-                      'validation_run': os.environ['GITHUB_SERVER_URL'] + '/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID'],
-                      'scope': 'Exact-source quality gates, Linux full compatibility matrix and Windows Debug/Release regression and relocated consumption; no hardware acceptance'}
-          (root / 'release-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-          files = sorted(p for p in root.iterdir() if p.is_file())
-          (root / 'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in files))
-          PY
+          python3 validation/package/test-verify-package.py
+          python3 validation/package/test-release-manifest.py
+          python3 validation/package/make-release-manifest.py release-assets \
+            --sha "$GITHUB_SHA" --version "$VERSION" --targets ci/package-targets.json \
+            --validation-run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
       - name: Create a new draft without overwriting any existing release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -187,7 +145,7 @@ jobs:
           PY
           gh release create "$GITHUB_REF_NAME" release-assets/* --draft --verify-tag \
             --title "$GITHUB_REF_NAME" \
-            --notes 'Validated Linux x86_64/ARM64 and Windows x64 Debug/Release static SDKs. See release-manifest.json and linked CI run for build identity and compatibility evidence. Hardware acceptance is separate.'
+            --notes 'Validated native Ubuntu 20.04/22.04/24.04/26.04 x86_64/ARM64 and Windows x64/ARM64 Debug/Release static SDKs. See release-manifest.json and linked CI run for build identity and compatibility evidence. Hardware acceptance is separate.'
       - name: Download draft assets and verify uploaded bytes
         env:
           GH_TOKEN: ${{ github.token }}

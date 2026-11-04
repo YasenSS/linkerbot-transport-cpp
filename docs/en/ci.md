@@ -2,104 +2,102 @@
 
 [简体中文](../zh/ci.md) · [Documentation](../README.md)
 
-The CI separates quality builds from baseline SDK packages and userspace compatibility checks.
-A workflow definition is a validation target, not evidence that a platform or physical backend
-has passed. Use the run for the exact source commit to establish the observed result.
+The CI separates actual SDK production from quality checks and cross-distribution consumption.
+The current release target is **12 independently built SDK archives**, declared in
+`ci/package-targets.json`. This changes future builds; it does not replace the four SDK archives
+already published in 0.3.1. A workflow target is not evidence of hardware acceptance.
 
-## Build and validation targets
+## Actual package matrix
 
-The baseline package workflow builds native x86_64 and aarch64 Release static SDKs with
-Ubuntu 20.04's default GCC 9 and CMake. It disables test dependency downloads, coverage and
-sanitizers. Packaging uses an absolute output path because CPack 3.16 can silently produce
-an empty archive with a relative `-B` directory; the unpack regression rejects an empty SDK
-even when its SHA256 is correct. The production static library uses PIC so a consumer can link it into a shared
-library or ROS nodelet. C++17 remains required; the library does not acquire a ROS dependency.
+- Ubuntu 20.04, 22.04, 24.04 and 26.04 each produce x86_64 and aarch64 Release TGZs: eight
+  archives. Every job uses that Ubuntu userspace's default GCC, CMake, headers and libraries,
+  runs the example, and consumes its own relocated package. Newer distribution packages are
+  not renamed copies of a Focal package. Linux Debug remains a quality-build configuration.
+- Windows x64 and ARM64 each produce Debug and Release ZIPs: four archives. x64 uses
+  windows-2022/VS2022; ARM64 uses the native windows-11-vs2026-arm runner and VS2026.
+  Both select v143 14.44. Native CMake 3.31.8/x64 and 4.2.3/ARM64 downloads are checksum-checked.
+  The jobs assert native OS architecture, inspect executable/DLL PE machines and every SDK
+  COFF object, execute regression/loader tests, and run a matching relocated consumer.
 
-Pull requests run Ubuntu 20.04 and 26.04 userspace checks on both architectures, plus Noetic
-node/nodelet checks on Ubuntu 20.04. Scheduled and full manual checks add Ubuntu 22.04 and
-24.04. Each Ubuntu check builds the source with the target's default GCC/CMake and consumes
-the same architecture's Focal package. It runs the installed quickstart, installed standalone
-consumer and a shared-library consumer. CMake 3.16 runs from the test directory because it
-has no `ctest --test-dir`; complete Catch2 tests retain their existing CMake 3.19+ requirement.
+Each archive has its own SHA256 file. With `release-manifest.json` and `SHA256SUMS.txt`, a full
+release has **26 uploaded assets**, excluding GitHub's automatically generated source archives.
+Only the named 64-bit architectures are included; x86_64 is not 32-bit x86, and ARM64 is not ARM32.
 
-Ubuntu 26.04 is a new validation target, including its default CMake 4 toolchain. It does not
-imply ROS1 support on 26.04. Noetic integration uses real catkin, a ROS node, a dynamically
-loaded nodelet and an unload service call, with FakeTransport only. Noetic is upstream EOL.
-Ubuntu 18.04/Melodic, Debian, musl and Windows ARM64 are not added to this matrix.
+Linux package artifacts include the distribution: `sdk-linux-ubuntu<version>-<arch>`.
+Windows artifacts are `sdk-windows-<arch>-<configuration>`. They cannot overwrite another target.
+Linux runs on same-architecture hosted runners inside the selected Ubuntu container; those
+containers share the host kernel, so they validate userspace, not each Ubuntu release's kernel.
 
-Containers share the runner kernel. These checks establish userspace/build integration,
-not native kernels, SocketCAN interfaces, vendor driver availability or hardware acceptance.
-A successful fixture or FakeTransport run must not be described as a real CAN-device test.
+## Compatibility checks retained alongside production
 
-## Existing quality gates and efficiency
+The native producers build all eight Linux packages by default, including on pull requests.
+An explicit `baseline_only=true` is available for focused Focal debugging, but a complete
+release manifest rejects that incomplete asset set.
 
-The existing Linux Debug/Release, coverage, libc++, sanitizer, style, report-card and Windows
-checks remain enabled. This change does not weaken their coverage or claim measured speedups.
-Linux build and report jobs use ccache in runner temporary storage. Restore prefixes separate
-architecture, compiler family and build mode; ccache additionally hashes compiler content and
-compilation inputs. Cached objects do not replace regression execution. Baseline release
-packages do not restore this cache.
+The separate compatibility matrix deliberately downloads the **Focal** artifact for the
+matching architecture. PRs check consuming it on Ubuntu 20.04 and 26.04; scheduled/full manual
+runs also check 22.04 and 24.04. This preserves the old baseline's cross-distribution evidence
+alongside each distribution's own package validation. It does not substitute for producing
+those other packages. Noetic node/nodelet integration also uses the Focal package.
 
-The CMake 3.16.9 check caches its installed tool directory using its source SHA256, architecture
-and build-policy identity. A miss still downloads and verifies the source before building it;
-each run verifies the restored version. Windows cancels superseded runs of the same workflow/ref.
+Ubuntu 26.04 checks its default CMake 4 toolchain. CMake 3.16 checks run CTest from the build
+directory, while complete Catch2 regression still requires 3.19+. Noetic uses real catkin,
+node/nodelet loading and unloading with FakeTransport; it is upstream EOL and is tested only
+on Focal. The core remains C++17 without a ROS dependency.
 
-Toolchain images are currently pulled by explicit release tag, their resolved digest is recorded,
-and that digest is used for execution. Apt repositories can still change. This provides build
-provenance, not byte-for-byte reproducibility or a permanently pinned package universe. Prebuilt
-versioned toolchain images and further PR/main matrix reduction remain follow-up work, requiring
-cold/warm timing and cache-hit evidence before removing existing checks.
+No check claims native-kernel, SocketCAN-interface, vendor-driver or physical-device acceptance.
+A Windows ARM64 SDK does not establish availability of an ARM64 vendor driver/DLL. Ubuntu
+18.04/Melodic, Debian, musl and 32-bit targets remain outside this matrix.
 
-## Package identity and provenance
+## Quality and efficiency
 
-New Linux archive names include system, architecture, build distribution, compiler version,
-standard library and build configuration. Existing 0.3.0 Release assets remain unchanged.
-Windows names retain their MSVC toolset, compiler version, configuration and CRT. Only x64
-Windows packages are currently allowed; a 64-bit pointer alone is not proof of x64.
+Existing Linux Debug/Release, coverage, libc++, sanitizer, style and report checks remain.
+Linux build/report jobs use ccache in runner temporary storage, isolated by architecture,
+compiler and build mode. Release producers do not restore that cache. Minimum CMake 3.16.9
+uses a verified-source installed-tool cache and checks its version on every run. Windows
+cancels superseded workflow/ref runs. None of these changes claims a controlled speedup.
 
-`share/linkerbot-comm/build-info.json` records source SHA, dirty state (including untracked
-non-ignored files), distribution, compiler, standard library, C++ standard, PIC, instrumentation,
-configuration, CRT, probed libstdc++ dual ABI and optional build-image identity.
-Standard-library probes use configuration-specific flags; multi-config CPack selects its
-identity from `-C` so Debug and Release archives cannot overwrite one another. It is captured at configure time.
-Reconfigure after changing inputs. Custom flags/toolchains still need consumer validation;
-metadata is not an exhaustive binary attestation or ABI guarantee.
+A native producer builds the SDK/example once, then runs `ci/ubuntu-smoke.sh --consume-only`
+against the package rather than compiling the source again. Cross-distribution jobs separately consume the Focal package without repeating the native
+source build. Container digests are recorded and executed by digest;
+apt inputs can change, so byte-reproducible builds are not promised. Prebuilt toolchain images
+and further matrix reduction need separate measurements.
 
-`LINKERBOT_COMM_RELEASE_BUILD=ON` requires a clean source tree and full source SHA and rejects
-recognized coverage/sanitizer options. `LINKERBOT_COMM_BUILD_IMAGE` supplies an optional image
-identity. Ordinary developer builds remain permitted with dirty/unknown provenance. Exported
-sources without Git need an explicitly supplied SHA; that value is a caller assertion.
+## Package identity and validation
 
-`validation/package/verify-package.py` checks expected metadata, all ELF archive members and
-unwanted runtime/test components. `test-verify-package.py` exercises rejection paths. Package
-consumption checks record version requirements from the final ELF consumers: `ldd` on a static
-archive cannot establish its runtime compatibility. The recorded symbol list is evidence, not
-an automatic promise that arbitrary compiler/standard-library combinations can be mixed.
+Archive names and `share/linkerbot-comm/build-info.json` distinguish source SHA, distribution,
+architecture, compiler, probed standard library/dual ABI, configuration and Windows CRT.
+PIC and instrumentation state are recorded. Probe caches include configuration flags;
+multi-config CPack names use the selected `-C` configuration. Reconfigure when inputs change.
 
-## Running the workflows
+`LINKERBOT_COMM_RELEASE_BUILD=ON` requires clean source/full SHA and rejects recognized
+coverage/sanitizer flags. `LINKERBOT_COMM_BUILD_IMAGE` records an optional image identity.
+Developer dirty/unknown-source builds remain allowed. Provenance is not an exhaustive ABI
+attestation, and a caller-supplied SHA for a source export is not a content signature.
 
-Use **Focal baseline SDK packages** to build packages without publishing. Use **Ubuntu and
-ROS1 compatibility** with `full_matrix=true` for all four Ubuntu userspaces. The default PR
-matrix checks the oldest and newest endpoints. Both use read-only repository permissions.
+The generic package verifier checks expected distribution/system/configuration, metadata,
+all ELF or COFF archive members and leaked runtime/test components. Regressions cover wrong
+or mixed machines and missing/duplicate release identities. Final ELF consumers provide symbol
+version evidence; `ldd` on a static archive cannot establish runtime compatibility.
 
-The release workflow accepts a `vMAJOR.MINOR.PATCH` tag matching the CMake project version and
-pointing into main history. Tag pushes validate only. It builds Linux and Windows packages,
-runs the full Ubuntu/Noetic matrix against the exact Linux artifacts, and requires successful
-Linux, Windows, style and report-card workflows for the same commit (trusted push/manual runs).
-If those quality runs are still pending, wait for completion and rerun the failed release gate.
+## Release workflow
 
-For a draft, manually run **Validate release and optionally create draft** on that version tag
-and explicitly set `create_draft=true`. The workflow:
+Use **Native Ubuntu SDK packages** to produce artifacts without publishing, or **Ubuntu and
+ROS1 compatibility** with `full_matrix=true` for the full baseline consumption matrix.
+All ordinary build jobs have read-only repository permissions.
 
-1. Requires two Linux Release packages and Windows x64 Debug/Release packages from this run.
-2. Verifies checksums, source, version, baseline, configuration and CRT identities.
-3. Writes `release-manifest.json` and `SHA256SUMS.txt`.
-4. Rechecks the remote tag target and refuses any existing Release.
-5. Uploads the already-tested bytes to a new draft and downloads them again to compare hashes.
+A release tag must match the CMake version and main history. Tag pushes validate only. The
+release workflow requires exact-source trusted Linux/Windows/style/report success, builds all
+12 packages in the same run, and waits for full compatibility checks. Windows quality now
+requires four successful jobs. Pending or failed quality checks block release preparation.
 
-Only the draft job receives repository write permission. No workflow automatically publishes a
-Release or moves a tag. Inspect draft assets and evidence before publishing through the normal
-maintainer process. A failed upload can leave an incomplete draft: inspect it before retrying;
-the workflow intentionally refuses to overwrite it. Corrections to released bytes require a
-new version, rather than replacing an old archive. No new tag or Release is needed to review
-this CI change itself.
+Manual `create_draft=true` on the version tag can create a new draft after those gates pass.
+The manifest must contain exactly the eight Linux distribution/architecture identities and
+four Windows architecture/configuration identities. Hashes, sizes, metadata and all library
+object machines are checked before writing the manifest and checksum list. A reused Focal
+package cannot satisfy a different distribution identity.
+
+The draft job rechecks the remote tag, refuses existing releases, uploads the already-tested
+bytes and downloads them to compare hashes. It alone has repository write permission. It never
+automatically publishes or moves tags. Inspect an incomplete draft before retrying; released
+bytes require a new version instead of replacement. This PR creates no tag or Release.

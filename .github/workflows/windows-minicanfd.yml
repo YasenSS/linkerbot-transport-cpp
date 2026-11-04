@@ -16,12 +16,29 @@ concurrency:
 
 jobs:
   native-loader:
-    runs-on: windows-2022
+    name: Native ${{ matrix.arch }} (${{ matrix.configuration }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         configuration: [Debug, Release]
+        arch: [x64, ARM64]
+        include:
+          - arch: x64
+            runner: windows-2022
+            generator: Visual Studio 17 2022
+            cmake: 3.31.8
+            cmake_arch: x86_64
+            os_arch: X64
+          - arch: ARM64
+            runner: windows-11-vs2026-arm
+            generator: Visual Studio 18 2026
+            cmake: 4.2.3
+            cmake_arch: arm64
+            os_arch: Arm64
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
     defaults:
       run:
         shell: pwsh
@@ -29,8 +46,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install fixed CMake
         run: |
-          $Version = '3.31.8'
-          $Name = "cmake-$Version-windows-x86_64.zip"
+          $Version = '${{ matrix.cmake }}'
+          $Name = "cmake-$Version-windows-${{ matrix.cmake_arch }}.zip"
           $Base = "https://github.com/Kitware/CMake/releases/download/v$Version"
           Invoke-WebRequest "$Base/$Name" -OutFile "$env:RUNNER_TEMP/$Name"
           Invoke-WebRequest "$Base/cmake-$Version-SHA-256.txt" -OutFile "$env:RUNNER_TEMP/cmake-checksums.txt"
@@ -39,16 +56,17 @@ jobs:
           $Expected = ($Line -split '\s+')[0]
           if ((Get-FileHash "$env:RUNNER_TEMP/$Name" -Algorithm SHA256).Hash -ne $Expected) { throw 'CMake SHA256 mismatch' }
           Expand-Archive "$env:RUNNER_TEMP/$Name" -DestinationPath "$env:RUNNER_TEMP/cmake"
-          "$env:RUNNER_TEMP/cmake/cmake-$Version-windows-x86_64/bin" >> $env:GITHUB_PATH
+          "$env:RUNNER_TEMP/cmake/cmake-$Version-windows-${{ matrix.cmake_arch }}/bin" >> $env:GITHUB_PATH
       - name: Record source and tools
         run: |
+          if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -ne '${{ matrix.os_arch }}') { throw 'Native runner OS architecture mismatch' }
           git rev-parse HEAD
           cmake --version
           Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsBuildNumber
           & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -format json
       - name: Configure without a vendor SDK
         run: |
-          cmake -S . -B build -G 'Visual Studio 17 2022' -A x64 -T 'v143,version=14.44' `
+          cmake -S . -B build -G '${{ matrix.generator }}' -A '${{ matrix.arch }}' -T 'v143,version=14.44' `
             '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>DLL' `
             -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
@@ -56,6 +74,10 @@ jobs:
         run: |
           cmake --build build --config ${{ matrix.configuration }} --parallel 4 2>&1 | Tee-Object build-results.log
           if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+      - name: Verify native executable and DLL machine types
+        run: |
+          python validation/package/verify-windows-binaries.py build --arch '${{ matrix.arch }}' | Tee-Object build-machine-results.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native test binary machine validation failed' }
       - name: Run comm regression and actual Windows loader tests
         run: |
           ctest --test-dir build -C ${{ matrix.configuration }} --show-only=json-v1 > test-list.json
@@ -91,17 +113,21 @@ jobs:
           $Files.FullName | Out-File package-files.txt
           $Metadata = Get-Content "$Prefix/share/linkerbot-comm/build-info.json" -Raw | ConvertFrom-Json
           $Runtime = if ($Configuration -eq 'Debug') { 'MDd' } else { 'MD' }
-          if ($Metadata.comm_sha -ne (git rev-parse HEAD) -or $Metadata.source_dirty -or $Metadata.configuration -ne $Configuration -or $Metadata.runtime -ne $Runtime -or $Metadata.architecture -ne 'x64' -or $Metadata.toolset -ne '143') { throw 'Package provenance/runtime mismatch' }
-          cmake -S "$Prefix/share/linkerbot-comm/validation/installed-consumer" -B consumer -G 'Visual Studio 17 2022' -A x64 -T 'v143,version=14.44' "-DCMAKE_PREFIX_PATH=$Prefix"
+          if ($Metadata.comm_sha -ne (git rev-parse HEAD) -or $Metadata.source_dirty -or $Metadata.configuration -ne $Configuration -or $Metadata.runtime -ne $Runtime -or $Metadata.architecture -ne '${{ matrix.arch }}' -or $Metadata.toolset -ne '143') { throw 'Package provenance/runtime mismatch' }
+          python validation/package/verify-package.py "$Prefix" --sha "$(git rev-parse HEAD)" --arch '${{ matrix.arch }}' --system Windows --configuration $Configuration --require-clean
+          if ($LASTEXITCODE -ne 0) { throw 'SDK COFF object validation failed' }
+          cmake -S "$Prefix/share/linkerbot-comm/validation/installed-consumer" -B consumer -G '${{ matrix.generator }}' -A '${{ matrix.arch }}' -T 'v143,version=14.44' "-DCMAKE_PREFIX_PATH=$Prefix"
           if ($LASTEXITCODE -ne 0) { throw 'Consumer configure failed' }
           cmake --build consumer --config $Configuration --parallel 4 2>&1 | Tee-Object consumer-build.log
           if ($LASTEXITCODE -ne 0) { throw 'Consumer build failed' }
           ctest --test-dir consumer -C $Configuration --output-on-failure --no-tests=error --output-log consumer-results.log
           if ($LASTEXITCODE -ne 0) { throw 'Consumer test failed' }
+          python validation/package/verify-windows-binaries.py consumer --arch '${{ matrix.arch }}' | Tee-Object consumer-machine-results.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native consumer machine validation failed' }
       - name: Upload verified Windows SDK
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sdk-windows-${{ matrix.configuration }}
+          name: sdk-windows-${{ matrix.arch }}-${{ matrix.configuration }}
           path: |
             dist/*.zip
             dist/*.sha256
@@ -110,9 +136,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: native-adapters-${{ matrix.configuration }}
+          name: native-adapters-${{ matrix.arch }}-${{ matrix.configuration }}
           path: |
             build-results.log
+            build-machine-results.log
+            consumer-machine-results.log
             test-list.json
             test-results.log
             consumer-build.log

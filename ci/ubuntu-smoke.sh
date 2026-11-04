@@ -5,11 +5,17 @@ prefix=${1:?SDK prefix required}
 cmake --version
 g++ --version
 cat /etc/os-release
-cmake -S . -B build/source-smoke -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_EXAMPLES=ON \
-  -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
-cmake --build build/source-smoke --parallel 4
-./build/source-smoke/comm-example
+case ${2:-all} in
+  all)
+    cmake -S . -B build/source-smoke -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_EXAMPLES=ON \
+      -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
+    cmake --build build/source-smoke --parallel 4
+    ./build/source-smoke/comm-example
+    ;;
+  --consume-only) ;;
+  *) echo "Unknown smoke mode: $2" >&2; exit 2 ;;
+esac
 for consumer in "$prefix/share/linkerbot-comm/validation/installed-consumer" "$prefix/share/linkerbot-comm/examples/quickstart" validation/shared-consumer; do
   name=${consumer##*/}
   cmake -S "$consumer" -B "build/smoke-$name" -G Ninja \

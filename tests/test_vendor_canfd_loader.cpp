@@ -345,9 +345,17 @@ TEST_CASE("native loader reports missing symbols and invalid binaries", "[vendor
         stream.seekg(0x3c);
         stream.read(reinterpret_cast<char *>(&pe_offset), sizeof(pe_offset));
         REQUIRE(stream.good());
-        const uint16_t arm64_machine = 0xaa64;
+        uint16_t original_machine = 0;
+        stream.seekg(pe_offset + 4);
+        stream.read(reinterpret_cast<char *>(&original_machine), sizeof(original_machine));
+        REQUIRE(stream.good());
+        REQUIRE((original_machine == 0x8664 || original_machine == 0xaa64));
+        const uint16_t wrong_machine_type = original_machine == 0xaa64 ? 0x8664 : 0xaa64;
+        REQUIRE(wrong_machine_type != original_machine);
         stream.seekp(pe_offset + 4);
-        stream.write(reinterpret_cast<const char *>(&arm64_machine), sizeof(arm64_machine));
+        stream.write(reinterpret_cast<const char *>(&wrong_machine_type),
+                     sizeof(wrong_machine_type));
+        REQUIRE(stream.good());
     }
     try {
         (void)load_vendor_canfd_api(wrong_machine.u8string());

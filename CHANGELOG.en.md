@@ -2,6 +2,11 @@
 
 English · [简体中文](CHANGELOG.md)
 
+## Unreleased
+
+- Produce eight native Ubuntu SDK archives (20.04/22.04/24.04/26.04 × x86_64/ARM64) and four native Windows archives (x64/ARM64 × Debug/Release), rather than treating baseline consumption tests as distinct distribution builds.
+- Validate the exact 12-target release set, archive machines and distribution identities before assembling 26 uploaded assets. Preserve Focal cross-distribution and Noetic checks and leave existing releases unchanged.
+
 ## 0.3.1 — 2026-11-04
 
 ### Builds and packages

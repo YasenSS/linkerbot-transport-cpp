@@ -4,13 +4,13 @@
 
 已发布的 SDK 和校验说明见[发行指南](releases.md)。
 
-使用 Visual Studio 2022、v143 14.44、CMake 3.31.8 和 C++17，目标架构为 x64。
-当前 GitHub 工作流在 windows-2022 上执行 Debug/Release 离线回归、原生 ABI fixture、
-ZIP 与解压消费，固定提交的已通过记录见 [验证说明](validation.md)。后续源码仍须检查对应
+工作流分别原生构建 x64、ARM64 的 Debug/Release：x64 使用 windows-2022、VS2022、
+CMake 3.31.8，ARM64 使用 windows-11-vs2026-arm、VS2026、CMake 4.2.3。两者均选择
+已安装的 v143 14.44 和 C++17，并执行离线回归、原生 ABI fixture、ZIP 与解压消费。固定提交的已通过记录见 [验证说明](validation.md)。后续源码仍须检查对应
 head 的实际 run，不能把旧记录沿用为新包证明。核心库、测试和安装无需厂商 SDK，
 测试 DLL 留在构建目录，不进入发行包；真实硬件需要另装对应驱动和厂商 DLL。
 
-从源码根目录执行以下命令；多配置生成器构建、测试、安装和 CPack 必须选择同一配置：
+以下命令针对 x64，从源码根目录执行；构建、测试、安装和 CPack 必须选择同一配置：
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T "v143,version=14.44" -DLINKERBOT_COMM_BUILD_TESTS=ON
@@ -21,11 +21,11 @@ cpack --config build/CPackConfig.cmake -C Release -B dist
 ```
 
 Debug 将各处的 Release 改为 Debug，并使用独立 build、安装和消费目录。
-默认 Release 为 `/MD`，需要对应的 Microsoft Visual C++ x64 Redistributable；
+默认 Release 为 `/MD`，需要对应的 目标架构的 Microsoft Visual C++ Redistributable；
 Debug 为 `/MDd`，依赖 Visual Studio 的调试运行库，供开发使用，不作为面向终端用户的运行包。
 静态 SDK 不会消除运行库、Windows 系统库或真实通信所需厂商驱动和 DLL 的依赖。
 
-ZIP 名包含 Windows、x64、MSVC 工具集和编译器版本、配置及 MD/MDd；旁边生成
+ZIP 名包含 Windows、实际 x64/ARM64 目标、MSVC 工具集和编译器版本、配置及 MD/MDd；旁边生成
 `.sha256`。包内 `share/linkerbot-comm/build-info.json` 保存源码 SHA、配置和编译器。
 发布前使用固定的干净源码提交，并核对该文件中的版本、配置和运行库。
 
@@ -45,6 +45,25 @@ ctest --test-dir consumer -C Release --output-on-failure --no-tests=error
 历史 Windows Debug / CANable 型号陈述和当前硬件限制见 [验证记录](validation.md)。
 CI 不连接 USB 实物，也不验证异常驱动的硬性退出时限。
 
+## 原生 ARM64 构建
+
+在 ARM64 Windows 主机上安装 VS2026、v143 14.44 ARM64 组件及 CMake 4.2.3。
+显式托管镜像见 [GitHub runner-images](https://github.com/actions/runner-images/blob/main/images/windows/Windows11-VS2026-Arm64-Readme.md)。
+指定工具集必须存在，工作流不会静默换用其他工具集。
+
+```powershell
+cmake -S . -B build-arm64 -G "Visual Studio 18 2026" -A ARM64 -T "v143,version=14.44" -DLINKERBOT_COMM_BUILD_TESTS=ON
+cmake --build build-arm64 --config Release --parallel 4
+ctest --test-dir build-arm64 -C Release --output-on-failure --no-tests=error --timeout 60
+cpack --config build-arm64/CPackConfig.cmake -C Release -B dist-arm64
+```
+
+安装后消费者同样使用该生成器、`-A ARM64`、工具集和配置。Debug 还需 ARM64 开发运行库。
+CI 断言原生系统架构，核对全部生成 EXE/DLL 的 PE machine 及 SDK 库每个 COFF 对象，
+再接受该包。原生 fixture 只证明 loader/SDK 集成，不证明 ARM64 实物驱动或厂商 DLL 可用，
+ARM64 进程不能加载 x64 厂商 DLL。既有 0.3.1 仅提供 Windows x64 包，这里的 ARM64
+命令和矩阵用于后续构建。
+
 ## 交付核对与常见问题
 
 - CPack 默认产出 ZIP 和相邻 `.sha256`；验证摘要后，再在新目录编译安装 consumer。
@@ -60,6 +79,6 @@ Get-FileHash -Algorithm SHA256 -LiteralPath 'dist/实际包名.zip'
 若更改 `CMAKE_MSVC_RUNTIME_LIBRARY`，应单独核对实际运行库、调整交付信息并验证消费者，
 不能将其沿用为已验证的默认 SDK 包。
 
-应用必须使用与库一致的 x64、工具集、配置及 CRT。缺少厂商 DLL 不是链接本静态库失败的原因；
+应用必须使用与库一致的目标架构、工具集、配置及 CRT。缺少厂商 DLL 不是链接本静态库失败的原因；
 运行时加载失败应检查实际路径、同目录依赖和位数，见 [排障指南](troubleshooting.md)。
 新文档随包安装于 `share/linkerbot-comm/docs/`，不需要原源码树即可浏览。

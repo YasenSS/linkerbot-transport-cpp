@@ -1,38 +1,81 @@
-name: Focal baseline SDK packages
+name: Native Ubuntu SDK packages
 
 on:
   workflow_call:
+    inputs:
+      baseline_only:
+        description: Build only Focal compatibility fixtures; never use for releases
+        type: boolean
+        default: false
   workflow_dispatch:
+    inputs:
+      baseline_only:
+        description: Build only Focal compatibility fixtures; never use for releases
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  targets:
+    runs-on: ubuntu-24.04
+    outputs:
+      linux: ${{ steps.targets.outputs.linux }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify release manifest contract
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 validation/package/test-release-manifest.py
+      - id: targets
+        env:
+          BASELINE_ONLY: ${{ inputs.baseline_only }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          rows = json.loads(Path('ci/package-targets.json').read_text())['linux']
+          expected = {(u, a) for u in ('20.04', '22.04', '24.04', '26.04')
+                      for a in ('x86_64', 'aarch64')}
+          actual = {(row['ubuntu'], row['arch']) for row in rows}
+          assert len(rows) == 8 and actual == expected, 'Incomplete or duplicate package matrix'
+          assert all(row['distribution'] == 'ubuntu' + row['ubuntu'] for row in rows)
+          if os.environ['BASELINE_ONLY'] == 'true':
+              rows = [row for row in rows if row['ubuntu'] == '20.04']
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('linux=' + json.dumps({'include': rows}, separators=(',', ':')) + '\n')
+          PYTHON
   linux:
-    name: Focal GCC 9 (${{ matrix.arch }})
+    name: Ubuntu ${{ matrix.ubuntu }} native SDK (${{ matrix.arch }})
+    needs: targets
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - {arch: x86_64, runner: ubuntu-24.04}
-          - {arch: aarch64, runner: ubuntu-24.04-arm}
+      matrix: ${{ fromJSON(needs.targets.outputs.linux) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Pull and record baseline image
+      - name: Pull and record native target image
+        env:
+          UBUNTU: ${{ matrix.ubuntu }}
         run: |
           mkdir -p build
-          docker pull ubuntu:20.04
-          docker image inspect ubuntu:20.04 --format '{{index .RepoDigests 0}}' > build/build-image.txt
-      - name: Build clean Release SDK using the default Focal compiler
+          docker pull "ubuntu:$UBUNTU"
+          docker image inspect "ubuntu:$UBUNTU" --format '{{index .RepoDigests 0}}' > build/build-image.txt
+      - name: Build and consume this distribution native SDK
+        env:
+          DISTRIBUTION: ${{ matrix.distribution }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
-          docker run --rm -v "$PWD:/src" -w /src \
-            -e SOURCE_SHA="$GITHUB_SHA" -e BUILD_IMAGE="$(cat build/build-image.txt)" \
+          docker run --rm -v "$PWD:/src" -w /src -e PYTHONDONTWRITEBYTECODE=1 \
+            -e SOURCE_SHA="$GITHUB_SHA" -e EXPECTED_ARCH="$EXPECTED_ARCH" -e EXPECTED_DISTRIBUTION="$DISTRIBUTION" -e BUILD_IMAGE="$(cat build/build-image.txt)" \
             "$(cat build/build-image.txt)" bash -euc '
               export DEBIAN_FRONTEND=noninteractive
               apt-get update
               apt-get install -y --no-install-recommends build-essential cmake ninja-build git ca-certificates python3 binutils
+              test "$(uname -m)" = "$EXPECTED_ARCH"
               git config --global --add safe.directory /src
               python3 validation/package/test-verify-package.py
               python3 ci/test-unpack-sdk.py
@@ -40,32 +83,34 @@ jobs:
               cmake --version
               cmake -S . -B build/package -G Ninja -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-                -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF \
+                -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_EXAMPLES=ON \
                 -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF \
                 -DLINKERBOT_COMM_RELEASE_BUILD=ON \
                 -DLINKERBOT_COMM_SOURCE_REVISION="$SOURCE_SHA" \
                 -DLINKERBOT_COMM_BUILD_IMAGE="$BUILD_IMAGE"
               cmake --build build/package --parallel 4
+              ./build/package/comm-example
               # CPack 3.16 can silently create an empty archive with a relative -B.
               cpack --config build/package/CPackConfig.cmake -C Release -B "$PWD/dist"
               prefix=$(bash ci/unpack-sdk.sh /src/dist "/tmp/SDK with spaces")
               python3 validation/package/verify-package.py "$prefix" --sha "$SOURCE_SHA" \
-                --arch "$(uname -m)" --configuration Release --require-clean
-              bash ci/ubuntu-smoke.sh "$prefix"
+                --arch "$EXPECTED_ARCH" --distribution "$EXPECTED_DISTRIBUTION" \
+                --configuration Release --require-clean
+              bash ci/ubuntu-smoke.sh "$prefix" --consume-only
             '
       - name: Upload exact package bytes
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sdk-linux-${{ matrix.arch }}
+          name: sdk-linux-ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}
           path: |
             dist/*.tar.gz
             dist/*.sha256
           if-no-files-found: error
-      - name: Save baseline evidence
+      - name: Save native package evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: baseline-evidence-${{ matrix.arch }}
+          name: native-evidence-ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}
           path: |
             build/build-image.txt
             build/package/CMakeCache.txt
