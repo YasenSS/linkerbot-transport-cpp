@@ -2,6 +2,10 @@
 
 [English](CHANGELOG.en.md) · 简体中文
 
+## 未发布
+
+- 修正 Focal/GCC 9 下 Session 回执的无期限等待：对最大 deadline 使用条件变量的无限等待接口，保留有限 deadline 与已保存异常的语义。增加原生 Focal x86_64/ARM64 Session 回归。
+
 ## 0.3.2 — 2026-11-04
 
 - 实际构建八份原生 Ubuntu SDK（20.04/22.04/24.04/26.04 × x86_64/ARM64）及四份原生 Windows SDK（x64/ARM64 × Debug/Release），不再把基线消费测试当成独立发行版产物。

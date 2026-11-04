@@ -1,0 +1,49 @@
+name: Focal Session regression
+
+on:
+  pull_request:
+    paths:
+      - 'src/session.cpp'
+      - 'tests/test_session.cpp'
+      - '.github/workflows/focal-session.yml'
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  session:
+    name: Focal GCC 9 / ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Build and run every Session case on native Focal userspace
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src -e EXPECTED_ARCH ubuntu:20.04 bash -euc '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends build-essential git ca-certificates python3 python3-venv
+            test "$(uname -m)" = "$EXPECTED_ARCH"
+            python3 -m venv /opt/tools
+            /opt/tools/bin/pip install cmake==3.31.10
+            export PATH=/opt/tools/bin:$PATH
+            git config --global --add safe.directory /src
+            cmake -S . -B build/focal -DCMAKE_BUILD_TYPE=Release \
+              -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF
+            cmake --build build/focal --parallel 4 --target comm-tests
+            ctest --test-dir build/focal -R "^Session " \
+              --output-on-failure --no-tests=error --timeout 30
+          '

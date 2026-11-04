@@ -2,6 +2,10 @@
 
 English · [简体中文](CHANGELOG.md)
 
+## Unreleased
+
+- Fix unbounded Session receipt waits on Focal/GCC 9 by using the untimed condition-variable wait for a maximum deadline. Preserve finite deadlines and saved errors; add native Focal x86_64/ARM64 Session regression jobs.
+
 ## 0.3.2 — 2026-11-04
 
 - Produce eight native Ubuntu SDK archives (20.04/22.04/24.04/26.04 × x86_64/ARM64) and four native Windows archives (x64/ARM64 × Debug/Release), rather than treating baseline consumption tests as distinct distribution builds.

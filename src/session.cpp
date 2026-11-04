@@ -108,8 +108,13 @@ namespace linkerbot::transport {
             throw can::ValidationError("empty send receipt");
         }
         std::unique_lock<std::mutex> lock(state_->mutex);
-        if (!state_->cv.wait_until(
-                lock, deadline, [&] { return state_->result.outcome != SendOutcome::pending; })) {
+        const auto finished = [&] { return state_->result.outcome != SendOutcome::pending; };
+        // Older libstdc++ implementations convert steady-clock deadlines to
+        // system time. Converting max() can overflow and prevent the writer
+        // from acquiring this mutex to publish completion.
+        if (deadline == Deadline::max()) {
+            state_->cv.wait(lock, finished);
+        } else if (!state_->cv.wait_until(lock, deadline, finished)) {
             throw can::TimeoutError(
                 "send receipt wait expired; a claimed backend write may still complete");
         }
