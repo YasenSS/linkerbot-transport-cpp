@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: sdk-linux-ubuntu20.04-${{ matrix.arch }}
+          name: sdk-linux-ubuntu20.04-${{ matrix.arch }}-attempt-${{ github.run_attempt }}
           path: sdk-download
       - name: Consume the unchanged Focal baseline with target default tools
         env:
@@ -86,7 +86,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ubuntu-${{ matrix.ubuntu }}-${{ matrix.arch }}
+          name: ubuntu-${{ matrix.ubuntu }}-${{ matrix.arch }}-attempt-${{ github.run_attempt }}
           path: |
             compatibility-image.txt
             build/evidence/
@@ -108,7 +108,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: sdk-linux-ubuntu20.04-${{ matrix.arch }}
+          name: sdk-linux-ubuntu20.04-${{ matrix.arch }}-attempt-${{ github.run_attempt }}
           path: sdk-download
       - name: Build and execute real ROS1 integration without hardware
         run: |
@@ -136,7 +136,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: noetic-${{ matrix.arch }}
+          name: noetic-${{ matrix.arch }}-attempt-${{ github.run_attempt }}
           path: |
             ros-image.txt
             ros-evidence/

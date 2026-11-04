@@ -91,7 +91,29 @@ release workflow requires exact-source trusted Linux/Windows/style/report succes
 12 packages in the same run, and waits for full compatibility checks. Windows quality now
 requires four successful jobs. Pending or failed quality checks block release preparation.
 
-Manual `create_draft=true` on the version tag can create a new draft after those gates pass.
+The final tag-push job seals the exact tag object, source SHA, workflow attempt, successful
+job identities, twelve artifact IDs/digests and fully verified package manifest. Its seal is
+read-only evidence, not a signature over the binaries. Manual `create_draft=true` on the same
+version tag also requires an explicit `validated_run_id` naming that successful tag-push run.
+It rechecks the quality gates and promotes those original artifacts without rebuilding.
+Fork/PR sources, other tags/commits, incomplete matrices, expired or changed artifacts,
+changed tag objects, concurrent reruns and legacy runs without a seal are rejected.
+No source run is selected implicitly. Revalidation still reconstructs the complete manifest.
+SDK and compatibility-evidence artifact names include the workflow attempt. A full rerun can
+retain earlier attempt artifacts without promoting them; rerun **all jobs**, since promotion
+intentionally rejects mixed-attempt results from a failed-jobs-only rerun. If the selected
+attempt or its artifacts expire, complete validation again instead of weakening these checks.
+
+For a future version tag that includes these workflows, inspect its successful tag-push run
+and then explicitly promote it (replace both placeholders):
+
+```bash
+gh workflow run release.yml --repo linker-bot/linkerbot-transport-cpp \
+  --ref VERSION_TAG -f create_draft=true -f validated_run_id=SUCCESSFUL_TAG_PUSH_RUN_ID
+```
+
+This command creates a new draft only. Existing releases and old tags without a validation
+seal cannot use this path; do not move or recreate those tags to adopt the new workflow.
 The manifest must contain exactly the eight Linux distribution/architecture identities and
 four Windows architecture/configuration identities. Hashes, sizes, metadata and all library
 object machines are checked before writing the manifest and checksum list. A reused Focal
@@ -101,3 +123,19 @@ The draft job rechecks the remote tag, refuses existing releases, uploads the al
 bytes and downloads them to compare hashes. It alone has repository write permission. It never
 automatically publishes or moves tags. Inspect an incomplete draft before retrying; released
 bytes require a new version instead of replacement. Changing these workflows does not itself create a tag or Release.
+
+## CI timing and reproducible comparisons
+
+Style and full-report manual runs accept `analysis_jobs=2` (baseline) or `4` (optimized),
+bounded by the runner's available CPU affinity. Both preserve every existing rule, translation
+unit and complete-report gate. Evidence records requested/effective concurrency, source SHA
+and configuration digest. Compare matching source/tool versions and analysis-step medians;
+workflow wall time also includes scheduling and setup. Style saves GNU time resource records;
+maximum RSS is not an aggregate peak for all simultaneous analyzer processes.
+
+Windows manual runs accept `use_tool_cache=false` for a forced download and `true` for reuse.
+The fixed CMake cache key includes version, download architecture and a freshly fetched
+official archive checksum. Each hit authenticates the ZIP and every installed file before
+selecting its exact executable/version. PRs do not save this cache. Run cold/warm comparisons
+sequentially because the existing Windows concurrency policy cancels superseded runs; include
+checksum, cache restore/save and verification overhead when assessing net benefit.

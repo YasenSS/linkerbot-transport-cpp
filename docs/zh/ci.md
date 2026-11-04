@@ -75,10 +75,39 @@ compatibility** 的 `full_matrix=true` 执行完整基线消费矩阵。普通 j
 Linux/Windows/style/report 成功，在同次运行构建全部 12 份包并等待完整兼容检查。
 Windows 质量门禁要求四个成功 job；未完成或失败的检查阻止发行准备。
 
-在版本标签上手动设置 `create_draft=true`，通过上述门禁后才可创建新草稿。清单必须恰好
+标签 push 的最后一个 job 将原始标签对象、源码 SHA、运行 attempt、成功 job 身份、
+十二个 artifact 的 ID/摘要和完整包清单保存为只读验证记录；记录不是二进制签名。
+在相同版本标签上手动设置 `create_draft=true` 时，还须显式提供该成功标签运行的
+`validated_run_id`。草稿步骤重新核对质量门禁，复用原始产物，不重复构建。拒绝 fork/PR、
+不同标签或源码、不完整矩阵、过期或变化的产物、标签对象变化、并发重跑及没有验证记录的
+旧运行；不隐式选择最新运行，仍重新生成完整清单核对。SDK 与兼容性证据的附件名包含
+attempt，完整重跑可保留旧附件但不会复用它们。须重跑全部 job；仅重跑失败 job 产生的
+混合 attempt 结果会被拒绝。过期后应重新完成验证，不能放宽检查。
+
+对包含新工作流的未来版本标签，检查标签 push 成功后，显式运行（替换两个占位值）：
+
+```bash
+gh workflow run release.yml --repo linker-bot/linkerbot-transport-cpp \
+  --ref VERSION_TAG -f create_draft=true -f validated_run_id=SUCCESSFUL_TAG_PUSH_RUN_ID
+```
+
+命令仅创建新草稿。已有 Release 或没有验证记录的旧标签不适用；不能为采用新流程而移动
+或重建旧标签。清单必须恰好
 包含八个 Linux 发行版/架构身份和四个 Windows 架构/配置身份；生成清单和总校验值前
 检查摘要、大小、metadata 及所有库对象 machine，复用 Focal 包不能满足另一个发行版身份。
 
 草稿 job 重新检查远端标签，拒绝已有 Release，上传已验证的相同字节并下载复核；仅该
 job 有仓库写权限，不自动正式发布或移动标签。不完整草稿须先检查再重试，正式产物修订
 需新版本。修改工作流本身不会创建标签或 Release。
+
+## CI 耗时对照
+
+Style 和完整报告的手动运行支持 `analysis_jobs=2`（基线）或 `4`（优化），实际并发不超过
+runner 可用 CPU affinity。规则、翻译单元和完整报告门禁保持不变；证据记录实际并发、
+源码 SHA 和配置摘要。比较相同源码、工具版本下分析步骤的中位耗时，不把调度与准备耗时
+全部算作分析时间。Style 的 GNU time 最大 RSS 不等于所有并发进程的总峰值。
+
+Windows 手动运行支持 `use_tool_cache=false` 强制下载，或 `true` 复用固定 CMake。
+缓存键包含版本、下载架构和新获取的官方 SHA256；命中仍校验 ZIP 与全部安装文件，再
+确认实际执行路径及精确版本。PR 不写入该缓存。现有 concurrency 会取消被替代的运行，
+因此冷暖对照须串行，收益计算须包含校验值下载、缓存恢复/保存和完整性检查开销。

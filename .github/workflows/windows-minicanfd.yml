@@ -213,7 +213,7 @@ jobs:
       - name: Upload verified Windows SDK
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sdk-windows-${{ matrix.arch }}-${{ matrix.configuration }}
+          name: sdk-windows-${{ matrix.arch }}-${{ matrix.configuration }}-attempt-${{ github.run_attempt }}
           path: |
             dist/*.zip
             dist/*.sha256
@@ -222,7 +222,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: native-adapters-${{ matrix.arch }}-${{ matrix.configuration }}
+          name: native-adapters-${{ matrix.arch }}-${{ matrix.configuration }}-attempt-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/cmake-tool-validation.json
             build-results.log
