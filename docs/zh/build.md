@@ -210,12 +210,14 @@ env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_pa
 
 独立的 `C++ Report Card` 工作流在 Linux ARM64 上运行固定完整提交 SHA 的
 [cppreportcard-action](https://github.com/soulteary/cppreportcard-action) v1.0.2。
-构建项目、quickstart 和安装后消费者后，合并三份编译数据库，以 `full` 模式运行
-clang-format 18、clang-tidy 18 和 Cppcheck，覆盖主工程源码、测试及两个独立示例。
+构建项目、quickstart、安装后消费者和共享库消费者后，合并四份编译数据库，以 `full`
+模式运行 clang-format 18、clang-tidy 18 和 Cppcheck，覆盖主工程源码、测试及独立消费者。
 
-配置位于 `.cppreportcard.json`。项目源文件仅排除两项：Windows 专用依赖测试文件
-`tests/vendor_fixture_dependency.cpp`，以及需要外部厂商头文件的
-`validation/pcan_header_abi.cpp`。构建产物目录与第三方依赖也不参与分析。
+配置位于 `.cppreportcard.json`。平台依赖排除项包括 Windows 专用文件
+`tests/vendor_fixture_dependency.cpp`、需要厂商头文件的 `validation/pcan_header_abi.cpp`，
+以及需要本报告环境未安装的外部 Noetic SDK 的 `validation/ros1-consumer`。ROS fixture
+在 Noetic 工作流以 warnings-as-errors 编译并运行节点/nodelet；独立全局 style job 仍对
+全部已跟踪 C++ 源码检查格式。构建产物目录与第三方依赖也不参与分析。
 报告启用 `clang-analyzer-*` 和 `bugprone-*`，不替代现有 style 工作流中不同的规则集
 或平台验证。
 
@@ -353,17 +355,20 @@ ctest --test-dir build-consumer --output-on-failure --no-tests=error --timeout 6
 顶层 Linux 构建默认生成 TGZ：
 
 ```bash
-cpack --config build-release/CPackConfig.cmake -B dist
+cpack --config build-release/CPackConfig.cmake -B "$PWD/dist"
 ```
 
-CPack 生成相邻 SHA256 文件；Linux 文件名包含版本、系统和架构，**不含 Debug/Release**，
-因此不同配置使用独立的产物目录。Windows ZIP 命名及运行库另见专项说明。
+CPack 生成相邻 SHA256 文件；新 Linux 包名包含版本、系统、架构、构建发行版、编译器、
+标准库和配置。不同配置仍使用独立构建目录，已发布资产保留原名。Windows ZIP 命名及
+运行库另见专项说明。
 
 `share/linkerbot-comm/build-info.json` 包含版本、`comm_sha`、`source_dirty`、系统、架构、
 编译器、工具集、配置和运行库。来源信息在 CMake 配置时生成：更换源码提交后应重新配置，
 不能用旧构建目录的 metadata 声称新提交已验证。无 Git 的导出源码可显式传入完整 SHA，
 但它是调用者提供的来源说明，不是内容校验或签名。
-`source_dirty` 来自已跟踪文件的 Git diff，不会证明没有未跟踪文件，也不校验另行安装的厂商二进制。
+`source_dirty` 包含 Git status 中的已跟踪变更和未忽略的未跟踪文件，不检查被忽略文件
+或另行安装的厂商二进制。严格发行输入、扩展 metadata 与验证目标见 [CI 产物与兼容性](ci.md)。
 
 发行前核对干净源码、版本、配置、架构和 SHA256，并重新执行安装后消费验证。
-本库构建不自动创建 GitHub Release、签名标签或镜像；CI 成功和打包成功都不等于正式发布。
+本库构建不自动创建 GitHub Release、签名标签或镜像。独立发行工作流仅在显式手动请求
+且门禁通过后创建草稿；CI 成功和打包成功都不等于正式发布。

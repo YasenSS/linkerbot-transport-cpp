@@ -13,6 +13,11 @@ concurrency:
   group: cppreportcard-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CMAKE_CXX_COMPILER_LAUNCHER: ccache
+  CCACHE_COMPILERCHECK: content
+  CCACHE_MAXSIZE: 500M
+
 jobs:
   report:
     name: Full report (ubuntu-24.04-arm)
@@ -20,11 +25,19 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Restore analysis compiler cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/comm-ccache
+          key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-report-clang18-libstdcxx-${{ github.sha }}
+          restore-keys: |
+            ccache-v1-${{ runner.os }}-${{ runner.arch }}-report-clang18-libstdcxx-
       - name: Install build and analysis tools
         run: |
+          echo "CCACHE_DIR=$RUNNER_TEMP/comm-ccache" >> "$GITHUB_ENV"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build clang-18 clang-format-18 clang-tidy-18 cppcheck
+            ccache build-essential cmake ninja-build clang-18 clang-format-18 clang-tidy-18 cppcheck
       - name: Configure and build analysis inputs
         id: analysis_inputs
         run: |
@@ -43,11 +56,17 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_PREFIX_PATH="$PWD/build/report-install"
           cmake --build build/report-consumer --parallel 4
+          cmake -S validation/shared-consumer -B build/report-shared-consumer -G Ninja \
+            -DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_PREFIX_PATH="$PWD/build/report-install"
+          cmake --build build/report-shared-consumer --parallel 4
+          ctest --test-dir build/report-shared-consumer --output-on-failure --no-tests=error
           python3 validation/prepare-report-db.py \
             --output build/report-compile-commands.json \
             build/report/compile_commands.json \
             build/report-quickstart/compile_commands.json \
-            build/report-consumer/compile_commands.json
+            build/report-consumer/compile_commands.json \
+            build/report-shared-consumer/compile_commands.json
       - name: Verify test-framework analysis model
         run: |
           python3 validation/test-cppcheck-model.py --compile-commands build/report-compile-commands.json
@@ -68,6 +87,9 @@ jobs:
           commit: 'false'
       - name: Require a complete A+ report
         run: python3 validation/check-quality-report.py .github/cppreportcard/report.json
+      - name: Compiler cache statistics
+        if: always()
+        run: ccache --show-stats
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

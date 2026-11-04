@@ -12,6 +12,7 @@ require parameters confirmed for the actual hardware; offline CI does not run th
 - [Terminology and observable behavior](en/terminology.md)
 - [Build, install and CMake integration](en/build.md)
 - [Release downloads, checksums and documentation](en/releases.md)
+- [CI packages and compatibility validation](en/ci.md)
 - [Windows builds and standalone packages](en/windows-build.md)
 - [Public API, threading and ownership](en/api.md)
 - [Session, routing and lifecycle](en/session.md)
@@ -45,6 +46,7 @@ under `docs/archive/`, with a historical-status notice and a link to this index.
 - [术语与可观测行为](zh/terminology.md)：后端接受、CAN 确认、业务确认、超时和恢复的精确定义。
 - [构建、安装与 CMake 接入](zh/build.md)：依赖、选项、Debug/Release、覆盖率、安装消费。
 - [发行版下载、校验与文档](zh/releases.md)：稳定版入口、源码标签、SDK 包和文档勘误。
+- [CI 产物与兼容性验证](zh/ci.md)：Ubuntu 20.04 至 26.04、Noetic、缓存和草稿发行。
 - [Windows 构建与独立通信包](zh/windows-build.md)：MSVC、运行库、ZIP、来源和校验。
 - [性能测量与 ARM64 结果](zh/performance.md)：计时、分配、空闲唤醒与优化取舍。
 - [质量报告诊断复核](zh/quality-review.md)：逐项分类、确认的缺陷、误报与分析模型。
