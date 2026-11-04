@@ -5,12 +5,18 @@ on:
     branches: [main, master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      analysis_jobs:
+        description: Analyzer concurrency (2 for baseline, 4 for comparison)
+        type: choice
+        options: ['2', '4']
+        default: '4'
 
 permissions:
   contents: read
 
 concurrency:
-  group: style-${{ github.workflow }}-${{ github.ref }}
+  group: style-${{ github.workflow }}-${{ github.ref }}-${{ inputs.analysis_jobs || '4' }}
   cancel-in-progress: true
 
 jobs:
@@ -20,6 +26,10 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Record bounded analysis concurrency
+        env:
+          REQUESTED_JOBS: ${{ inputs.analysis_jobs || '4' }}
+        run: python3 ci/analysis/configure-jobs.py --jobs "$REQUESTED_JOBS" --output build/analysis-benchmark
       - name: Install Clang tools
         run: |
           sudo apt-get update
@@ -56,7 +66,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          run-clang-tidy-18 -p build-tidy -j 2 -quiet \
+          /usr/bin/time -v -o clang-tidy-project-time.txt run-clang-tidy-18 -p build-tidy -j "$ANALYSIS_JOBS" -quiet \
             -warnings-as-errors='*' \
             "^${GITHUB_WORKSPACE}/(src|examples)/.*[.]cpp$|^${GITHUB_WORKSPACE}/tests/(?!test_).*[.]cpp$" \
             2>&1 | tee clang-tidy-project.log
@@ -66,7 +76,7 @@ jobs:
           set -o pipefail
           # TEST_CASE creates a static Catch2 registrar. cert-err58-cpp has no
           # macro-ignore option, so only Catch2 case translation units exclude it.
-          run-clang-tidy-18 -p build-tidy -j 2 -quiet \
+          /usr/bin/time -v -o clang-tidy-tests-time.txt run-clang-tidy-18 -p build-tidy -j "$ANALYSIS_JOBS" -quiet \
             -checks=-cert-err58-cpp \
             -warnings-as-errors='*' \
             "^${GITHUB_WORKSPACE}/tests/test_.*[.]cpp$" \
@@ -97,6 +107,8 @@ jobs:
         with:
           name: clang-style-ubuntu-24.04-arm
           path: |
+            build/analysis-benchmark/
+            clang-tidy-*-time.txt
             clang-style-toolchain.txt
             clang-format.log
             clang-tidy-project.log
