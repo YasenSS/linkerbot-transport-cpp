@@ -35,6 +35,7 @@ jobs:
               apt-get install -y --no-install-recommends build-essential cmake ninja-build git ca-certificates python3 binutils
               git config --global --add safe.directory /src
               python3 validation/package/test-verify-package.py
+              python3 ci/test-unpack-sdk.py
               g++ --version
               cmake --version
               cmake -S . -B build/package -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -45,7 +46,8 @@ jobs:
                 -DLINKERBOT_COMM_SOURCE_REVISION="$SOURCE_SHA" \
                 -DLINKERBOT_COMM_BUILD_IMAGE="$BUILD_IMAGE"
               cmake --build build/package --parallel 4
-              cpack --config build/package/CPackConfig.cmake -C Release -B dist
+              # CPack 3.16 can silently create an empty archive with a relative -B.
+              cpack --config build/package/CPackConfig.cmake -C Release -B "$PWD/dist"
               prefix=$(bash ci/unpack-sdk.sh /src/dist "/tmp/SDK with spaces")
               python3 validation/package/verify-package.py "$prefix" --sha "$SOURCE_SHA" \
                 --arch "$(uname -m)" --configuration Release --require-clean
