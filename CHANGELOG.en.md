@@ -2,10 +2,11 @@
 
 English · [简体中文](CHANGELOG.md)
 
-## Unreleased
+## 0.3.2 — 2026-11-04
 
 - Produce eight native Ubuntu SDK archives (20.04/22.04/24.04/26.04 × x86_64/ARM64) and four native Windows archives (x64/ARM64 × Debug/Release), rather than treating baseline consumption tests as distinct distribution builds.
 - Validate the exact 12-target release set, archive machines and distribution identities before assembling 26 uploaded assets. Preserve Focal cross-distribution and Noetic checks and leave existing releases unchanged.
+- Correct the wrong-machine Windows DLL fixture to choose the opposite supported architecture, retaining loader rejection on native ARM64 as well as x64. Production loader behavior and public APIs are unchanged.
 
 ## 0.3.1 — 2026-11-04
 

@@ -2,10 +2,11 @@
 
 [English](CHANGELOG.en.md) · 简体中文
 
-## 未发布
+## 0.3.2 — 2026-11-04
 
 - 实际构建八份原生 Ubuntu SDK（20.04/22.04/24.04/26.04 × x86_64/ARM64）及四份原生 Windows SDK（x64/ARM64 × Debug/Release），不再把基线消费测试当成独立发行版产物。
 - 汇总 26 个上传附件前验证精确的 12 目标集合、库对象架构和发行版身份，保留 Focal 跨发行版及 Noetic 检查，不替换已有发行版。
+- 错误架构 Windows DLL 负例根据原始 machine 选择相反架构，在原生 ARM64 和 x64 上保留 loader 拒绝断言；生产 loader 行为与公共 API 不变。
 
 ## 0.3.1 — 2026-11-04
 

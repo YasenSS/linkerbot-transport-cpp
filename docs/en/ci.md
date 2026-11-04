@@ -4,8 +4,8 @@
 
 The CI separates actual SDK production from quality checks and cross-distribution consumption.
 The current release target is **12 independently built SDK archives**, declared in
-`ci/package-targets.json`. This changes future builds; it does not replace the four SDK archives
-already published in 0.3.1. A workflow target is not evidence of hardware acceptance.
+`ci/package-targets.json`. This matrix applies to 0.3.2 and later builds; the four SDK archives
+already published in 0.3.1 remain unchanged. A workflow target is not evidence of hardware acceptance.
 
 ## Actual package matrix
 
@@ -100,4 +100,4 @@ package cannot satisfy a different distribution identity.
 The draft job rechecks the remote tag, refuses existing releases, uploads the already-tested
 bytes and downloads them to compare hashes. It alone has repository write permission. It never
 automatically publishes or moves tags. Inspect an incomplete draft before retrying; released
-bytes require a new version instead of replacement. This PR creates no tag or Release.
+bytes require a new version instead of replacement. Changing these workflows does not itself create a tag or Release.

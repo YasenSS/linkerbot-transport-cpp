@@ -4,13 +4,16 @@
 
 [文档索引](../README.md) · [源码构建](build.md) · [升级与回滚](operations.md)
 
-## 后续发行产物矩阵
+## 0.3.2 产物矩阵
 
-后续工作流要求八份实际 Ubuntu 专用 Release SDK（20.04、22.04、24.04、26.04 ×
+[v0.3.2 发行页面](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.2)
+在验证和发布完成后提供下载。0.3.2 工作流要求八份实际 Ubuntu 专用 Release SDK（20.04、22.04、24.04、26.04 ×
 x86_64/aarch64），以及四份 Windows SDK（x64/ARM64 × Debug/Release）。每个 Ubuntu
 包均在自身发行版构建和消费，另保留 Focal 跨发行版及 Noetic 检查。十二份归档、十二份
 单包校验文件、manifest 和总校验清单共 26 个上传附件。Windows ARM64 须通过原生运行
-和对象 machine 校验才能发行。见 [CI 产物政策](ci.md)，不增补或替换下方 0.3.1 资产。
+和对象 machine 校验才能发行。核对签名标签、`release-manifest.json` 和全部校验值，
+选择匹配的发行版、架构和 CRT。清单记录来源、构建身份和验证运行；原生 SDK 检查不证明
+厂商驱动或硬件可用。见 [CI 产物政策](ci.md)，不增补或替换下方 0.3.1 资产。
 
 ## 0.3.1 产物政策
 
