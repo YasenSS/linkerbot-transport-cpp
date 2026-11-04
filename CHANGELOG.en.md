@@ -2,7 +2,22 @@
 
 English · [简体中文](CHANGELOG.md)
 
-## Unreleased
+## 0.3.1 — 2026-11-04
+
+### Builds and packages
+
+- Build native x86_64 and ARM64 Release SDKs with the Ubuntu 20.04/GCC 9 baseline. Validate the same packages in Ubuntu 20.04/22.04/24.04/26.04 userspaces; PR checks cover the oldest and newest endpoints, while full runs cover all four.
+- Enable PIC for the static SDK and add relocated executable/shared-library consumers. Add real Noetic catkin node/nodelet FakeTransport tests on Focal, including unload; the core library gains no ROS dependency.
+- Include build distribution, compiler, probed standard library/dual ABI and configuration in new Linux package identities. Fix configuration-specific standard-library detection and multi-config Debug/Release package collisions. Reject unsupported Windows package architectures instead of mislabelling them x64.
+- Use an absolute CPack output directory on Focal and reject empty SDK archives even when their SHA256 matches. Validate all ELF archive objects, metadata and unwanted runtime/test components.
+- Cache Linux compilation and the verified-source minimum CMake installation without removing existing quality gates. No measured speedup is claimed.
+- Add exact-source release validation and opt-in draft creation from the same tested Linux/Windows artifacts, with a manifest, checksums and download verification. Automatic publication and replacement of existing assets remain disabled.
+
+### Compatibility and validation limits
+
+- C++17, public APIs, CMake target names and installation layout remain unchanged. New Linux archive names require updates to filename-based download scripts. Select matching architecture, standard library/ABI and Windows CRT; rebuild dependent applications as needed.
+- Containers validate userspace integration, not native kernels, vendor drivers or hardware. Noetic is upstream EOL and is checked only on Focal. Image digests are recorded per run, but mutable apt inputs mean byte-reproducible builds are not promised.
+- Preserve the existing 0.3.0 tags, assets and historical validation records. No protocol or persistent-data migration is required.
 
 - Correct post-release support status, add bilingual 0.3.0 download and verification instructions, and link the README badge to the released commit's full report. These documentation changes do not replace the signed tag or published packages.
 
