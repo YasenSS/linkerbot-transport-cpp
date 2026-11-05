@@ -107,6 +107,9 @@ namespace {
         Pty &operator=(const Pty &) = delete;
     };
 } // namespace
+// GNU ld --wrap requires these exact reserved symbol names. Keep the exception
+// scoped to the linker ABI declarations and definitions, not the test code.
+// NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp,readability-identifier-naming)
 extern "C" {
 void *__real_dlopen(const char *, int);
 int __real_dladdr(const void *, Dl_info *);
@@ -291,6 +294,7 @@ int __wrap_close(int fd) {
     return take(Fault::kClose) ? -1 : result;
 }
 }
+// NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp,readability-identifier-naming)
 TEST_CASE("Linux serial setup failures release exclusive ownership", "[serial][syscalls]") {
     Pty pty;
     linkerbot::serial::Config config;

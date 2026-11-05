@@ -278,17 +278,28 @@ auto main() -> int {
             countdown = 0;
             unknown_failure = unknown;
         });
+        std::atomic<unsigned> received{0};
         auto session = transport::Session::share(bus);
         auto inbox = session->subscribe_routes({{0x20, false}}, 256);
-        bus->subscribe([](const can::Message &) {
+        bus->subscribe([&](const can::Message &) {
             countdown = -1;
             unknown_failure = false;
+            received.fetch_add(1, std::memory_order_release);
         });
         can::Message frame;
         frame.id = 0x20;
         for (unsigned i = 0; i < 100; ++i) {
             raw->inject(frame);
         }
+        // Finish the trailing reset for every injected frame before starting
+        // lifecycle operations. stop() may otherwise skip the remaining
+        // subscribers and leave a fault armed for dispatcher teardown.
+        const auto received_until = transport::Clock::now() + std::chrono::seconds(2);
+        while (received.load(std::memory_order_acquire) != 100 &&
+               transport::Clock::now() < received_until) {
+            std::this_thread::yield();
+        }
+        require(received.load(std::memory_order_acquire) == 100);
         require(await_closed(session));
         require(!session->health().open);
         require(inbox->health().closed);
