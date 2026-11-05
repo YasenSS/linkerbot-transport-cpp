@@ -76,7 +76,7 @@ When a static owner obtains `Session::share()` or `Session::borrow()` in `main()
 
 No local x86 run was performed; amd64 was checked by the GitHub CI runs above. No hardware acceptance was performed, nor was `validation/pcan_header_abi.cpp`, which needs an external official PCAN header, compiled for this PR #5 local record. The first local Release configuration stopped before building because downloads were disabled and no Catch2 package path was supplied. With the cached fixed Catch2 3.8.1 source, the complete Release build and CTest passed. Passed, failed, and skipped items are distinct evidence.
 
-The earlier records in this section belong to the `soulteary/linkerbot-transport-cpp` fork and do not by themselves establish upstream main's state. The release section above records the later upstream checks for the published commit. A secondary Gitea workflow is present, but no publicly verifiable act_runner run is recorded here. Its configuration, or a GitHub YAML check, is not evidence of a successful Gitea run.
+The earlier records in this section belong to the `soulteary/linkerbot-transport-cpp` fork and do not by themselves establish upstream main's state. The release section above records the later upstream checks for the published commit.
 
 ## Platform and device capabilities
 

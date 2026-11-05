@@ -355,12 +355,6 @@ generic style job; record explicitly whether that check ran or was skipped.
 Formatting/static-analysis success does not establish build, CTest, sanitizer, hardware or
 release success; retain each result separately.
 
-`.gitea/workflows/ci.yaml` is a secondary offline configuration for `main`/`master`, using a
-pinned Catch2 3.7.1 mirror. It builds all Debug/Release targets, runs CTest, the example and
-installed consumer, and enforces the same 95% Debug line-coverage threshold. It lacks GitHub's
-dual-architecture Clang/sanitizer/style matrix, and runner architecture depends on the Gitea
-instance. Configuration existence does not establish that a commit ran on Gitea; attach an actual run.
-
 ## Source-tree and installed integration
 
 For source-tree integration, define the consumer's `your-sdk` target first:
