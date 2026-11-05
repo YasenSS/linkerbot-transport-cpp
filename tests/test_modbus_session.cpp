@@ -83,6 +83,7 @@ TEST_CASE("RTU device exceptions preserve the line for the next transaction", "[
 }
 TEST_CASE("RTU failure after transmission faults the line without retrying", "[modbus][session]") {
     for (int scenario = 0; scenario < 8; ++scenario) {
+        INFO("scenario: " << scenario);
         auto wire = std::make_shared<RtuWire>();
         if (scenario == 0) {
             wire->reply = [](const Bytes &) { return Bytes{}; };
@@ -114,7 +115,7 @@ TEST_CASE("RTU failure after transmission faults the line without retrying", "[m
             wire->oversized_read = true;
         }
         auto session = make_session(wire);
-        const auto result = session->transact(kRead, options(20ms));
+        const auto result = session->transact(kRead, options());
         REQUIRE(result.error);
         REQUIRE(result.delivery_uncertain);
         REQUIRE(session->health().faulted);
@@ -142,9 +143,11 @@ TEST_CASE("RTU rejects stale input and does not consume it as a fresh reply", "[
 }
 TEST_CASE("RTU admission budget includes quiet interval and does not fault an unsent request",
           "[modbus][session]") {
+    auto config = rtu_config();
+    config.serial.baud_rate = 50; // Keep the quiet interval well above the admission budget.
     auto wire = std::make_shared<RtuWire>();
-    auto session = make_session(wire);
-    const auto result = session->transact(kRead, options(1ms));
+    auto session = make_session(wire, config);
+    const auto result = session->transact(kRead, options(100ms));
     REQUIRE(result.outcome == Outcome::kExpired);
     REQUIRE_FALSE(result.delivery_uncertain);
     REQUIRE_FALSE(session->health().faulted);
@@ -164,7 +167,7 @@ TEST_CASE("RTU local echo requires an explicit matching adapter profile", "[modb
     Client client(session, 1);
     REQUIRE(client.write_single_register(0, 0x1234, options()).outcome == Outcome::kResponse);
     wire->reply = normal_reply;
-    const auto result = session->transact(kRead, options(20ms));
+    const auto result = session->transact(kRead, options());
     REQUIRE(result.error);
     REQUIRE(session->health().faulted);
 }
@@ -274,6 +277,7 @@ TEST_CASE("RTU close wakes active and waiting operations", "[modbus][session][co
 TEST_CASE("RTU recovery advances generation without replay and leaves failures faulted",
           "[modbus][session][concurrency]") {
     auto old = std::make_shared<RtuWire>();
+    old->fail_write = true;
     auto next = std::make_shared<RtuWire>();
     next->reply = normal_reply;
     std::atomic<unsigned> calls{0};
@@ -288,7 +292,10 @@ TEST_CASE("RTU recovery advances generation without replay and leaves failures f
             }
             return std::make_unique<RtuStream>(call == 1 ? old : next);
         });
-    REQUIRE(session->transact(kRead, options(10ms)).error);
+    const auto failed = session->transact(kRead, options());
+    REQUIRE(failed.error);
+    REQUIRE(failed.delivery_uncertain);
+    REQUIRE(old->writes == 1);
     REQUIRE(session->recover(1) == 2);
     REQUIRE(old->closed);
     REQUIRE(next->writes == 0);
@@ -371,10 +378,16 @@ TEST_CASE("RTU truncated and mismatched frames never become successful transacti
     for (const auto &response :
          std::vector<Bytes>{Bytes{1, 3, 4}, with_crc({1, 4, 4, 0, 1, 0, 2}),
                             with_crc({1, 3, 2, 0, 1}), with_crc({1, 0x83, 0})}) {
+        INFO("response length: " << response.size());
         auto wire = std::make_shared<RtuWire>();
+        wire->idle_wakeup_delay = 30ms;
         wire->reply = [response](const Bytes &) { return response; };
         auto session = make_session(wire);
-        const auto result = session->transact(kRead, options(20ms));
+        const auto result = session->transact(kRead, options());
+        INFO("bytes sent: " << result.bytes_sent << ", dispatched: " << result.request_dispatched
+                            << ", uncertain: " << result.delivery_uncertain);
+        REQUIRE(result.request_dispatched);
+        REQUIRE(result.bytes_sent == 8);
         REQUIRE(result.error);
         REQUIRE(result.delivery_uncertain);
         REQUIRE(session->health().faulted);
