@@ -133,6 +133,14 @@ int __wrap_dladdr(const void *address, Dl_info *info) {
 int __wrap_stat(const char *path, struct stat *info) {
     return take(Fault::kStat) ? -1 : __real_stat(path, info);
 }
+#ifdef _STAT_VER
+// glibc before 2.33 inlines stat() as __xstat(_STAT_VER, ...). Wrapping
+// stat alone leaves the production call untouched on Focal/GCC 9.
+int __real___xstat(int, const char *, struct stat *);
+int __wrap___xstat(int version, const char *path, struct stat *info) {
+    return take(Fault::kStat) ? -1 : __real___xstat(version, path, info);
+}
+#endif
 int __wrap_setsockopt(int fd, int level, int option, const void *value, socklen_t size) {
     if (option == SO_SNDTIMEO && take(Fault::kSendTimeout)) {
         return -1;
