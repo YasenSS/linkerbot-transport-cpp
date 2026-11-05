@@ -305,6 +305,11 @@ jobs:
           (cd quickstart-minimum && "$RUNNER_TEMP/cmake-minimum-install/bin/ctest" \
             --output-on-failure --timeout 60 \
             --output-log ../minimum-quickstart-results.log)
+      - name: Verify canonical and legacy discovery with minimum CMake
+        run: |
+          python3 validation/package/test-naming.py \
+            --prefix "$RUNNER_TEMP/transport minimum install" \
+            --cmake "$RUNNER_TEMP/cmake-minimum-install/bin/cmake"
       - name: Compiler cache statistics
         if: always()
         run: ccache --show-stats

@@ -41,6 +41,7 @@ def main():
         "legacy": ("find_package(linkerbot-comm 0.3 CONFIG REQUIRED)", "comm"),
         "legacy-first": ("find_package(linkerbot-comm 0.3 CONFIG REQUIRED)\nfind_package(linkerbot-transport 0.3 CONFIG REQUIRED)", "can"),
         "canonical-first": ("find_package(linkerbot-transport 0.3 CONFIG REQUIRED)\nfind_package(linkerbot-comm 0.3 CONFIG REQUIRED)", "comm"),
+        "nested-discovery": ("find_package(linkerbot-transport 0.3 CONFIG REQUIRED)\nadd_subdirectory(nested)", "comm"),
         "direct-export": ('include("${CMAKE_PREFIX_PATH}/' + canonical.parent.relative_to(prefix).as_posix() + '/cmake/linkerbot-comm/linkerbot-comm-targets.cmake")', "comm"),
     }
     source_root = Path(__file__).resolve().parents[2].as_posix()
@@ -55,6 +56,9 @@ def main():
         for name, (discovery, target) in cases.items():
             source = root / name
             source.mkdir()
+            if name == "nested-discovery":
+                (source / "nested").mkdir()
+                (source / "nested/CMakeLists.txt").write_text("find_package(linkerbot-comm 0.3 CONFIG REQUIRED)\nfind_package(linkerbot-transport 0.3 CONFIG REQUIRED)\n")
             (source / "CMakeLists.txt").write_text('''cmake_minimum_required(VERSION 3.16)
 project(naming-consumer LANGUAGES CXX)
 ''' + discovery + '''
