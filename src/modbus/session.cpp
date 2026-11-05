@@ -274,7 +274,11 @@ namespace linkerbot::modbus {
         impl_->health.recovering = true;
         impl_->health.faulted = true;
         impl_->changed.notify_all();
+        // Lifecycle ownership keeps the stream alive while backend diagnostics
+        // re-enter health(). Never invoke application code under the state lock.
+        lock.unlock();
         impl_->stream->cancel();
+        lock.lock();
         impl_->changed.wait(lock, [&] { return !impl_->active && impl_->queue.empty(); });
         lock.unlock();
         try {
@@ -309,8 +313,10 @@ namespace linkerbot::modbus {
         std::unique_lock<std::mutex> lock(impl_->mutex);
         impl_->require_external();
         impl_->health.open = false;
-        impl_->stream->cancel();
         impl_->changed.notify_all();
+        lock.unlock();
+        impl_->stream->cancel();
+        lock.lock();
         impl_->changed.wait(lock, [&] { return !impl_->active && impl_->queue.empty(); });
         lock.unlock();
         impl_->stream->close();

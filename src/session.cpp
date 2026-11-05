@@ -155,6 +155,7 @@ namespace linkerbot::transport {
         std::thread writer;
         bool stopping = false;
         bool recovering = false;
+        bool terminal_failure = false;
         size_t tx_capacity = 2000;
         uint64_t sequence = 0;
         SessionHealth health;
@@ -197,7 +198,7 @@ namespace linkerbot::transport {
         void refresh() {
             const auto h = bus ? bus->get_health() : borrowed->get_health();
             std::lock_guard<std::mutex> lock(mutex);
-            if (stopping || recovering) {
+            if (stopping || recovering || terminal_failure) {
                 return;
             }
             if (h.generation != health.generation || (!h.connected() && health.open)) {
@@ -254,11 +255,13 @@ namespace linkerbot::transport {
                 std::lock_guard<std::mutex> lock(mutex);
                 health.last_error = error.what();
                 health.open = false;
+                terminal_failure = true;
                 invalidate_locked(std::current_exception());
             } catch (...) {
                 std::lock_guard<std::mutex> lock(mutex);
                 health.last_error = "non-standard route failure";
                 health.open = false;
+                terminal_failure = true;
                 invalidate_locked(std::current_exception());
             }
         }
@@ -396,6 +399,7 @@ namespace linkerbot::transport {
                 std::lock_guard<std::mutex> lock(mutex);
                 health.open = false;
                 health.last_error = "send worker failed";
+                terminal_failure = true;
                 if (claimed) {
                     finish(claimed, SendOutcome::failed, std::current_exception(), 0, true);
                 }
@@ -1064,6 +1068,9 @@ namespace linkerbot::transport {
             std::unique_lock<std::mutex> lock(p.mutex);
             if (p.stopping) {
                 throw can::ClosedError("closed session cannot recover");
+            }
+            if (p.terminal_failure) {
+                throw can::FaultedError("Session internal failure; close and recreate the session");
             }
             if (p.health.generation != observed_generation && p.health.open) {
                 return p.health.generation;

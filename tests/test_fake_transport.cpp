@@ -7,6 +7,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <future>
+#include <thread>
 #include <vector>
 
 using linkerbot::can::FakeTransport;
@@ -241,4 +243,48 @@ TEST_CASE("close makes writes fail and drops injections", "[fake_transport]") {
     REQUIRE_THROWS_AS(transport.write(sense(0x28, std::byte{0x01})), linkerbot::can::ClosedError);
     transport.inject(sense(0x28, std::byte{0x02}));
     REQUIRE_THROWS_AS(transport.read(), linkerbot::can::ClosedError);
+}
+
+TEST_CASE("Fake transport rejects direct operations after close and saved write errors", "[fake]") {
+    linkerbot::can::FakeTransport fake;
+    linkerbot::can::Message frame;
+    frame.id = 1;
+    fake.write_batch({});
+    fake.fail_writes("injected write failure");
+    REQUIRE_THROWS_AS(fake.write_batch({frame}), linkerbot::can::TransportIOError);
+    fake.close();
+    REQUIRE_THROWS_AS(fake.read(), linkerbot::can::ClosedError);
+    REQUIRE_THROWS_AS(fake.write(frame), linkerbot::can::ClosedError);
+    REQUIRE_THROWS_AS(fake.write_batch({frame}), linkerbot::can::ClosedError);
+}
+
+TEST_CASE("Fake batch replies wake a waiting reader", "[fake]") {
+    linkerbot::can::FakeTransport fake;
+    fake.echo_cmd(0x20, 1, 1, 7);
+    linkerbot::can::Message frame;
+    frame.id = 0x20;
+    frame.dlc = 1;
+    frame.data[0] = 1;
+    fake.write_batch({frame});
+    const auto reply = fake.read();
+    REQUIRE(reply.has_value());
+    REQUIRE(reply->data[1] == 7);
+}
+
+TEST_CASE("Fake read failure wakes an idle receiver", "[fake][concurrency]") {
+    FakeTransport fake;
+    std::promise<void> starting;
+    auto reader = std::async(std::launch::async, [&] {
+        starting.set_value();
+        for (;;) {
+            (void)fake.read();
+        }
+    });
+    starting.get_future().wait();
+    // Leave the reader idle in its bounded condition-variable wait before
+    // injecting the error. Both a concurrent and an already-published error
+    // must reach the caller rather than returning an empty successful read.
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    fake.fail_reads("injected idle read failure");
+    REQUIRE_THROWS_AS(reader.get(), linkerbot::can::TransportIOError);
 }

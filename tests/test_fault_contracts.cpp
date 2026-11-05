@@ -313,3 +313,20 @@ TEST_CASE("pool coordinates concurrent opens and retries after an initial factor
     lease.close();
     REQUIRE(pool.active_keys().empty());
 }
+
+TEST_CASE("managed fault reporting exceptions do not replace the original fault",
+          "[managed_bus][faults]") {
+    auto state = std::make_shared<FaultState>();
+    can::ManagedCANBus::Options options;
+    options.dispatcher.max_consecutive_errors = 1;
+    options.on_fault = [](const can::CANError &) { throw 42; };
+    can::ManagedCANBus bus([&] { return std::make_unique<FaultTransport>(state); }, options);
+    bus.start();
+    state->read = Failure::kIo;
+    REQUIRE(await([&] { return bus.get_health().state == can::TransportState::kFaulted; }));
+    REQUIRE(bus.get_health().last_error_code == can::ErrorCode::kTransportIo);
+    state->read = Failure::kNone;
+    bus.stop();
+    can::CANBusLease::retry_deferred_cleanup();
+    can::CANBusLease::drain_deferred_cleanup();
+}

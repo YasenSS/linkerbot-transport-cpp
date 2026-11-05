@@ -155,8 +155,14 @@ namespace linkerbot::serial {
                         rs485.flags = SER_RS485_ENABLED |
                                       (config.rts_high_during_send ? SER_RS485_RTS_ON_SEND
                                                                    : SER_RS485_RTS_AFTER_SEND);
+                        const auto requested = rs485.flags;
                         if (::ioctl(fd_, TIOCSRS485, &rs485) != 0) {
                             io_error("configure kernel RS485");
+                        }
+                        constexpr auto direction =
+                            SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND | SER_RS485_RTS_AFTER_SEND;
+                        if ((rs485.flags & direction) != (requested & direction)) {
+                            throw IOError("Kernel RS485 did not retain requested direction flags");
                         }
                     }
                     if (::ioctl(fd_, TCFLSH, 2) != 0) {

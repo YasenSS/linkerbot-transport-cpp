@@ -9,7 +9,7 @@ commands below use `ctest --test-dir`; use CMake/CTest 3.20+ for those commands.
 section gives a 3.16-compatible integration path. Catch2 3.8.1 itself declares CMake 3.16,
 but its test-discovery script needs JSON support, so this project requires CMake 3.19+
 with tests enabled. Check any separately installed Catch2 version's own requirements too.
-Linux CI uses Ubuntu 24.04: GCC 13 covers native amd64/ARM64 Debug/Release and the 95%
+Linux CI uses Ubuntu 24.04: GCC 13 covers native amd64/ARM64 Debug/Release and the 99%
 line-coverage gate; Clang 18 covers libc++, ASan+UBSan and TSan on both architectures.
 Local maintenance validation prioritizes Linux ARM64. Windows uses MSVC x64 as described
 in its guide. macOS is outside the current hardware-support and CI validation matrix.
@@ -95,7 +95,10 @@ the repetition count is not a deterministic proof.
 | `LINKERBOT_COMM_BUILD_TESTS` | ON at top level, OFF as subdirectory | Catch2 tests and native ABI fixtures |
 | `LINKERBOT_COMM_BUILD_EXAMPLES` | ON at top level, OFF as subdirectory | Build `comm-example` |
 | `LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS` | ON | Download v3.8.1 if Catch2 3 is missing |
-| `LINKERBOT_COMM_ENABLE_COVERAGE` | OFF | Linux/GCC only; requires tests ON; adds `--coverage -O0 -g` |
+| `LINKERBOT_COMM_ENABLE_COVERAGE` | OFF | Linux/GCC only; requires tests ON; adds `--coverage -fprofile-update=atomic -O0 -g` |
+| `LINKERBOT_COMM_ENABLE_SERIAL` | ON | Build and export `linkerbot::serial` |
+| `LINKERBOT_COMM_ENABLE_MODBUS` | ON | Build and export `linkerbot::modbus`; requires serial |
+| `LINKERBOT_COMM_BUILD_FUZZERS` | OFF | Build the Clang RTU codec fuzzer; requires Modbus |
 | `LINKERBOT_COMM_BUILD_BENCHMARKS` | OFF | Build the Linux-only performance harness with the root project |
 | `LINKERBOT_PERF_COUNT_ALLOCATIONS` | OFF | Instrument C++ allocations in the benchmark; available when its subdirectory is enabled |
 | `Catch2_DIR` | Located by CMake | Installed Catch2 3 CMake configuration directory |
@@ -112,7 +115,8 @@ To prohibit dependency downloads and build only the core:
 ```bash
 cmake -S . -B build-core -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF \
-  -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
+  -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF \
+  -DLINKERBOT_COMM_ENABLE_SERIAL=OFF -DLINKERBOT_COMM_ENABLE_MODBUS=OFF
 cmake --build build-core --parallel 4
 ```
 
@@ -152,10 +156,10 @@ cmake -S . -B build-coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug \
 cmake --build build-coverage --parallel 4
 ctest --test-dir build-coverage --output-on-failure --no-tests=error --timeout 60
 gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build-coverage/_deps' \
-  --fail-under-line 95 --txt --json-summary coverage-summary.json build-coverage
+  --fail-under-line 99 --txt --json-summary coverage-summary.json build-coverage
 ```
 
-95% means aggregate production **line coverage** in the Linux build, not 95% per file or
+99% means aggregate production **line coverage** in the Linux build, not 99% per file or
 per branch. It includes `src/` and `include/`, including public FakeTransport, and excludes
 test directories and Catch2. Production lines are not selectively excluded to improve the
 result. Windows code omitted by Linux conditional compilation is outside the denominator.
@@ -380,7 +384,9 @@ Applications use `find_package(linkerbot-comm 0.3 CONFIG REQUIRED)`:
 
 - `linkerbot::comm`: implementation, headers, C++17 and thread-link dependencies.
 - `linkerbot::comm-compat`: legacy flat header paths plus implementation linkage.
-- `linkerbot::comm-values`: header paths and C++17 only; implementation calls still require comm.
+- `linkerbot::comm-values`: header paths and C++17 only; link the module that implements the APIs used.
+- `linkerbot::serial`: serial byte streams (when enabled).
+- `linkerbot::modbus`: RTU transactions and serial dependency (when enabled).
 
 `SameMinorVersion` requires matching major/minor and an installed version at least as high
 as the requested version. The companion hand SDK's patch-version requirement still applies;
@@ -414,3 +420,13 @@ Before distribution, check clean source, version, configuration, architecture an
 then rerun installed-consumer validation. Building does not automatically create a GitHub
 Release, signed tag or image. The separate release workflow can create a draft only after an
 explicit manual request and its validation gates; CI and packaging success are not release completion.
+
+The serial and RTU modules export `linkerbot::serial` and `linkerbot::modbus`.
+Link their targets explicitly; `linkerbot::comm` does not pull them in. These
+unreleased additions require current source, not the published v0.3.2 package.
+See [serial and RTU](modbus-rtu.md).
+
+The allocation-failure lifecycle fixture replaces global allocation functions and
+is omitted from TSan builds, which supply their own replacements. It remains in
+GCC coverage, strict libc++ and ASan/UBSan builds; ordinary concurrency tests run
+under TSan. Linux syscall wrappers are isolated from the ordinary PTY tests.

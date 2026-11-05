@@ -1754,3 +1754,31 @@ TEST_CASE("Session finalizes diagnostics before publishing a failed receipt",
     REQUIRE(session->health().last_error == "gated diagnostic failure");
     session->close();
 }
+
+TEST_CASE("Session ignores frames for explicitly closed inboxes", "[session]") {
+    SessionRig rig;
+    auto inbox = rig.session->subscribe_routes({{0x28, false}}, 1);
+    inbox->close();
+    auto barrier = rig.session->subscribe_routes({{0x29, false}}, 1);
+    rig.fake->inject(frame(0x28));
+    rig.fake->inject(frame(0x29));
+    REQUIRE(barrier->receive_until(transport::Clock::now() + 500ms));
+    REQUIRE(inbox->health().pending == 0);
+    REQUIRE(rig.session->health().route_misses == 1);
+}
+TEST_CASE("Session worker observes cancellation of a queued token", "[session]") {
+    SessionRig rig;
+    rig.fake->arm_tx_gate();
+    auto active = rig.session->submit({{frame(0x28)}, {}, {}});
+    REQUIRE(rig.fake->wait_until_tx_entered(500ms));
+    transport::CancellationSource cancellation;
+    transport::SendOptions options;
+    options.cancellation = cancellation.token();
+    auto queued = rig.session->submit({{frame(0x29)}, {}, {}}, options);
+    cancellation.cancel();
+    rig.fake->release_tx_gate();
+    active.wait();
+    REQUIRE_THROWS_AS(queued.wait(), transport::CancelledError);
+    REQUIRE(queued.result().sent_frames == 0);
+    REQUIRE(rig.fake->sent().size() == 1);
+}

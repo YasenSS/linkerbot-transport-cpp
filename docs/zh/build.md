@@ -8,7 +8,7 @@
 `ctest --test-dir`，执行这些命令请使用 CMake/CTest 3.20+；3.16 的接入命令见下节。
 Catch2 3.8.1 本体声明最低 CMake 3.16，但其测试发现脚本需要 JSON 支持，因此本项目
 启用测试时要求 CMake 3.19+；其他已安装 Catch2 版本还须核对其自身要求。Linux CI 使用 Ubuntu 24.04，主矩阵以
-GCC 13 覆盖原生 amd64、ARM64 的 Debug/Release 与 95% 行覆盖率；Clang 18 质量矩阵
+GCC 13 覆盖原生 amd64、ARM64 的 Debug/Release 与 99% 行覆盖率；Clang 18 质量矩阵
 在两个架构上覆盖 libc++、ASan+UBSan 和 TSan。本地维护验证优先使用 Linux ARM64。
 Windows 使用 MSVC x64，见专项说明。macOS 不在当前实机支持和 CI 验证矩阵内。
 
@@ -88,7 +88,10 @@ initializer 后，等待边会绑定到新的初始化尝试。同步门固定�
 | `LINKERBOT_COMM_BUILD_TESTS` | 顶层 ON，子目录 OFF | 构建 Catch2 测试及原生 ABI fixture |
 | `LINKERBOT_COMM_BUILD_EXAMPLES` | 顶层 ON，子目录 OFF | 构建 `comm-example` |
 | `LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS` | ON | 缺少 Catch2 3 时允许下载 v3.8.1 |
-| `LINKERBOT_COMM_ENABLE_COVERAGE` | OFF | 仅 Linux/GCC；要求测试 ON；加入 `--coverage -O0 -g` |
+| `LINKERBOT_COMM_ENABLE_COVERAGE` | OFF | 仅 Linux/GCC；要求测试 ON；加入 `--coverage -fprofile-update=atomic -O0 -g` |
+| `LINKERBOT_COMM_ENABLE_SERIAL` | ON | 构建和导出 `linkerbot::serial` |
+| `LINKERBOT_COMM_ENABLE_MODBUS` | ON | 构建和导出 `linkerbot::modbus`；依赖 serial |
+| `LINKERBOT_COMM_BUILD_FUZZERS` | OFF | 构建 Clang RTU 编解码模糊测试；依赖 Modbus |
 | `LINKERBOT_COMM_BUILD_BENCHMARKS` | OFF | 在根项目中构建仅支持 Linux 的性能测量程序 |
 | `LINKERBOT_PERF_COUNT_ALLOCATIONS` | OFF | 为基准程序启用 C++ 分配计数；启用基准子目录后可用 |
 | `Catch2_DIR` | 由 CMake 查找 | 已安装的 Catch2 3 CMake 配置目录 |
@@ -104,7 +107,8 @@ initializer 后，等待边会绑定到新的初始化尝试。同步门固定�
 ```bash
 cmake -S . -B build-core -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF \
-  -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
+  -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF \
+  -DLINKERBOT_COMM_ENABLE_SERIAL=OFF -DLINKERBOT_COMM_ENABLE_MODBUS=OFF
 cmake --build build-core --parallel 4
 ```
 
@@ -141,10 +145,10 @@ cmake -S . -B build-coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug \
 cmake --build build-coverage --parallel 4
 ctest --test-dir build-coverage --output-on-failure --no-tests=error --timeout 60
 gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build-coverage/_deps' \
-  --fail-under-line 95 --txt --json-summary coverage-summary.json build-coverage
+  --fail-under-line 99 --txt --json-summary coverage-summary.json build-coverage
 ```
 
-95% 是整个 Linux 构建中生产代码的汇总**行覆盖率**，不要求每个文件或分支均为 95%。
+99% 是整个 Linux 构建中生产代码的汇总**行覆盖率**，不要求每个文件或分支均为 99%。
 统计包含 `src/` 与 `include/`（包括对外提供的 FakeTransport），排除测试目录和 Catch2，
 不排除某些生产行来提高结果。平台条件编译未进入 Linux 构建的 Windows 代码不在分母中。
 固定提交的已执行结果见 [验证记录](validation.md)，CI 文件存在本身不算通过。
@@ -339,7 +343,9 @@ ctest --test-dir build-consumer --output-on-failure --no-tests=error --timeout 6
 
 - `linkerbot::comm`：实现、头文件、C++17 和线程链接依赖。
 - `linkerbot::comm-compat`：同时提供旧的扁平头文件路径，并链接实现。
-- `linkerbot::comm-values`：头文件路径和 C++17，不链接实现；调用实现仍须链接 comm。
+- `linkerbot::comm-values`：头文件路径和 C++17，不链接实现；须链接所调用 API 对应的模块。
+- `linkerbot::serial`：串口字节流（启用时）。
+- `linkerbot::modbus`：RTU 事务及串口依赖（启用时）。
 
 `SameMinorVersion` 的包版本规则要求相同 major/minor，且安装版本不得低于请求版本。
 配套 hand SDK 的补丁版本要求仍须满足，不能只根据 `find_package(... 0.3 ...)` 成功就判断兼容。
@@ -367,3 +373,11 @@ CPack 生成相邻 SHA256 文件；新 Linux 包名包含版本、系统、架�
 发行前核对干净源码、版本、配置、架构和 SHA256，并重新执行安装后消费验证。
 本库构建不自动创建 GitHub Release、签名标签或镜像。独立发行工作流仅在显式手动请求
 且门禁通过后创建草稿；CI 成功和打包成功都不等于正式发布。
+
+串口与 RTU 分别导出 `linkerbot::serial` 和 `linkerbot::modbus`，须显式链接；
+`linkerbot::comm` 不传递链接这两项。未发布的新模块需要当前源码，已发布的 v0.3.2 包不包含它们。
+参见[串口与 RTU](modbus-rtu.md)。
+
+生命周期分配失败夹具替换全局分配函数，因此不在同样替换这些符号的 TSan 构建中运行。
+该夹具仍参与 GCC 覆盖率、严格 libc++ 和 ASan/UBSan；常规并发测试继续由 TSan 验证。
+Linux 系统调用包装夹具与常规 PTY 测试分别运行。

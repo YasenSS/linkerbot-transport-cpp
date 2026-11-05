@@ -575,3 +575,17 @@ TEST_CASE("PCAN validates every supported Classic bitrate and explicit loader co
     REQUIRE_THROWS_AS(PcanTransport(fixture.config(), nullptr), ValidationError);
     REQUIRE_FALSE(enumerate_pcan_channels(std::optional<std::string>{path()}).channels.empty());
 }
+
+TEST_CASE("PCAN explicit deferred cleanup reports the saved native failure", "[pcan]") {
+    Fixture fixture;
+    {
+        PcanTransport port(fixture.config(), fixture.api);
+        fixture.set(11, 0x200);
+    }
+    REQUIRE(pending_pcan_cleanup(fixture.api) == 1);
+    REQUIRE_THROWS_AS(retry_pcan_cleanup(fixture.api), PcanTransportError);
+    REQUIRE(pending_pcan_cleanup(fixture.api) == 1);
+    fixture.set(11, 0);
+    REQUIRE_NOTHROW(retry_pcan_cleanup(fixture.api));
+    REQUIRE(pending_pcan_cleanup(fixture.api) == 0);
+}

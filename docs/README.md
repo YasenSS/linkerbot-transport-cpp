@@ -16,6 +16,7 @@ require parameters confirmed for the actual hardware; offline CI does not run th
 - [Windows builds and standalone packages](en/windows-build.md)
 - [Public API, threading and ownership](en/api.md)
 - [Session, routing and lifecycle](en/session.md)
+- [Serial byte streams and Modbus RTU](en/modbus-rtu.md)
 - Backends: [SocketCAN](en/socketcan.md), [MiniCANFD](en/minicanfd.md),
   [PCAN](en/pcan.md), [SLCAN](en/slcan.md)
 - [Errors, diagnostics and troubleshooting](en/troubleshooting.md)
@@ -56,6 +57,7 @@ under `docs/archive/`, with a historical-status notice and a link to this index.
 
 - [公共 API 与线程/所有权契约](zh/api.md)：帧、传输层、Dispatcher、共享总线、Pool、取消和测试替身。
 - [Session、路由与生命周期](zh/session.md)：所有权、回执、共享、取消和恢复。
+- [通用串口与 Modbus RTU](zh/modbus-rtu.md)：独立模块、寄存器事务、方向控制及恢复边界。
 - [SocketCAN](zh/socketcan.md)：Linux 网络接口、Classic/FD、超时及权限。
 - [MiniCANFD](zh/minicanfd.md)：平台 ABI、厂商库、枚举及资源重试。
 - [PCAN](zh/pcan.md)：原生通道、时序、加载与故障诊断。

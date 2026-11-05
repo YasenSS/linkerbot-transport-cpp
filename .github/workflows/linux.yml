@@ -92,11 +92,11 @@ jobs:
         run: cmake --build build --parallel 4
       - name: Run offline regression
         run: ctest --test-dir build --output-on-failure --no-tests=error --timeout 60 --output-log test-results.log
-      - name: Require 95 percent production line coverage
+      - name: Require 99 percent production line coverage
         if: matrix.build_type == 'Debug'
         run: |
           gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build/_deps' \
-            --fail-under-line 95 --txt --json-summary coverage-summary.json build
+            --fail-under-line 99 --txt --json-summary coverage-summary.json build
       - name: Verify CAN-only installation with serial and RTU disabled
         if: matrix.build_type == 'Release'
         run: |
