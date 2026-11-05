@@ -166,6 +166,21 @@ if(LINKERBOT_COMM_BUILD_TESTS)
         target_compile_options(subscriber-allocation-failure PRIVATE -fno-sanitize=thread)
         target_link_options(subscriber-allocation-failure PRIVATE -fno-sanitize=thread)
     endif()
+    # TSan supplies global allocation replacements. Keep this fault-injection
+    # executable out of TSan builds; comm-tests still checks concurrent APIs.
+    if(NOT CMAKE_CXX_FLAGS MATCHES "fsanitize=thread")
+        add_executable(lifecycle-allocation-failure tests/lifecycle_allocation_failure.cpp)
+        target_link_libraries(lifecycle-allocation-failure PRIVATE linkerbot-comm)
+        if(LINKERBOT_COMM_ENABLE_MODBUS)
+            target_link_libraries(lifecycle-allocation-failure PRIVATE linkerbot-modbus)
+            target_compile_definitions(lifecycle-allocation-failure PRIVATE LINKERBOT_TEST_MODBUS)
+        endif()
+        add_test(NAME lifecycle-allocation-failure COMMAND lifecycle-allocation-failure)
+        set_tests_properties(lifecycle-allocation-failure PROPERTIES TIMEOUT 30)
+        if(NOT LINKERBOT_COMM_IS_TOP_LEVEL)
+            set_target_properties(lifecycle-allocation-failure PROPERTIES EXCLUDE_FROM_ALL TRUE)
+        endif()
+    endif()
     add_test(NAME subscriber-allocation-failure COMMAND subscriber-allocation-failure)
     set_tests_properties(subscriber-allocation-failure PROPERTIES TIMEOUT 10)
     if(NOT LINKERBOT_COMM_IS_TOP_LEVEL)
@@ -182,6 +197,21 @@ if(LINKERBOT_COMM_BUILD_TESTS)
         add_executable(serial-tests tests/main.cpp tests/test_serial.cpp)
         target_link_libraries(serial-tests PRIVATE linkerbot-serial linkerbot-comm Catch2::Catch2)
         catch_discover_tests(serial-tests)
+    endif()
+    # GNU/ELF wrapping is isolated from the ordinary PTY and concurrency tests.
+    # Production targets are static; wrappers do not affect the ABI fixture DLLs.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND LINKERBOT_COMM_ENABLE_SERIAL)
+        add_executable(linux-syscall-tests tests/main.cpp tests/test_linux_syscalls.cpp)
+        target_link_libraries(linux-syscall-tests PRIVATE linkerbot-serial linkerbot-comm Catch2::Catch2)
+        foreach(call open eventfd flock ioctl poll read write close dlopen dladdr stat setsockopt)
+            target_link_options(linux-syscall-tests PRIVATE "-Wl,--wrap=${call}")
+        endforeach()
+        add_dependencies(linux-syscall-tests pcan-fixture vendor-fixture)
+        add_test(NAME linux-syscall-faults COMMAND ${CMAKE_COMMAND} -E env
+            "LINKERBOT_TEST_VENDOR_LIBRARY=$<TARGET_FILE:vendor-fixture>"
+            "LINKERBOT_TEST_PCAN_LIBRARY=$<TARGET_FILE:pcan-fixture>"
+            $<TARGET_FILE:linux-syscall-tests>)
+        set_tests_properties(linux-syscall-faults PROPERTIES TIMEOUT 30)
     endif()
     if(LINKERBOT_COMM_ENABLE_MODBUS)
         # Compile the optional libFuzzer entry point in ordinary test builds too,

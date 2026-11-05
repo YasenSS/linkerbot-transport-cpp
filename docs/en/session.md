@@ -179,3 +179,8 @@ not a hard deadline for the entire lifecycle operation.
 After an exception, `result()` exposes outcome and accepted-frame count. Receipt `accepted_at`,
 `claimed_at`, `completed_at` and received-frame `received_at` use monotonic time, not Unix
 timestamps. Querying or waiting on a default-constructed empty SendReceipt throws `ValidationError`.
+
+An internal receive-routing or send-worker failure leaves the Session terminally
+closed even while its physical backend remains connected. Health refresh cannot
+revive it, and `recover()` rejects it. Close and destroy the Session, then create a
+new one; physical recovery alone cannot restart a terminated writer.

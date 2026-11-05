@@ -1162,3 +1162,23 @@ TEST_CASE("vendor classifies API exceptions and ignores remote-only receives",
     REQUIRE(report.channels.empty());
     REQUIRE_FALSE(report.failures.empty());
 }
+
+namespace {
+    void count_legacy_unload(void *handle) {
+        ++*static_cast<unsigned *>(handle);
+    }
+} // namespace
+TEST_CASE("vendor legacy module ownership unloads once after the last release", "[vendor]") {
+    LifecycleGuard guard;
+    FakeLib lib;
+    auto api = make_api(lib);
+    unsigned unloads = 0;
+    api->library_handle = &unloads;
+    api->unload = count_legacy_unload;
+    life::acquire(api);
+    life::release(api->lifecycle_key);
+    REQUIRE(unloads == 1);
+    REQUIRE(api->library_handle == nullptr);
+    life::release(api->lifecycle_key);
+    REQUIRE(unloads == 1);
+}

@@ -4,6 +4,11 @@ English · [简体中文](CHANGELOG.md)
 
 ## Unreleased
 
+- Add optional serial byte streams and a Modbus RTU client (03/04/06/10), separate CMake targets and package component metadata. These modules are not in published v0.3.2 packages.
+- Allow RTU backend cancellation diagnostics to query session health without deadlocking. Reject Linux RS485 configurations when the driver clears requested direction flags.
+- Keep CAN Sessions terminal after internal routing or writer failures, rather than reopening them during health refresh. Require closing and recreating these Sessions.
+- Add Linux syscall and allocation-failure regressions for serial, CAN sessions and resource rollback; update module and build documentation.
+
 - Fix unbounded Session receipt waits on Focal/GCC 9 by using the untimed condition-variable wait for a maximum deadline. Preserve finite deadlines and saved errors; add native Focal x86_64/ARM64 Session regression jobs.
 
 ## 0.3.2 — 2026-11-04

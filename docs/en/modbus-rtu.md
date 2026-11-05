@@ -5,6 +5,9 @@ They do not implement hand register maps, model discovery, motion control, or
 Modbus TCP/ASCII. Existing CAN and SLCAN interfaces are unchanged. A serial SLCAN
 adapter still speaks its configured CAN protocol; it is not an RTU endpoint.
 
+Serial and RTU are unreleased additions on `main`; published v0.3.2 packages
+do not contain these targets. Build current source to use them.
+
 ## Build and consume
 
 `LINKERBOT_COMM_ENABLE_SERIAL` and `LINKERBOT_COMM_ENABLE_MODBUS` default to `ON`.
@@ -43,7 +46,7 @@ Native serial is supported on Linux and Windows, not macOS. The injected
 5--8 data bits, none/even/odd parity and one/two stop bits. RTU requires eight data
 bits. The default is 115200, 8E1; select 8N2 or a device-specific 8N1 explicitly.
 Kernel-managed RS485 direction is Linux-only and fails if the driver does not
-support it. Windows requires an automatic-direction adapter; software RTS
+support it or silently clears the requested enable/polarity flags. Windows requires an automatic-direction adapter; software RTS
 bit-banging is not implemented. Hardware configuration needs adapter validation.
 
 `read_some` returns zero on its deadline, throws on EOF/I/O failure or
@@ -130,5 +133,8 @@ cmake --build build-fuzz --target rtu-codec-fuzz
 ./build-fuzz/rtu-codec-fuzz -runs=100000 -max_len=256
 ```
 
-References: [Modbus serial line V1.02](https://www.modbus.org/docs/Modbus_over_serial_line_V1_02.pdf)
+References: [Modbus serial line V1.02](https://www.modbus.org/file/secure/modbusoverserial.pdf)
 and [application protocol specifications](https://www.modbus.org/modbus-specifications).
+
+Backend `cancel()` implementations may query cached `RtuSession::health()`
+diagnostics. Lifecycle methods must still be called outside backend callbacks.

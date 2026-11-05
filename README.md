@@ -8,11 +8,15 @@
 
 <a id="english"></a>
 
-C++17 CAN / CAN FD transport library for Linkerbot SDKs. It manages physical
-connections, shared buses, incoming-frame routes and outgoing batches. Device
-commands and request/reply matching belong in the device SDK.
+C++17 transport library for Linkerbot SDKs, with CAN / CAN FD backends, serial
+byte streams and a Modbus RTU client. The CAN module manages physical connections,
+shared buses, incoming-frame routes and outgoing batches; CAN request/reply
+matching belongs in the device SDK. The optional RTU module handles register
+transactions. Device register maps and motion control remain in the device SDK.
+See the [serial and RTU guide](docs/en/modbus-rtu.md).
 
-Current source version: **0.3.2**. See the [latest published stable release](https://github.com/linker-bot/linkerbot-transport-cpp/releases/latest).
+Current source version: **0.3.2**. Serial and Modbus RTU are unreleased additions
+on `main`; the published v0.3.2 packages do not contain them. See the [latest published stable release](https://github.com/linker-bot/linkerbot-transport-cpp/releases/latest).
 See [downloads, checksums and release documentation](docs/en/releases.md).
 
 ## Linux quick start

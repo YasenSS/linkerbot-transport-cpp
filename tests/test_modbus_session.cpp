@@ -381,3 +381,96 @@ TEST_CASE("RTU truncated and mismatched frames never become successful transacti
         REQUIRE(wire->writes == 1);
     }
 }
+
+TEST_CASE("RTU a completed reply cannot publish success after close begins") {
+    auto wire = std::make_shared<RtuWire>();
+    std::promise<void> replying;
+    wire->reply = [&](const modbus::Bytes &request) {
+        replying.set_value();
+        std::unique_lock<std::mutex> lock(wire->mutex);
+        if (!wire->changed.wait_for(lock, 1s, [&] { return wire->cancelled; })) {
+            throw std::runtime_error("close did not reach cancellation");
+        }
+        return normal_reply(request);
+    };
+    auto session = make_session(wire);
+    auto transaction = std::async(std::launch::async,
+                                  [&] { return session->transact({1, 3, 0, 1, {}}, options(2s)); });
+    replying.get_future().wait();
+    session->close();
+    const auto result = transaction.get();
+    REQUIRE(result.outcome == modbus::Outcome::kFailed);
+    REQUIRE(result.delivery_uncertain);
+    REQUIRE_THROWS_AS(result.rethrow_if_error(), serial::ClosedError);
+}
+class CloseFailureStream final : public serial::ByteStream {
+  public:
+    size_t read_some(uint8_t *, size_t, transport::Deadline,
+                     transport::CancellationToken) override {
+        return 0;
+    }
+    size_t write_some(const uint8_t *, size_t size, transport::Deadline,
+                      transport::CancellationToken) override {
+        return size;
+    }
+    void drain_output_until(transport::Deadline, transport::CancellationToken) override {}
+    void cancel() noexcept override {}
+    void close() override {
+        throw serial::IOError("injected cleanup failure");
+    }
+};
+TEST_CASE("RTU explicit close reports failure and destruction does not terminate") {
+    auto session = modbus::RtuSession::create(rtu_config(), [](const serial::Config &) {
+        return std::make_unique<CloseFailureStream>();
+    });
+    REQUIRE_THROWS_AS(session->close(), serial::IOError);
+    REQUIRE_FALSE(session->health().open);
+    REQUIRE_NOTHROW(session.reset());
+}
+
+namespace {
+    class HealthObserverStream final : public serial::ByteStream {
+      public:
+        std::weak_ptr<RtuSession> owner;
+        bool observed = false;
+        size_t read_some(uint8_t *, size_t, transport::Deadline,
+                         transport::CancellationToken) override {
+            return 0;
+        }
+        size_t write_some(const uint8_t *, size_t size, transport::Deadline,
+                          transport::CancellationToken) override {
+            return size;
+        }
+        void drain_output_until(transport::Deadline, transport::CancellationToken) override {}
+        void cancel() noexcept override {
+            if (auto session = owner.lock()) {
+                (void)session->health();
+                observed = true;
+            }
+        }
+        void close() override {}
+    };
+} // namespace
+TEST_CASE("RTU cancellation permits backend health diagnostics", "[modbus][regression]") {
+    HealthObserverStream *backend = nullptr;
+    auto session = RtuSession::create(rtu_config(), [&](const serial::Config &) {
+        auto stream = std::make_unique<HealthObserverStream>();
+        backend = stream.get();
+        return stream;
+    });
+    backend->owner = session;
+    SECTION("close") {
+        session->close();
+        REQUIRE(backend->observed);
+        REQUIRE_FALSE(session->health().open);
+    }
+    SECTION("recover") {
+        // Capture the observation before recovery destroys the old stream.
+
+        const auto generation = session->recover(session->health().generation);
+        backend->owner = session;
+        session->close();
+        REQUIRE(backend->observed);
+        REQUIRE(generation == 2);
+    }
+}

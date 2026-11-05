@@ -54,8 +54,9 @@ namespace linkerbot::modbus {
     void validate_request(const Request &request);
     uint16_t crc16(const uint8_t *data, size_t size);
     Bytes encode_request(const Request &request);
-    // Returns PDU data without function/address/CRC; throws ExceptionResponse for
-    // a valid device exception. Both normal and exceptional frames require CRC.
+    // Reads return register bytes without the byte count. Writes return the
+    // four-byte address/value (06) or address/quantity (10) echo, in wire order.
+    // Throws ExceptionResponse for a valid device exception. All frames require CRC.
     Bytes decode_response(const Request &request, const Bytes &frame);
 
     struct Timing {

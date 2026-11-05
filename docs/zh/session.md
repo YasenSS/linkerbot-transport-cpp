@@ -151,3 +151,7 @@ auto inbox = session->subscribe_routes({{0x28, false}});
 `result()` 可在异常后查看 outcome 和已接受帧数。回执的 `accepted_at`、`claimed_at`、
 `completed_at`、接收的 `received_at` 均基于单调时钟，不能直接当 Unix 时间写入报表。
 空的默认构造 SendReceipt 不可等待/读取，会抛 ValidationError。
+
+接收路由或发送线程内部故障会使 Session 保持终止状态，即使物理后端仍连接。
+健康刷新不会重新启用会话，`recover()` 也会拒绝。应关闭并销毁该 Session，再创建新会话；
+仅恢复物理连接不能重启已经退出的发送线程。

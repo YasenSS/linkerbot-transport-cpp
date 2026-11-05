@@ -1,6 +1,7 @@
 #include "optional_value.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
@@ -1753,4 +1754,102 @@ TEST_CASE("Session finalizes diagnostics before publishing a failed receipt",
     REQUIRE(result.current_frame_uncertain);
     REQUIRE(session->health().last_error == "gated diagnostic failure");
     session->close();
+}
+
+TEST_CASE("Session ignores frames for explicitly closed inboxes", "[session]") {
+    SessionRig rig;
+    auto inbox = rig.session->subscribe_routes({{0x28, false}}, 1);
+    inbox->close();
+    auto barrier = rig.session->subscribe_routes({{0x29, false}}, 1);
+    rig.fake->inject(frame(0x28));
+    rig.fake->inject(frame(0x29));
+    REQUIRE(barrier->receive_until(transport::Clock::now() + 500ms));
+    REQUIRE(inbox->health().pending == 0);
+    REQUIRE(rig.session->health().route_misses == 1);
+}
+TEST_CASE("Session worker observes cancellation of a queued token", "[session]") {
+    SessionRig rig;
+    rig.fake->arm_tx_gate();
+    auto active = rig.session->submit({{frame(0x28)}, {}, {}});
+    REQUIRE(rig.fake->wait_until_tx_entered(500ms));
+    transport::CancellationSource cancellation;
+    transport::SendOptions options;
+    options.cancellation = cancellation.token();
+    auto queued = rig.session->submit({{frame(0x29)}, {}, {}}, options);
+    cancellation.cancel();
+    rig.fake->release_tx_gate();
+    active.wait();
+    REQUIRE_THROWS_AS(queued.wait(), transport::CancelledError);
+    REQUIRE(queued.result().sent_frames == 0);
+    REQUIRE(rig.fake->sent().size() == 1);
+}
+
+TEST_CASE("Final Session releases retain every owner queued behind active cleanup",
+          "[session][lifecycle]") {
+    class CleanupTransport final : public can::FakeTransport {
+      public:
+        std::shared_future<void> gate;
+        std::promise<void> closing;
+        std::atomic<unsigned> &destroyed;
+        explicit CleanupTransport(std::atomic<unsigned> &count) : destroyed(count) {}
+        ~CleanupTransport() override {
+            ++destroyed;
+        }
+        void close() override {
+            if (gate.valid()) {
+                closing.set_value();
+                gate.wait();
+            }
+            can::FakeTransport::close();
+        }
+    };
+    transport::Session::drain_deferred_cleanup();
+    std::atomic<unsigned> destroyed{0};
+    std::promise<void> release;
+    auto gate = release.get_future().share();
+    std::array<std::shared_ptr<transport::Session>, 3> sessions;
+    std::array<std::promise<void>, 3> released;
+    std::array<std::future<void>, 3> done;
+    std::array<transport::SendReceipt, 3> receipts;
+    std::future<void> first_closing;
+    for (size_t i = 0; i < sessions.size(); ++i) {
+        auto backend = std::make_unique<CleanupTransport>(destroyed);
+        if (i == 0) {
+            backend->gate = gate;
+            first_closing = backend->closing.get_future();
+        }
+        done[i] = released[i].get_future();
+        backend->on_request(0x28, [&, i](const can::Message &) {
+            sessions[i].reset();
+            released[i].set_value();
+            return std::vector<can::Message>{};
+        });
+        sessions[i] = transport::Session::own(std::move(backend));
+    }
+    receipts[0] = sessions[0]->submit({{frame(0x28)}});
+    const bool first_active = first_closing.wait_for(2s) == std::future_status::ready;
+    bool all_released = true;
+    for (size_t i = 1; i < sessions.size(); ++i) {
+        receipts[i] = sessions[i]->submit({{frame(0x28)}});
+        all_released = (done[i].wait_for(2s) == std::future_status::ready) && all_released;
+    }
+    release.set_value();
+    transport::Session::drain_deferred_cleanup();
+    REQUIRE(first_active);
+    REQUIRE(all_released);
+    REQUIRE(destroyed.load() == 3);
+    for (const auto &receipt : receipts) {
+        REQUIRE(receipt.completed());
+    }
+}
+
+TEST_CASE("Session writer remains usable after an idle queue wait", "[session][lifecycle]") {
+    SessionRig rig;
+    auto first = rig.session->submit({{frame(0x28)}});
+    REQUIRE(first.wait_until(transport::Clock::now() + 1s).sent_frames == 1);
+    std::this_thread::sleep_for(10ms);
+    auto second = rig.session->submit({{frame(0x29)}});
+    REQUIRE(second.wait_until(transport::Clock::now() + 1s).sent_frames == 1);
+    REQUIRE(rig.session->health().open);
+    REQUIRE(rig.fake->sent().size() == 2);
 }

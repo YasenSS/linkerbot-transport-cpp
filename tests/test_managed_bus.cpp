@@ -11,6 +11,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -1298,4 +1299,88 @@ TEST_CASE("same physical channel with a conflicting configuration is rejected", 
 TEST_CASE("ManagedCANBus factory must be callable", "[managed_bus]") {
     ManagedCANBus::TransportFactory empty;
     REQUIRE_THROWS_AS(ManagedCANBus(empty), ValidationError);
+}
+
+TEST_CASE("pool state rejects release and retry from a different owner", "[pool]") {
+    linkerbot::can::detail::PoolState state;
+    const CANBusKey key{"fake", "ownership"};
+    auto factory = [] { return std::make_unique<FakeTransport>(); };
+    auto bus = state.acquire(key, factory, {});
+    auto other = std::make_shared<ManagedCANBus>(factory);
+    REQUIRE_THROWS_AS(state.release(key, other), ClosedError);
+    REQUIRE_THROWS_AS(state.retry_close(key, bus), ClosedError);
+    state.release(key, bus);
+    REQUIRE_THROWS_AS(state.release(key, bus), ClosedError);
+    REQUIRE(state.active_keys().empty());
+}
+
+TEST_CASE("deferred worker releases retained failure records on shutdown", "[pool][lifecycle]") {
+    auto destroyed = std::make_shared<std::atomic<bool>>(false);
+    {
+        linkerbot::can::detail::DeferredLeaseCloseCleanup cleanup;
+        auto state = std::make_shared<linkerbot::can::detail::PoolState>();
+        CANBusKey key{"fake", "failed-worker-shutdown"};
+        auto bus =
+            state->acquire(key,
+                           [&] {
+                               auto fake =
+                                   std::make_unique<DestructionTrackingFakeTransport>(destroyed);
+                               fake->fail_next_closes(100);
+                               return fake;
+                           },
+                           {});
+        auto task = std::make_unique<linkerbot::can::detail::DeferredLeaseCloseTask>();
+        task->state = state;
+        task->key = key;
+        task->bus = bus;
+        cleanup.enqueue(task.release());
+        REQUIRE_THROWS_AS(cleanup.drain(), FaultedError);
+        REQUIRE(cleanup.pending() == 1);
+        REQUIRE_FALSE(destroyed->load());
+    }
+    REQUIRE(destroyed->load());
+}
+TEST_CASE("deferred worker preserves multiple tasks queued behind an active close",
+          "[pool][lifecycle]") {
+    class GatedClose final : public FakeTransport {
+      public:
+        std::promise<void> entered;
+        std::shared_future<void> release;
+        explicit GatedClose(std::shared_future<void> gate) : release(std::move(gate)) {}
+        void close() override {
+            entered.set_value();
+            release.wait();
+            FakeTransport::close();
+        }
+    };
+    linkerbot::can::detail::DeferredLeaseCloseCleanup cleanup;
+    auto state = std::make_shared<linkerbot::can::detail::PoolState>();
+    std::promise<void> release;
+    auto gate = release.get_future().share();
+    auto first = std::make_unique<GatedClose>(gate);
+    auto entered = first->entered.get_future();
+    auto enqueue = [&](const CANBusKey &key, ManagedCANBus::TransportFactory factory) {
+        auto bus = state->acquire(key, std::move(factory), {});
+        auto task = std::make_unique<linkerbot::can::detail::DeferredLeaseCloseTask>();
+        task->state = state;
+        task->key = key;
+        task->bus = bus;
+        cleanup.enqueue(task.release());
+    };
+    enqueue({"fake", "retry-before-queued"}, [] {
+        auto fake = std::make_unique<FakeTransport>();
+        fake->fail_next_closes(1);
+        return fake;
+    });
+    REQUIRE_THROWS_AS(cleanup.drain(), FaultedError);
+    enqueue({"fake", "queued-0"},
+            [&]() -> std::unique_ptr<linkerbot::can::CANTransport> { return std::move(first); });
+    const bool active = entered.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+    enqueue({"fake", "queued-1"}, [] { return std::make_unique<FakeTransport>(); });
+    enqueue({"fake", "queued-2"}, [] { return std::make_unique<FakeTransport>(); });
+    cleanup.retry_failed();
+    release.set_value();
+    REQUIRE(active);
+    REQUIRE_NOTHROW(cleanup.drain());
+    REQUIRE(state->active_keys().empty());
 }

@@ -53,7 +53,7 @@ ctest --test-dir build-libcxx --output-on-failure --no-tests=error --timeout 90
 ./build-libcxx/comm-example
 ```
 
-生产代码的 Linux 汇总行覆盖率要求至少 95%，范围是 `src/` 与 `include/`，不是每个文件、
+生产代码的 Linux 汇总行覆盖率要求按原始行数计算超过 99%（不使用舍入后的百分比），范围是 `src/` 与 `include/`，不是每个文件、
 分支覆盖率或实机验收。并发改动使用 TSan 等适用工具；如跳过某项，须说明原因。Go 的
 race/vet、Redis 和数据库测试只在涉及对应上层项目时适用，本通信库没有这些依赖。
 
