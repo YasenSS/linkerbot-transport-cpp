@@ -55,7 +55,7 @@ MiniCANFD 和 PCAN 的库选择优先级为配置参数 → 各自环境变量 �
 1. 记录当前可回退的源码/包、SHA256、编译器/CRT、驱动/固件、通道和业务配置；
    上层持久化的旧日志、校准和确认记录按其保留策略备份，勿因升级删除。
 2. 在新构建/安装前缀验证新 transport；先跑离线测试，再编译配套 hand 和实际应用。
-   `0.3.x` hand 要求 comm 版本不低于 hand 补丁版本；遵守 `SameMinorVersion` 和配套重编译要求。
+   `0.3.x` hand 要求 transport SDK 版本不低于 hand 补丁版本；遵守 `SameMinorVersion` 和配套重编译要求。
 3. 停止上层写入和控制生产者，等待/核对在途操作并完成原持有者清理；不要在活动进程中替换 DLL。
 4. 切换完整的应用、头文件、静态库、运行库和配置组合。驱动/固件单独变更时重新验收，
    不把源码层通过沿用为新驱动的实机结论。
@@ -81,7 +81,7 @@ MiniCANFD 和 PCAN 的库选择优先级为配置参数 → 各自环境变量 �
 只提供构建和打包能力，不自动发布 GitHub Release。
 
 Linux GCC Release 任务保留 amd64、ARM64 的 CPack TGZ 及相邻 SHA256 文件；Windows
-任务保留 x64 Debug/Release ZIP 及其 SHA256 文件。正式发布应使用签名标签所指精确提交的
+任务保留 x64/ARM64 Debug/Release ZIP 及其 SHA256 文件。正式发布应使用签名标签所指精确提交的
 成功运行，不得将带覆盖率插桩的 Linux Debug 构建作为 Release 包发布。上传前核对每个包的
 `build-info.json`、二进制架构和移动目录后的安装消费者。发布已核验的压缩包、汇总的
 `SHA256SUMS.txt` 和英文 Release Notes，随后重新下载 Release 附件核验。

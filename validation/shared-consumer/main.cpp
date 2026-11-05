@@ -1,5 +1,5 @@
-extern "C" int comm_shared_smoke();
+extern "C" int transport_shared_smoke();
 
 int main() {
-    return comm_shared_smoke();
+    return transport_shared_smoke();
 }

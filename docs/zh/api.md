@@ -3,9 +3,10 @@
 [English](../en/api.md) · [文档索引](../README.md) · [Session](session.md) · [错误与诊断](troubleshooting.md) ·
 [运行、升级与回滚](operations.md)
 
-本文给出 `include/linkerbot/` 下公共接口的选择和边界。项目使用 C++17；设备命令、身份核验、
-请求/回复关联及业务幂等仍由上层 SDK 实现。需要构造对象或执行 I/O 时链接
-`linkerbot::comm`；旧扁平 include 使用 `linkerbot::comm-compat`。`linkerbot::comm-values`
+本文给出 `include/linkerbot/` 下 CAN 公共接口的选择和边界。项目使用 C++17；设备命令、身份核验、
+CAN 请求/回复关联及业务幂等由上层 SDK 实现。串口和 RTU 见[模块指南](modbus-rtu.md)。
+构造 CAN 对象或执行 CAN I/O 时链接
+`linkerbot::can`；旧扁平 include 使用 `linkerbot::can-compat`。`linkerbot::headers`
 只提供头文件搜索路径和 C++17 要求，不能替代实现库。
 
 ## 接口层次

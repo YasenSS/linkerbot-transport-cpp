@@ -4,6 +4,9 @@
 
 [文档索引](../README.md) · [源码构建](build.md) · [升级与回滚](operations.md)
 
+当前源码使用 `linkerbot-transport` 包名。已发布至 v0.3.2 的包仍名为 `linkerbot-comm`；
+下面的下载示例保留真实的旧资产名和安装路径。参见[命名迁移](naming.md)。
+
 ## 0.3.2 产物矩阵
 
 [v0.3.2 发行页面](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.2)

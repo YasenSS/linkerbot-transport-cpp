@@ -86,13 +86,13 @@ jobs:
               cmake --version
               cmake -S . -B build/package -G Ninja -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-                -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_EXAMPLES=ON \
+                -DLINKERBOT_TRANSPORT_BUILD_TESTS=OFF -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON \
                 -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF \
-                -DLINKERBOT_COMM_RELEASE_BUILD=ON \
-                -DLINKERBOT_COMM_SOURCE_REVISION="$SOURCE_SHA" \
-                -DLINKERBOT_COMM_BUILD_IMAGE="$BUILD_IMAGE"
+                -DLINKERBOT_TRANSPORT_RELEASE_BUILD=ON \
+                -DLINKERBOT_TRANSPORT_SOURCE_REVISION="$SOURCE_SHA" \
+                -DLINKERBOT_TRANSPORT_BUILD_IMAGE="$BUILD_IMAGE"
               cmake --build build/package --parallel 4
-              ./build/package/comm-example
+              ./build/package/can-example
               # CPack 3.16 can silently create an empty archive with a relative -B.
               cpack --config build/package/CPackConfig.cmake -C Release -B "$PWD/dist"
               prefix=$(bash ci/unpack-sdk.sh /src/dist "/tmp/SDK with spaces")

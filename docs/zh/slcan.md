@@ -101,7 +101,7 @@ Linux 使用非阻塞文件描述符、termios2 原始 8N1 / BOTHER 波特率、
 
 ## 验证和吞吐
 
-`comm-tests "[slcan]"` 包含字节流测试桩与 Linux 伪终端测试：两个配置的启动、
+`can-tests "[slcan]"` 包含字节流测试桩与 Linux 伪终端测试：两个配置的启动、
 ACK 差异、全部 FD 长度、标准/扩展 ID、BRS、拆粘包、无效输入、缓存边界、取消、
 部分写入、断连、独占和重开。Linux 仅访问用例自行创建的 PTY，不访问已有串口。
 构建与执行方式见 [README](../../README.md) 和 [Windows 构建](windows-build.md)。

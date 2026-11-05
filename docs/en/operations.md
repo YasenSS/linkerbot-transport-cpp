@@ -31,7 +31,7 @@ A lost business acknowledgment does not mean the device did not execute the comm
 ## Upgrade order
 
 1. Record the currently recoverable source/package, SHA256, compiler/CRT, driver/firmware, channel, and application configuration. Back up application logs, calibration, and acknowledgment records under their retention policy; do not delete them for an upgrade.
-2. Validate the new transport in a separate build/install prefix. Run offline tests before rebuilding the matching hand SDK and application. A `0.3.x` hand SDK requires a comm version at least as new as its patch version. Observe `SameMinorVersion` and rebuild the matching components.
+2. Validate the new transport in a separate build/install prefix. Run offline tests before rebuilding the matching hand SDK and application. A `0.3.x` hand SDK requires a transport SDK version at least as new as its patch version. Observe `SameMinorVersion` and rebuild the matching components.
 3. Stop application writers and control producers, wait for/check in-flight operations, and complete cleanup by the original owner. Do not replace a DLL in a running process.
 4. Switch the complete application, headers, static library, runtime, and configuration combination. Validate driver/firmware changes separately; source-level test success is not hardware acceptance for a new driver.
 5. After startup, check the actual library path, package provenance, device identity, generation, reads, and bounded control operations. Retain acceptance logs. Integrate dependent PRs or SDK updates in dependency order, then validate downstream applications again.
@@ -50,7 +50,7 @@ in the [release guide](releases.md).
 Use an independent branch, signed commits, and an English PR describing the changes, compatibility, reproduction commands, and Linux results. Check CI, review, and unresolved threads for the latest head. After merging, synchronize main, verify it again, and clean up task branches and temporary environments. A formal release also requires a Changelog update, signed tag, and the established artifact workflow. CMake/CPack currently build and package artifacts; they do not publish a GitHub Release automatically.
 
 The Linux GCC Release jobs retain CPack TGZ archives and adjacent SHA256 files for
-amd64 and ARM64. Windows jobs retain x64 Debug/Release ZIPs and their SHA256 files.
+amd64 and ARM64. Windows jobs retain x64/ARM64 Debug/Release ZIPs and their SHA256 files.
 Use successful runs for the exact commit named by the signed release tag. Do not
 publish coverage-instrumented Linux Debug builds as Release packages. Check each
 archive's `build-info.json`, binary architecture and relocated installed consumer

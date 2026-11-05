@@ -100,7 +100,14 @@ def verify_metadata(info, sha, arch, configuration, system="Linux", version=None
     supported = ELF_MACHINES if system == "Linux" else COFF_MACHINES
     if arch not in supported:
         raise ValueError("Architecture is not valid for SDK system")
-    expected = {"schema_version": 1, "package": "linkerbot-comm", "comm_sha": sha,
+    package = info.get("package")
+    if package not in ("linkerbot-transport", "linkerbot-comm"):
+        raise ValueError("Unknown SDK package")
+    revision_key = "transport_sha" if package == "linkerbot-transport" else "comm_sha"
+    if package == "linkerbot-transport":
+        if info.get("comm_sha") != sha or info.get("compatibility_libraries") != ["comm"]:
+            raise ValueError("Invalid legacy compatibility metadata")
+    expected = {"schema_version": 1, "package": package, revision_key: sha,
                 "system": system, "architecture": arch, "configuration": configuration,
                 "pic": True, "instrumented": False, "cxx_standard": 17}
     if version is not None:
@@ -137,29 +144,57 @@ def verify_files(files, info):
         name = Path(relative).name.lower()
         if (re.search(r"\.(so(\..*)?|dll|exe|dylib)$", name)
                 or "fixture" in name or "catch2" in name
-                or name in ("comm-tests", "pcan-tests", "vendor-loader-tests")):
+                or name in ("can-tests", "pcan-tests", "vendor-loader-tests")):
             raise ValueError("Runtime/test/vendor component leaked into SDK: " + relative)
         if name.endswith((".a", ".lib")):
             libraries.append(relative)
         elif (data[:4] == b"\x7fELF" or data[:2] == b"MZ"
               or data[:4] in (b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe")):
             raise ValueError("Unexpected runtime binary: " + relative)
-    # Older comm-only packages have no component list. New packages must declare
-    # exactly the installed components; unknown archives are still rejected.
-    components = info.get("components", ["comm"])
+    canonical = info.get("package") == "linkerbot-transport"
+    core = "can" if canonical else "comm"
+    share = "share/" + info["package"]
+    # Legacy packages may omit components. Canonical packages declare every module
+    # and the byte-identical comm archive used for manual-link compatibility.
+    if canonical and "components" not in info:
+        raise ValueError("Missing SDK component declaration")
+    components = info.get("components", [core])
     if (not isinstance(components, list) or not components
             or any(not isinstance(component, str) for component in components)
             or len(set(components)) != len(components)
-            or "comm" not in components
-            or set(components) - {"comm", "serial", "modbus"}
+            or core not in components
+            or set(components) - {core, "serial", "modbus"}
             or ("modbus" in components and "serial" not in components)):
         raise ValueError("Invalid SDK component declaration")
     prefix, suffix = ("liblinkerbot-", ".a") if info["system"] == "Linux" else ("linkerbot-", ".lib")
     expected_names = {prefix + component + suffix for component in components}
+    if canonical:
+        if info.get("compatibility_libraries") != ["comm"]:
+            raise ValueError("Invalid legacy archive declaration")
+        expected_names.add(prefix + "comm" + suffix)
     if len(libraries) != len(expected_names) or {Path(path).name for path in libraries} != expected_names:
         raise ValueError("Static libraries do not match declared SDK components")
     if len({Path(path).parent for path in libraries}) != 1:
         raise ValueError("SDK static libraries must share one library directory")
+    if canonical:
+        by_name = {Path(path).name: files[path] for path in libraries}
+        if by_name[prefix + "can" + suffix] != by_name[prefix + "comm" + suffix]:
+            raise ValueError("Legacy comm archive differs from canonical CAN archive")
+        canonical_share = "share/linkerbot-transport/"
+        legacy_share = "share/linkerbot-comm/"
+        canonical_docs = {name[len(canonical_share):]: data for name, data in files.items()
+                          if name.startswith(canonical_share)}
+        legacy_docs = {name[len(legacy_share):]: data for name, data in files.items()
+                       if name.startswith(legacy_share)}
+        if canonical_docs != legacy_docs:
+            raise ValueError("Legacy share tree differs from canonical package content")
+        for required in ("lib/cmake/linkerbot-transport/linkerbot-transport-config.cmake",
+                         "lib/cmake/linkerbot-comm/linkerbot-comm-config.cmake"):
+            # Library directories may be lib64 or platform-specific; match the
+            # cmake suffix rather than assuming GNUInstallDirs chose lib.
+            suffix_path = required[4:]
+            if not any(name.endswith("/" + suffix_path) for name in files):
+                raise ValueError("Missing SDK package entry: " + suffix_path)
     machines = []
     expected_machine = (ELF_MACHINES if info["system"] == "Linux" else COFF_MACHINES)[info["architecture"]]
     for library in libraries:
@@ -170,14 +205,14 @@ def verify_files(files, info):
     optional_entries = {
         "serial": ("include/linkerbot/serial/byte_stream.hpp",),
         "modbus": ("include/linkerbot/modbus/rtu.hpp",
-                   "share/linkerbot-comm/validation/installed-consumer/rtu.cpp"),
+                   share + "/validation/installed-consumer/rtu.cpp"),
     }
     for component in components:
         for required in optional_entries.get(component, ()):
             if required not in files:
                 raise ValueError("Missing SDK entry: " + required)
-    for required in ("include/linkerbot/transport/session.hpp", "share/linkerbot-comm/LICENSE",
-                     "share/linkerbot-comm/validation/installed-consumer/CMakeLists.txt"):
+    for required in ("include/linkerbot/transport/session.hpp", share + "/LICENSE",
+                     share + "/validation/installed-consumer/CMakeLists.txt"):
         if required not in files:
             raise ValueError("Missing SDK entry: " + required)
     return len(machines)
@@ -191,7 +226,10 @@ def verify_prefix(root, **expected):
             raise ValueError("Unexpected symlink: %s" % path)
         if path.is_file():
             files[path.relative_to(root).as_posix()] = path.read_bytes()
-    info = json.loads(files["share/linkerbot-comm/build-info.json"])
+    metadata = "share/linkerbot-transport/build-info.json"
+    if metadata not in files:
+        metadata = "share/linkerbot-comm/build-info.json"
+    info = json.loads(files[metadata])
     verify_metadata(info, **expected)
     count = verify_files(files, info)
     return {"metadata": info, "verified_objects": count}

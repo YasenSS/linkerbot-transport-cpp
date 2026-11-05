@@ -5,9 +5,9 @@
 串口和 RTU 是 `main` 上未发布的新增模块，已发布的 v0.3.2 包不包含它们。
 完整接口和失败语义见[英文说明](../en/modbus-rtu.md)。
 
-- 构建开关：`LINKERBOT_COMM_ENABLE_SERIAL`、`LINKERBOT_COMM_ENABLE_MODBUS`，默认开启；
+- 构建开关：`LINKERBOT_TRANSPORT_ENABLE_SERIAL`、`LINKERBOT_TRANSPORT_ENABLE_MODBUS`，默认开启；
   Modbus 依赖 serial。仅使用 CAN 可同时关闭两项。
-- 独立导出目标：`linkerbot::serial`、`linkerbot::modbus`；原 `linkerbot::comm` 不链接新增库。
+- 独立导出目标：`linkerbot::serial`、`linkerbot::modbus`；原 `linkerbot::can` 不链接新增库。
 - 默认串口格式 115200 / 8E1，必须按设备协议显式配置。Linux 支持驱动提供的内核 RS485
   方向控制；驱动不支持或清除请求的启用/极性标志时打开失败。Windows 要求自动方向适配器，不实现软件 RTS 时序。
 - 一个物理串口共享一个 `RtuSession`，不同从站也只允许一个在途事务；队列有界。

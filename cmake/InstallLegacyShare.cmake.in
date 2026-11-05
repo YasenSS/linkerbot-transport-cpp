@@ -1,0 +1,7 @@
+# Resolve the install-time prefix, including --prefix and DESTDIR staging.
+set(_linkerbot_share "@CMAKE_INSTALL_DATADIR@")
+if(NOT IS_ABSOLUTE "${_linkerbot_share}")
+    set(_linkerbot_share "${CMAKE_INSTALL_PREFIX}/${_linkerbot_share}")
+endif()
+file(COPY "$ENV{DESTDIR}${_linkerbot_share}/linkerbot-transport/"
+    DESTINATION "$ENV{DESTDIR}${_linkerbot_share}/linkerbot-comm")

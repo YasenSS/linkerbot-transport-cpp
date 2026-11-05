@@ -1,4 +1,4 @@
-name: Linux comm regression and installed consumer
+name: Linux transport regression and installed consumer
 
 on:
   push:
@@ -28,13 +28,13 @@ jobs:
       - name: Restore compiler cache
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
-          path: ${{ runner.temp }}/comm-ccache
+          path: ${{ runner.temp }}/transport-ccache
           key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-benchmark-clang18-libcxx-${{ github.sha }}
           restore-keys: |
             ccache-v1-${{ runner.os }}-${{ runner.arch }}-benchmark-clang18-libcxx-
       - name: Install benchmark tools
         run: |
-          echo "CCACHE_DIR=$RUNNER_TEMP/comm-ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$RUNNER_TEMP/transport-ccache" >> "$GITHUB_ENV"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ccache cmake ninja-build clang-18 libc++-18-dev libc++abi-18-dev
@@ -72,22 +72,22 @@ jobs:
       - name: Restore compiler cache
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
-          path: ${{ runner.temp }}/comm-ccache
+          path: ${{ runner.temp }}/transport-ccache
           key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-gcc13-${{ matrix.build_type }}-${{ github.sha }}
           restore-keys: |
             ccache-v1-${{ runner.os }}-${{ runner.arch }}-gcc13-${{ matrix.build_type }}-
       - name: Install build tools
         run: |
-          echo "CCACHE_DIR=$RUNNER_TEMP/comm-ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$RUNNER_TEMP/transport-ccache" >> "$GITHUB_ENV"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential ccache cmake ninja-build git ca-certificates gcovr
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
-            -DLINKERBOT_COMM_ENABLE_COVERAGE=${{ matrix.build_type == 'Debug' && 'ON' || 'OFF' }} \
-            -DLINKERBOT_COMM_BUILD_TESTS=ON \
-            -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+            -DLINKERBOT_TRANSPORT_ENABLE_COVERAGE=${{ matrix.build_type == 'Debug' && 'ON' || 'OFF' }} \
+            -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON \
+            -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON
       - name: Build library, tests and native ABI fixtures
         run: cmake --build build --parallel 4
       - name: Run offline regression
@@ -109,14 +109,14 @@ jobs:
         if: matrix.build_type == 'Release'
         run: |
           cmake -S . -B build-can-only -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DLINKERBOT_COMM_ENABLE_SERIAL=OFF -DLINKERBOT_COMM_ENABLE_MODBUS=OFF \
-            -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_EXAMPLES=ON \
+            -DLINKERBOT_TRANSPORT_ENABLE_SERIAL=OFF -DLINKERBOT_TRANSPORT_ENABLE_MODBUS=OFF \
+            -DLINKERBOT_TRANSPORT_BUILD_TESTS=OFF -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON \
             -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
           cmake --build build-can-only --parallel 4
-          ./build-can-only/comm-example
-          cmake --install build-can-only --prefix "$RUNNER_TEMP/comm-can-only"
+          ./build-can-only/can-example
+          cmake --install build-can-only --prefix "$RUNNER_TEMP/transport-can-only"
           cmake -S validation/installed-consumer -B consumer-can-only -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm-can-only"
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/transport-can-only"
           cmake --build consumer-can-only --parallel 4
           ctest --test-dir consumer-can-only --output-on-failure --no-tests=error --timeout 60
       - name: Repeat Session recovery regression
@@ -130,22 +130,24 @@ jobs:
             --repeat until-fail:20 --output-on-failure --no-tests=error --timeout 60 \
             --output-log registry-handoff-results.log
       - name: Run shared-bus example
-        run: ./build/comm-example
+        run: ./build/can-example
       - name: Install and test a standalone consumer
         run: |
-          cmake --install build --prefix "$RUNNER_TEMP/comm install"
-          cmake -S "$RUNNER_TEMP/comm install/share/linkerbot-comm/validation/installed-consumer" \
+          cmake --install build --prefix "$RUNNER_TEMP/transport install"
+          cmake -S "$RUNNER_TEMP/transport install/share/linkerbot-transport/validation/installed-consumer" \
             -B consumer -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DCMAKE_CXX_FLAGS=${{ matrix.build_type == 'Debug' && '--coverage' || '' }} \
-            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm install"
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/transport install"
           cmake --build consumer --parallel 4
           ctest --test-dir consumer --output-on-failure --no-tests=error --timeout 60 --output-log consumer-results.log
+      - name: Verify canonical and legacy package consumers
+        run: python3 validation/package/test-naming.py --prefix "$RUNNER_TEMP/transport install" --configuration ${{ matrix.build_type }} ${{ matrix.build_type == 'Debug' && '--coverage' || '' }}
       - name: Build and run the installed quickstart
         run: |
-          cmake -S "$RUNNER_TEMP/comm install/share/linkerbot-comm/examples/quickstart" \
+          cmake -S "$RUNNER_TEMP/transport install/share/linkerbot-transport/examples/quickstart" \
             -B quickstart -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DCMAKE_CXX_FLAGS=${{ matrix.build_type == 'Debug' && '--coverage' || '' }} \
-            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm install"
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/transport install"
           cmake --build quickstart --parallel 4
           ctest --test-dir quickstart --output-on-failure --no-tests=error --timeout 60 \
             --output-log quickstart-results.log
@@ -169,19 +171,19 @@ jobs:
           import re
           import sys
           root = Path(sys.argv[1])
-          info = json.loads((root / 'share/linkerbot-comm/build-info.json').read_text())
+          info = json.loads((root / 'share/linkerbot-transport/build-info.json').read_text())
           version = re.search(r'set\(CPACK_PACKAGE_VERSION "([^"]+)"\)',
                               Path('build/CPackConfig.cmake').read_text()).group(1)
-          assert info['comm_sha'] == sys.argv[2] and info['source_dirty'] is False, info
+          assert info['transport_sha'] == sys.argv[2] and info['source_dirty'] is False, info
           assert info['version'] == version and info['configuration'] == 'Release', info
           assert info['system'] == 'Linux' and info['architecture'] == platform.machine(), info
           files = [path for path in root.rglob('*') if path.is_file()]
           assert not any(path.suffix in ('.so', '.dll', '.exe') or 'Catch2' in path.name
-                         or path.name in ('comm-tests', 'pcan-tests', 'vendor-loader-tests')
+                         or path.name in ('can-tests', 'pcan-tests', 'vendor-loader-tests')
                          for path in files), 'Runtime or test binary leaked into the SDK'
           print(json.dumps(info, indent=2))
           PY
-          LC_ALL=C readelf -h "$prefix/lib/liblinkerbot-comm.a" > package-architecture.txt
+          LC_ALL=C readelf -h "$prefix/lib/liblinkerbot-can.a" > package-architecture.txt
           python3 - <<'PY'
           from pathlib import Path
           import platform
@@ -191,7 +193,7 @@ jobs:
           assert machines and all(machine.strip() == expected for machine in machines), machines
           print(f'Verified {len(machines)} library objects: {expected}')
           PY
-          cmake -S "$prefix/share/linkerbot-comm/validation/installed-consumer" \
+          cmake -S "$prefix/share/linkerbot-transport/validation/installed-consumer" \
             -B package-consumer -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="$PWD/$prefix"
           cmake --build package-consumer --parallel 4
@@ -204,7 +206,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: linux-comm-${{ matrix.runner }}-${{ matrix.build_type }}
+          name: linux-transport-${{ matrix.runner }}-${{ matrix.build_type }}
           path: |
             test-results.log
             recovery-results.log
@@ -230,13 +232,13 @@ jobs:
       - name: Restore compiler cache
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
-          path: ${{ runner.temp }}/comm-ccache
+          path: ${{ runner.temp }}/transport-ccache
           key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-minimum-gcc13-${{ github.sha }}
           restore-keys: |
             ccache-v1-${{ runner.os }}-${{ runner.arch }}-minimum-gcc13-
       - name: Install build tools
         run: |
-          echo "CCACHE_DIR=$RUNNER_TEMP/comm-ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$RUNNER_TEMP/transport-ccache" >> "$GITHUB_ENV"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential ccache cmake ninja-build curl ca-certificates
       - name: Restore verified-source CMake installation
@@ -269,7 +271,7 @@ jobs:
       - name: Require an actionable error for tests on CMake 3.16.9
         run: |
           if "$RUNNER_TEMP/cmake-minimum-install/bin/cmake" -S . -B build-minimum-tests \
-            -G Ninja -DLINKERBOT_COMM_BUILD_TESTS=ON \
+            -G Ninja -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON \
             -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF > minimum-tests-rejection.log 2>&1; then
             cat minimum-tests-rejection.log
             echo 'Expected CMake 3.16.9 to reject Catch2 test discovery' >&2
@@ -282,19 +284,19 @@ jobs:
           minimum_cmake="$RUNNER_TEMP/cmake-minimum-install/bin/cmake"
           "$minimum_cmake" -S . -B build-minimum -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF \
-            -DLINKERBOT_COMM_BUILD_EXAMPLES=ON 2>&1 | tee minimum-project-configure.log
+            -DLINKERBOT_TRANSPORT_BUILD_TESTS=OFF -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF \
+            -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON 2>&1 | tee minimum-project-configure.log
           "$minimum_cmake" --build build-minimum --parallel 4 2>&1 | tee minimum-project-build.log
-          "$minimum_cmake" --install build-minimum --prefix "$RUNNER_TEMP/comm minimum install" \
+          "$minimum_cmake" --install build-minimum --prefix "$RUNNER_TEMP/transport minimum install" \
             2>&1 | tee minimum-project-install.log
-          ./build-minimum/comm-example
+          ./build-minimum/can-example
       - name: Build and run the installed quickstart with CMake 3.16.9
         run: |
           minimum_cmake="$RUNNER_TEMP/cmake-minimum-install/bin/cmake"
-          "$minimum_cmake" -S "$RUNNER_TEMP/comm minimum install/share/linkerbot-comm/examples/quickstart" \
+          "$minimum_cmake" -S "$RUNNER_TEMP/transport minimum install/share/linkerbot-transport/examples/quickstart" \
             -B quickstart-minimum -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm minimum install" \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/transport minimum install" \
             2>&1 | tee minimum-quickstart-configure.log
           "$minimum_cmake" --build quickstart-minimum --parallel 4 \
             2>&1 | tee minimum-quickstart-build.log
@@ -303,6 +305,11 @@ jobs:
           (cd quickstart-minimum && "$RUNNER_TEMP/cmake-minimum-install/bin/ctest" \
             --output-on-failure --timeout 60 \
             --output-log ../minimum-quickstart-results.log)
+      - name: Verify canonical and legacy discovery with minimum CMake
+        run: |
+          python3 validation/package/test-naming.py \
+            --prefix "$RUNNER_TEMP/transport minimum install" \
+            --cmake "$RUNNER_TEMP/cmake-minimum-install/bin/cmake"
       - name: Compiler cache statistics
         if: always()
         run: ccache --show-stats
@@ -332,13 +339,13 @@ jobs:
       - name: Restore compiler cache
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
-          path: ${{ runner.temp }}/comm-ccache
+          path: ${{ runner.temp }}/transport-ccache
           key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-clang18-${{ matrix.mode }}-${{ github.sha }}
           restore-keys: |
             ccache-v1-${{ runner.os }}-${{ runner.arch }}-clang18-${{ matrix.mode }}-
       - name: Install Clang toolchain
         run: |
-          echo "CCACHE_DIR=$RUNNER_TEMP/comm-ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$RUNNER_TEMP/transport-ccache" >> "$GITHUB_ENV"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential ccache cmake ninja-build git ca-certificates \
@@ -379,8 +386,8 @@ jobs:
             "-DCMAKE_CXX_FLAGS=$compile_flags" \
             "-DCMAKE_EXE_LINKER_FLAGS=$link_flags" \
             "-DCMAKE_SHARED_LINKER_FLAGS=$link_flags" \
-            -DLINKERBOT_COMM_BUILD_TESTS=ON \
-            -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+            -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON \
+            -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON
       - name: Build library, tests and native ABI fixtures
         run: cmake --build build --parallel 4
       - name: Run Clang regression
@@ -408,17 +415,17 @@ jobs:
           esac
       - name: Run shared-bus example with libc++
         if: matrix.mode == 'libcxx'
-        run: ./build/comm-example
+        run: ./build/can-example
       - name: Install and test a libc++ consumer
         if: matrix.mode == 'libcxx'
         run: |
-          cmake --install build --prefix "$RUNNER_TEMP/comm clang install"
-          cmake -S "$RUNNER_TEMP/comm clang install/share/linkerbot-comm/validation/installed-consumer" \
+          cmake --install build --prefix "$RUNNER_TEMP/transport clang install"
+          cmake -S "$RUNNER_TEMP/transport clang install/share/linkerbot-transport/validation/installed-consumer" \
             -B consumer -G Ninja -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_CXX_COMPILER=clang++-18 \
             '-DCMAKE_CXX_FLAGS=-stdlib=libc++ -Wall -Wextra -Wpedantic -Werror' \
             '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
-            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm clang install"
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/transport clang install"
           cmake --build consumer --parallel 4
           ctest --test-dir consumer --output-on-failure --no-tests=error --timeout 60 \
             --output-log clang-consumer-results.log

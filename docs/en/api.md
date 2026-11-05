@@ -4,9 +4,10 @@
 [Diagnostics](troubleshooting.md) · [Operations, upgrades and rollback](operations.md)
 
 This guide describes the interfaces under `include/linkerbot/`. The project uses C++17.
-Device commands, identity checks, request/reply correlation and business-level idempotency
-belong to the upper SDK. Link `linkerbot::comm` to construct implementation objects or perform I/O;
-use `linkerbot::comm-compat` for legacy flat includes. `linkerbot::comm-values` supplies
+This guide covers the CAN interfaces. Device commands, identity checks, CAN request/reply
+correlation and business-level idempotency belong to the upper SDK. For serial and RTU,
+see the [module guide](modbus-rtu.md). Link `linkerbot::can` for CAN implementation objects and I/O;
+use `linkerbot::can-compat` for legacy flat includes. `linkerbot::headers` supplies
 header search paths and the C++17 requirement only; it does not replace the implementation library.
 
 ## Interface layers

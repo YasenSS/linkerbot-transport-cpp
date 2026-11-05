@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>linkerbot_comm_ros1_smoke</name>
+  <name>linkerbot_transport_ros1_smoke</name>
   <version>0.1.0</version>
   <description>Offline Noetic node and nodelet consumption of the installed SDK.</description>
   <maintainer email="soulteary@users.noreply.github.com">Su Yang</maintainer>

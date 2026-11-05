@@ -2,6 +2,9 @@
 
 [简体中文](../zh/build.md) · [Documentation](../README.md) · [Windows](windows-build.md)
 
+The canonical package/targets and retained compatibility names are described in
+[name migration](naming.md). Published v0.3.2 packages retain the old names.
+
 ## Prerequisites and directories
 
 The core library requires CMake 3.16+, a C++17 compiler and thread support. The regular test
@@ -11,7 +14,7 @@ but its test-discovery script needs JSON support, so this project requires CMake
 with tests enabled. Check any separately installed Catch2 version's own requirements too.
 Linux CI uses Ubuntu 24.04: GCC 13 covers native amd64/ARM64 Debug/Release and the 99%
 line-coverage gate; Clang 18 covers libc++, ASan+UBSan and TSan on both architectures.
-Local maintenance validation prioritizes Linux ARM64. Windows uses MSVC x64 as described
+Local maintenance validation prioritizes Linux ARM64. Windows uses MSVC x64/ARM64 as described
 in its guide. macOS is outside the current hardware-support and CI validation matrix.
 
 Run Bash commands from the source root. Examples use Ninja, which must be installed;
@@ -32,8 +35,8 @@ This path downloads no test dependencies and requires no physical device:
 
 ```bash
 cmake -S . -B build-minimum -DCMAKE_BUILD_TYPE=Release \
-  -DLINKERBOT_COMM_BUILD_TESTS=OFF \
-  -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF \
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=OFF \
+  -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=OFF \
   -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
 cmake --build build-minimum --parallel 4
 cmake --install build-minimum --prefix "$PWD/install/minimum"
@@ -51,10 +54,10 @@ package integration, not the complete regression suite or hardware acceptance.
 
 ```bash
 cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON
 cmake --build build-release --parallel 4
 ctest --test-dir build-release --output-on-failure --no-tests=error --timeout 60
-./build-release/comm-example
+./build-release/can-example
 ```
 
 For Debug, use a separate `build-debug` directory and `-DCMAKE_BUILD_TYPE=Debug`.
@@ -92,18 +95,18 @@ the repetition count is not a deterministic proof.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `LINKERBOT_COMM_BUILD_TESTS` | ON at top level, OFF as subdirectory | Catch2 tests and native ABI fixtures |
-| `LINKERBOT_COMM_BUILD_EXAMPLES` | ON at top level, OFF as subdirectory | Build `comm-example` |
+| `LINKERBOT_TRANSPORT_BUILD_TESTS` | ON at top level, OFF as subdirectory | Catch2 tests and native ABI fixtures |
+| `LINKERBOT_TRANSPORT_BUILD_EXAMPLES` | ON at top level, OFF as subdirectory | Build `can-example` |
 | `LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS` | ON | Download v3.8.1 if Catch2 3 is missing |
-| `LINKERBOT_COMM_ENABLE_COVERAGE` | OFF | Linux/GCC only; requires tests ON; adds `--coverage -fprofile-update=atomic -O0 -g` |
-| `LINKERBOT_COMM_ENABLE_SERIAL` | ON | Build and export `linkerbot::serial` |
-| `LINKERBOT_COMM_ENABLE_MODBUS` | ON | Build and export `linkerbot::modbus`; requires serial |
-| `LINKERBOT_COMM_BUILD_FUZZERS` | OFF | Build the Clang RTU codec fuzzer; requires Modbus |
-| `LINKERBOT_COMM_BUILD_BENCHMARKS` | OFF | Build the Linux-only performance harness with the root project |
+| `LINKERBOT_TRANSPORT_ENABLE_COVERAGE` | OFF | Linux/GCC only; requires tests ON; adds `--coverage -fprofile-update=atomic -O0 -g` |
+| `LINKERBOT_TRANSPORT_ENABLE_SERIAL` | ON | Build and export `linkerbot::serial` |
+| `LINKERBOT_TRANSPORT_ENABLE_MODBUS` | ON | Build and export `linkerbot::modbus`; requires serial |
+| `LINKERBOT_TRANSPORT_BUILD_FUZZERS` | OFF | Build the Clang RTU codec fuzzer; requires Modbus |
+| `LINKERBOT_TRANSPORT_BUILD_BENCHMARKS` | OFF | Build the Linux-only performance harness with the root project |
 | `LINKERBOT_PERF_COUNT_ALLOCATIONS` | OFF | Instrument C++ allocations in the benchmark; available when its subdirectory is enabled |
 | `Catch2_DIR` | Located by CMake | Installed Catch2 3 CMake configuration directory |
 | `CMAKE_INSTALL_PREFIX` | Platform CMake default | Installation prefix; install-time `--prefix` is also supported |
-| `LINKERBOT_COMM_SOURCE_REVISION` | Git automatically, otherwise unknown | Supply a full source SHA for exported source builds |
+| `LINKERBOT_TRANSPORT_SOURCE_REVISION` | Git automatically, otherwise unknown | Supply a full source SHA for exported source builds |
 | `CMAKE_MSVC_RUNTIME_LIBRARY` | Dynamic CRT on MSVC | Default Release `/MD`, Debug `/MDd`; match the consumer |
 
 These are CMake cache variables, not runtime environment variables. Disabling downloads
@@ -114,9 +117,9 @@ To prohibit dependency downloads and build only the core:
 
 ```bash
 cmake -S . -B build-core -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF \
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=OFF -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=OFF \
   -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF \
-  -DLINKERBOT_COMM_ENABLE_SERIAL=OFF -DLINKERBOT_COMM_ENABLE_MODBUS=OFF
+  -DLINKERBOT_TRANSPORT_ENABLE_SERIAL=OFF -DLINKERBOT_TRANSPORT_ENABLE_MODBUS=OFF
 cmake --build build-core --parallel 4
 ```
 
@@ -134,7 +137,7 @@ cmake --build build/perf --parallel 4
 ./build/perf/linkerbot-perf --iterations 200000 --idle-ms 500 --repetitions 5
 ```
 
-Alternatively, set `-DLINKERBOT_COMM_BUILD_BENCHMARKS=ON` when configuring the root
+Alternatively, set `-DLINKERBOT_TRANSPORT_BUILD_BENCHMARKS=ON` when configuring the root
 project; the executable is then under `build/benchmarks/`. Keep allocation tracking OFF
 for timings and use a separate build with `-DLINKERBOT_PERF_COUNT_ALLOCATIONS=ON`
 for allocation counts. See [Performance](performance.md) for measurement boundaries,
@@ -152,7 +155,7 @@ Install `gcovr` and use a new build directory to avoid mixing `.gcda` counts fro
 ```bash
 sudo apt-get install -y --no-install-recommends gcovr
 cmake -S . -B build-coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_ENABLE_COVERAGE=ON
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON -DLINKERBOT_TRANSPORT_ENABLE_COVERAGE=ON
 cmake --build build-coverage --parallel 4
 ctest --test-dir build-coverage --output-on-failure --no-tests=error --timeout 60
 gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build-coverage/_deps' \
@@ -207,7 +210,7 @@ cmake -S . -B build-asan-ubsan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Wpedantic -fsanitize=address,undefined -fno-omit-frame-pointer' \
   '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined' \
   '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined' \
-  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON
 cmake --build build-asan-ubsan --parallel 4
 env ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer-18)" \
   ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
@@ -221,7 +224,7 @@ cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Wpedantic -fsanitize=thread -fno-omit-frame-pointer' \
   '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread' \
   '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=thread' \
-  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON
 cmake --build build-tsan --parallel 4
 env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_path=$(command -v llvm-symbolizer-18)" \
   ctest --test-dir build-tsan --output-on-failure --no-tests=error --timeout 120
@@ -326,8 +329,8 @@ cmake -S . -B build-tidy -G Ninja \
   '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
   '-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++' \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-  -DLINKERBOT_COMM_BUILD_TESTS=ON \
-  -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON \
+  -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON
 
 run-clang-tidy-18 -p build-tidy -j 2 -quiet \
   -warnings-as-errors='*' \
@@ -363,26 +366,26 @@ For source-tree integration, define the consumer's `your-sdk` target first:
 
 ```cmake
 add_subdirectory(../linkerbot-transport-cpp linkerbot-transport-cpp)
-target_link_libraries(your-sdk PRIVATE linkerbot::comm)
+target_link_libraries(your-sdk PRIVATE linkerbot::can)
 ```
 
 Tests and examples default OFF as a subdirectory. If explicitly enabling tests, the top-level
 project must also enable CTest discovery. Install and check an independent consumer:
 
 ```bash
-cmake --install build-release --prefix "$PWD/install/comm"
-cmake -S install/comm/share/linkerbot-comm/validation/installed-consumer \
+cmake --install build-release --prefix "$PWD/install/transport"
+cmake -S install/transport/share/linkerbot-transport/validation/installed-consumer \
   -B build-consumer -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_PREFIX_PATH="$PWD/install/comm"
+  -DCMAKE_PREFIX_PATH="$PWD/install/transport"
 cmake --build build-consumer --parallel 4
 ctest --test-dir build-consumer --output-on-failure --no-tests=error --timeout 60
 ```
 
-Applications use `find_package(linkerbot-comm 0.3 CONFIG REQUIRED)`:
+Applications use `find_package(linkerbot-transport 0.3 CONFIG REQUIRED)`:
 
-- `linkerbot::comm`: implementation, headers, C++17 and thread-link dependencies.
-- `linkerbot::comm-compat`: legacy flat header paths plus implementation linkage.
-- `linkerbot::comm-values`: header paths and C++17 only; link the module that implements the APIs used.
+- `linkerbot::can`: implementation, headers, C++17 and thread-link dependencies.
+- `linkerbot::can-compat`: legacy flat header paths plus implementation linkage.
+- `linkerbot::headers`: header paths and C++17 only; link the module that implements the APIs used.
 - `linkerbot::serial`: serial byte streams (when enabled).
 - `linkerbot::modbus`: RTU transactions and serial dependency (when enabled).
 
@@ -405,7 +408,7 @@ build distribution, compiler, standard library and configuration. Keep separate 
 for different configurations. Existing release assets retain their original names.
 See the Windows guide for ZIP naming and CRT details.
 
-`share/linkerbot-comm/build-info.json` contains version, `comm_sha`, `source_dirty`, OS,
+`share/linkerbot-transport/build-info.json` contains version, `transport_sha`, `source_dirty`, OS,
 architecture, compiler, toolset, configuration and CRT. Provenance is generated at CMake
 configuration time; reconfigure after changing source commits. Metadata from an old build
 directory does not validate a new commit. Source exports without Git may supply a full SHA
@@ -420,7 +423,7 @@ Release, signed tag or image. The separate release workflow can create a draft o
 explicit manual request and its validation gates; CI and packaging success are not release completion.
 
 The serial and RTU modules export `linkerbot::serial` and `linkerbot::modbus`.
-Link their targets explicitly; `linkerbot::comm` does not pull them in. These
+Link their targets explicitly; `linkerbot::can` does not pull them in. These
 unreleased additions require current source, not the published v0.3.2 package.
 See [serial and RTU](modbus-rtu.md).
 

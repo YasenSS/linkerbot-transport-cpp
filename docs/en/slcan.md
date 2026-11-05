@@ -110,7 +110,7 @@ subject to the OS driver; no hard duration bound is promised for every driver.
 
 ## Validation and throughput
 
-`comm-tests "[slcan]"` includes byte-stream fixtures and Linux pseudoterminal tests for profile
+`can-tests "[slcan]"` includes byte-stream fixtures and Linux pseudoterminal tests for profile
 startup, ACK differences, all FD lengths, standard/extended IDs, BRS, fragmented/concatenated input,
 invalid input, buffer limits, cancellation, partial writes, disconnect, exclusion and reopening.
 Linux tests access only PTYs they create, not existing serial ports. See [README](../../README.md)

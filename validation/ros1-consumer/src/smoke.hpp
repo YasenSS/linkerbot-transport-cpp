@@ -7,7 +7,7 @@
 #include <memory>
 #include <stdexcept>
 
-inline void run_comm_smoke() {
+inline void run_transport_smoke() {
     namespace can = linkerbot::can;
     namespace transport = linkerbot::transport;
     auto adapter = std::make_unique<can::FakeTransport>();

@@ -4,7 +4,8 @@
 
 [文档索引](../README.md) · [构建复现](build.md)
 
-本文将实现能力、离线验证和实机验收分开记录。源码版本在 CMake 中为 0.3.0。
+本文将实现能力、离线验证和实机验收分开记录。下方结果属于各节标明的提交和发行版本，
+当前维护的矩阵见 [CI 指南](ci.md)。
 已发布的包和校验说明见[发行指南](releases.md)；
 仅更新文档或通过 CI，不代表已经发布 SDK 包。
 
@@ -103,7 +104,8 @@ CTest 通过。通过、失败和跳过项不能相互替代。
 - PCAN 的硬件目标为 Windows x64；Linux 动态库测试仅核验 loader ABI。
 - MiniCANFD 需要相同进程架构的 `libcanbus.so` 或 x64 `HCanbus.dll`，不能在 ARM64 中加载 x64 库。
 - SLCAN 支持显式 Lawicel Classic / CANable FD 配置，但仍标为实验性；PTY 和字节流测试不证明固件兼容。
-- 当前矩阵不包含 macOS 实机、Windows ARM64、USB 热插拔验收或长期负载/硬实时保证。
+- 当前 CI 包含 Windows ARM64 离线 SDK 验证，但不证明厂商驱动或硬件支持。
+  矩阵不包含 macOS 实机、USB 热插拔验收或长期负载/硬实时保证。
 
 ## 历史实机陈述：保留出处，不作本仓库验收
 

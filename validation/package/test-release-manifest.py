@@ -76,6 +76,13 @@ class ReleaseManifest(unittest.TestCase):
         files = {library_name: library, "share/linkerbot-comm/build-info.json": json.dumps(info).encode(),
                  "include/linkerbot/transport/session.hpp": b"header", "share/linkerbot-comm/LICENSE": b"MIT",
                  "share/linkerbot-comm/validation/installed-consumer/CMakeLists.txt": b"consumer"}
+        if info['package'] == 'linkerbot-transport':
+            files[library_name.replace('-comm', '-can')] = library
+            for name, content in list(files.items()):
+                if name.startswith('share/linkerbot-comm/'):
+                    files[name.replace('share/linkerbot-comm/', 'share/linkerbot-transport/')] = content
+            for package in ('linkerbot-transport', 'linkerbot-comm'):
+                files['lib/cmake/' + package + '/' + package + '-config.cmake'] = b'# fixture'
         files.update(extra or {})
         archive = self.root / row["name"]
         if info["system"] == "Linux":
@@ -92,6 +99,19 @@ class ReleaseManifest(unittest.TestCase):
 
     def manifest(self):
         return build_manifest(self.root, SHA, VERSION, self.target_file, RUN_URL)
+
+    def test_canonical_matrix_preserves_legacy_library_identity(self):
+        for path in self.root.iterdir():
+            path.unlink()
+        for row in self.rows:
+            row['name'] = row['name'].replace('linkerbot-comm-', 'linkerbot-transport-')
+            row['info'].update(package='linkerbot-transport', transport_sha=SHA,
+                               components=['can'], compatibility_libraries=['comm'])
+            self.write(row)
+        manifest = self.manifest()
+        self.assertEqual(len(manifest['assets']), 12)
+        self.assertTrue(all(asset['verified_objects'] == 2 for asset in manifest['assets']))
+        self.assertTrue(all(asset['file'].startswith('linkerbot-transport-') for asset in manifest['assets']))
 
     def test_complete_matrix_and_26_assets(self):
         manifest = self.manifest()

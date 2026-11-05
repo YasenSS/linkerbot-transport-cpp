@@ -16,6 +16,9 @@ RTU 模块处理寄存器事务，设备寄存器映射和运动控制仍由上�
 当前源码版本：**0.3.2**。串口和 Modbus RTU 是 `main` 上尚未发布的新增模块，已发布的 v0.3.2 包不包含这两项。下载[最新已发布的稳定版](https://github.com/linker-bot/linkerbot-transport-cpp/releases/latest)。
 下载、校验及版本文档见[发行说明](docs/zh/releases.md)。
 
+规范包名为 `linkerbot-transport`；原 `linkerbot-comm` 查找入口和库文件继续兼容。
+参见[命名迁移](docs/zh/naming.md)。
+
 ## Linux 快速开始
 
 需要 CMake 3.20+、C++17 编译器和线程支持。从源码根目录执行：
@@ -24,8 +27,8 @@ RTU 模块处理寄存器事务，设备寄存器映射和运动控制仍由上�
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel 4
 (cd build && ctest --output-on-failure)
-./build/comm-example
-cmake --install build --prefix "$PWD/install/comm"
+./build/can-example
+cmake --install build --prefix "$PWD/install/transport"
 ```
 
 默认构建测试和示例。测试需要 Catch2 3：CMake 优先查找已安装的包，再按许可下载 v3.8.1。
@@ -40,7 +43,7 @@ cmake --install build --prefix "$PWD/install/comm"
 
 ```bash
 cmake -S examples/quickstart -B build-quickstart \
-  -DCMAKE_PREFIX_PATH="$PWD/install/comm"
+  -DCMAKE_PREFIX_PATH="$PWD/install/transport"
 cmake --build build-quickstart --parallel 4
 (cd build-quickstart && ctest --output-on-failure)
 ```
@@ -50,16 +53,16 @@ cmake --build build-quickstart --parallel 4
 
 ## CMake 接入
 
-仓库名是 `linkerbot-transport-cpp`，安装后的 CMake 包名保留为 `linkerbot-comm`：
+仓库名是 `linkerbot-transport-cpp`，安装后的规范 CMake 包名为 `linkerbot-transport`：
 
 ```cmake
-find_package(linkerbot-comm 0.3 CONFIG REQUIRED)
-target_link_libraries(your-sdk PRIVATE linkerbot::comm)
+find_package(linkerbot-transport 0.3 CONFIG REQUIRED)
+target_link_libraries(your-sdk PRIVATE linkerbot::can)
 ```
 
 源码接入时，将 `find_package` 替换为
 `add_subdirectory(../linkerbot-transport-cpp linkerbot-transport-cpp)`。
-旧扁平头文件使用 `linkerbot::comm-compat`，只读值类型使用 `linkerbot::comm-values`。
+旧扁平头文件使用 `linkerbot::can-compat`，只读值类型使用 `linkerbot::headers`。
 `0.3.x` 与 hand SDK `0.3.x` 配套，通信库版本须不低于 hand 版本；应用应使用匹配的头文件、
 架构、编译器和运行库重新编译。
 
@@ -71,7 +74,7 @@ target_link_libraries(your-sdk PRIVATE linkerbot::comm)
 - **原生 SLCAN：** Linux / Windows，Classic / CANable FD；实验性，需要明确的串口与固件配置。
 - **FakeTransport：** 用于离线开发和测试的内存传输层。
 
-Linux amd64/ARM64 和 Windows x64 有离线 CI。硬件能力取决于适配器、驱动和固件，详见
+Linux amd64/ARM64 和 Windows x64/ARM64 有离线 CI。硬件能力取决于适配器、驱动和固件，详见
 [验证证据与边界](docs/zh/validation.md)。覆盖率和 Clang 质量检查命令见 [构建指南](docs/zh/build.md)。
 
 ## API 与设备接入
@@ -92,7 +95,7 @@ Linux amd64/ARM64 和 Windows x64 有离线 CI。硬件能力取决于适配器�
 [MIT 许可证](LICENSE) · [贡献流程](CONTRIBUTING.zh-CN.md) · [版本变更](CHANGELOG.md) ·
 [第三方组件](NOTICE) · [支持范围与敏感报告](SECURITY.zh-CN.md)
 
-安装文档位于 `share/linkerbot-comm`。运行时包不包含厂商驱动、DLL 或测试 fixture。
+安装文档位于 `share/linkerbot-transport`。SDK 安装包不包含厂商驱动、DLL 或测试 fixture。
 
 ## 串口与 Modbus RTU
 

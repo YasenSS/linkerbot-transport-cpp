@@ -73,7 +73,10 @@ def read_package(archive):
         raise ValueError("Unsupported SDK archive format")
     if len(roots) != 1:
         raise ValueError("Expected one top-level SDK directory")
-    info = json.loads(files["share/linkerbot-comm/build-info.json"])
+    metadata = "share/linkerbot-transport/build-info.json"
+    if metadata not in files:
+        metadata = "share/linkerbot-comm/build-info.json"
+    info = json.loads(files[metadata])
     return info, files
 
 
@@ -109,11 +112,11 @@ def build_manifest(root, sha, version, target_file, validation_run):
             raise ValueError("Focal compatibility baseline requires GCC 9")
         compiler_version = info["compiler"].split()[1]
         if system == "Linux":
-            expected_name = "linkerbot-comm-%s-Linux-%s-%s-GNU%s-libstdcxx-abi1-Release.tar.gz" % (
-                version, identity[2], identity[1], compiler_version)
+            expected_name = "%s-%s-Linux-%s-%s-GNU%s-libstdcxx-abi1-Release.tar.gz" % (
+                info["package"], version, identity[2], identity[1], compiler_version)
         else:
-            expected_name = "linkerbot-comm-%s-Windows-%s-msvc%s-%s-%s-%s.zip" % (
-                version, identity[2], info["toolset"], compiler_version, identity[3], info["runtime"])
+            expected_name = "%s-%s-Windows-%s-msvc%s-%s-%s-%s.zip" % (
+                info["package"], version, identity[2], info["toolset"], compiler_version, identity[3], info["runtime"])
         if archive.name != expected_name:
             raise ValueError("SDK filename disagrees with verified metadata: " + archive.name)
         count = verify_files(files, info)
