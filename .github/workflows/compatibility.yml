@@ -123,7 +123,7 @@ jobs:
               python3 validation/package/verify-package.py "$prefix" --sha "$SOURCE_SHA" \
                 --arch "$(uname -m)" --distribution ubuntu20.04 --configuration Release --require-clean
               mkdir -p /tmp/catkin_ws/src
-              cp -a validation/ros1-consumer /tmp/catkin_ws/src/linkerbot_comm_ros1_smoke
+              cp -a validation/ros1-consumer /tmp/catkin_ws/src/linkerbot_transport_ros1_smoke
               cd /tmp/catkin_ws
               catkin_make -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$prefix;/opt/ros/noetic"
               source devel/setup.bash

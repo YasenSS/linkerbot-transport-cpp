@@ -37,11 +37,11 @@ cmake -S . -B build-libcxx -G Ninja \
   '-DCMAKE_CXX_FLAGS=-stdlib=libc++ -Wall -Wextra -Wpedantic -Werror' \
   '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
   '-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++' \
-  -DLINKERBOT_COMM_BUILD_TESTS=ON \
-  -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON \
+  -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON
 cmake --build build-libcxx --parallel 4
 ctest --test-dir build-libcxx --output-on-failure --no-tests=error --timeout 90
-./build-libcxx/comm-example
+./build-libcxx/can-example
 ```
 
 Linux aggregate production line coverage must exceed 99% before rounding over `src/` and `include/`. This is not a per-file threshold, branch coverage requirement, or hardware acceptance. Use TSan or other applicable tools for concurrency changes; explain skipped checks. Go race/vet, Redis, and database tests apply only to relevant application projects; this transport library has no such dependencies.

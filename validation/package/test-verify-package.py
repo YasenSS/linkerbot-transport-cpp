@@ -56,6 +56,52 @@ class PackageValidation(unittest.TestCase):
             (self.root / 'share/linkerbot-comm/validation/installed-consumer/rtu.cpp').write_bytes(b'fixture')
         return self.root / 'lib' / name
 
+    def canonical_package(self):
+        self.info.update(package='linkerbot-transport', transport_sha=SHA,
+                         components=['can'], compatibility_libraries=['comm'])
+        old = self.root / 'lib' / ('linkerbot-comm.lib' if self.info['system'] == 'Windows' else 'liblinkerbot-comm.a')
+        old.with_name(old.name.replace('-comm', '-can')).write_bytes(old.read_bytes())
+        import shutil
+        shutil.copytree(self.root / 'share/linkerbot-comm', self.root / 'share/linkerbot-transport')
+        for package in ('linkerbot-transport', 'linkerbot-comm'):
+            path = self.root / 'lib/cmake' / package
+            path.mkdir(parents=True)
+            (path / (package + '-config.cmake')).write_text('# fixture')
+
+    def verify_canonical(self):
+        for package in ('linkerbot-transport', 'linkerbot-comm'):
+            (self.root / 'share' / package / 'build-info.json').write_text(json.dumps(self.info))
+        return self.verify()
+
+    def test_canonical_package_with_identical_legacy_archive(self):
+        self.canonical_package()
+        result = self.verify_canonical()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['verified_objects'], 2)
+
+    def test_canonical_rejects_different_legacy_archive(self):
+        self.canonical_package()
+        old = next((self.root / 'lib').glob('*linkerbot-comm.*'))
+        old.write_bytes(old.read_bytes() + b'different')
+        self.assertNotEqual(self.verify_canonical().returncode, 0)
+
+    def test_canonical_rejects_different_legacy_share(self):
+        self.canonical_package()
+        (self.root / 'share/linkerbot-comm/LICENSE').write_text('different')
+        self.assertNotEqual(self.verify_canonical().returncode, 0)
+
+    def test_canonical_rejects_inconsistent_revision_alias(self):
+        self.canonical_package()
+        self.info['comm_sha'] = 'b' * 40
+        self.assertNotEqual(self.verify_canonical().returncode, 0)
+
+    def test_canonical_requires_components_and_legacy_declaration(self):
+        self.canonical_package()
+        for field in ('components', 'compatibility_libraries'):
+            value = self.info.pop(field)
+            self.assertNotEqual(self.verify_canonical().returncode, 0)
+            self.info[field] = value
+
     def test_declared_optional_components(self):
         self.info['components'] = ['comm']
         self.assertEqual(self.verify().returncode, 0)

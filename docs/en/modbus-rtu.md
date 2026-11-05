@@ -10,12 +10,12 @@ do not contain these targets. Build current source to use them.
 
 ## Build and consume
 
-`LINKERBOT_COMM_ENABLE_SERIAL` and `LINKERBOT_COMM_ENABLE_MODBUS` default to `ON`.
+`LINKERBOT_TRANSPORT_ENABLE_SERIAL` and `LINKERBOT_TRANSPORT_ENABLE_MODBUS` default to `ON`.
 Modbus requires serial. Disable both for a CAN-only installation. Neither module
-is linked by `linkerbot::comm`; consumers opt in through separate exported targets.
+is linked by `linkerbot::can`; consumers opt in through separate exported targets.
 
 ```cmake
-find_package(linkerbot-comm 0.3 CONFIG REQUIRED)
+find_package(linkerbot-transport 0.3 CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE linkerbot::modbus) # includes linkerbot::serial
 ```
 
@@ -119,7 +119,7 @@ validation without an adapter covers build/configuration paths, not hardware I/O
 There is no hardware acceptance claim for either platform in this change.
 
 ```bash
-cmake -S . -B build -DLINKERBOT_COMM_BUILD_TESTS=ON
+cmake -S . -B build -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON
 cmake --build build --parallel 4
 ctest --test-dir build --output-on-failure --no-tests=error
 ```
@@ -128,7 +128,7 @@ The optional Clang fuzz target instruments the codec itself and is not installed
 
 ```bash
 cmake -S . -B build-fuzz -DCMAKE_CXX_COMPILER=clang++ \
-  -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_FUZZERS=ON
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=OFF -DLINKERBOT_TRANSPORT_BUILD_FUZZERS=ON
 cmake --build build-fuzz --target rtu-codec-fuzz
 ./build-fuzz/rtu-codec-fuzz -runs=100000 -max_len=256
 ```

@@ -1,4 +1,4 @@
-name: Windows comm regression, native ABI and ZIP
+name: Windows transport regression, native ABI and ZIP
 
 on:
   push:
@@ -154,7 +154,7 @@ jobs:
         run: |
           cmake -S . -B build -G '${{ matrix.generator }}' -A '${{ matrix.arch }}' -T 'v143,version=14.44' `
             '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>DLL' `
-            -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF
+            -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=OFF
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
       - name: Build tests and native DLL fixtures
         run: |
@@ -164,7 +164,7 @@ jobs:
         run: |
           python validation/package/verify-windows-binaries.py build --arch '${{ matrix.arch }}' | Tee-Object build-machine-results.log
           if ($LASTEXITCODE -ne 0) { throw 'Native test binary machine validation failed' }
-      - name: Run comm regression and actual Windows loader tests
+      - name: Run transport regression and actual Windows loader tests
         run: |
           ctest --test-dir build -C ${{ matrix.configuration }} --show-only=json-v1 > test-list.json
           if ($LASTEXITCODE -ne 0) { throw 'CTest discovery failed' }
@@ -188,21 +188,23 @@ jobs:
           $Roots = @(Get-ChildItem $Destination -Directory)
           if ($Roots.Count -ne 1) { throw 'Expected a single package root' }
           $Prefix = $Roots[0].FullName
-          foreach ($Required in @('include/linkerbot/can/slcan_transport.hpp', 'share/linkerbot-comm/docs/zh/slcan.md', 'share/linkerbot-comm/docs/zh/session.md', 'share/linkerbot-comm/examples/shared_bus.cpp')) {
+          foreach ($Required in @('include/linkerbot/can/slcan_transport.hpp', 'share/linkerbot-transport/docs/zh/slcan.md', 'share/linkerbot-transport/docs/zh/session.md', 'share/linkerbot-transport/examples/shared_bus.cpp')) {
             if (!(Test-Path "$Prefix/$Required")) { throw "Missing package entry $Required" }
           }
-          foreach ($Required in @('share/linkerbot-comm/LICENSE', 'share/linkerbot-comm/NOTICE', 'share/linkerbot-comm/README.md', 'share/linkerbot-comm/docs/zh/windows-build.md', 'share/linkerbot-comm/build-info.json', 'lib/linkerbot-comm.lib', 'lib/cmake/linkerbot-comm/linkerbot-comm-config.cmake', 'include/linkerbot/can/pcan_transport.hpp')) {
+          foreach ($Required in @('share/linkerbot-transport/LICENSE', 'share/linkerbot-transport/NOTICE', 'share/linkerbot-transport/README.md', 'share/linkerbot-transport/docs/zh/windows-build.md', 'share/linkerbot-transport/build-info.json', 'lib/linkerbot-can.lib', 'lib/cmake/linkerbot-transport/linkerbot-transport-config.cmake', 'include/linkerbot/can/pcan_transport.hpp')) {
             if (!(Test-Path "$Prefix/$Required")) { throw "Missing $Required" }
           }
           $Files = @(Get-ChildItem $Prefix -File -Recurse)
           if ($Files | Where-Object { $_.Name -match 'fixture|PCANBasic\.dll|HCanbus\.dll|catch2' }) { throw 'Test/vendor component leaked into release ZIP' }
           $Files.FullName | Out-File package-files.txt
-          $Metadata = Get-Content "$Prefix/share/linkerbot-comm/build-info.json" -Raw | ConvertFrom-Json
+          $Metadata = Get-Content "$Prefix/share/linkerbot-transport/build-info.json" -Raw | ConvertFrom-Json
           $Runtime = if ($Configuration -eq 'Debug') { 'MDd' } else { 'MD' }
-          if ($Metadata.comm_sha -ne (git rev-parse HEAD) -or $Metadata.source_dirty -or $Metadata.configuration -ne $Configuration -or $Metadata.runtime -ne $Runtime -or $Metadata.architecture -ne '${{ matrix.arch }}' -or $Metadata.toolset -ne '143') { throw 'Package provenance/runtime mismatch' }
+          if ($Metadata.transport_sha -ne (git rev-parse HEAD) -or $Metadata.source_dirty -or $Metadata.configuration -ne $Configuration -or $Metadata.runtime -ne $Runtime -or $Metadata.architecture -ne '${{ matrix.arch }}' -or $Metadata.toolset -ne '143') { throw 'Package provenance/runtime mismatch' }
           python validation/package/verify-package.py "$Prefix" --sha "$(git rev-parse HEAD)" --arch '${{ matrix.arch }}' --system Windows --configuration $Configuration --require-clean
           if ($LASTEXITCODE -ne 0) { throw 'SDK COFF object validation failed' }
-          cmake -S "$Prefix/share/linkerbot-comm/validation/installed-consumer" -B consumer -G '${{ matrix.generator }}' -A '${{ matrix.arch }}' -T 'v143,version=14.44' "-DCMAKE_PREFIX_PATH=$Prefix"
+          python validation/package/test-naming.py --prefix "$Prefix" --configuration $Configuration --generator '${{ matrix.generator }}' --platform '${{ matrix.arch }}' --toolset 'v143,version=14.44'
+          if ($LASTEXITCODE -ne 0) { throw 'Canonical/legacy naming contract failed' }
+          cmake -S "$Prefix/share/linkerbot-transport/validation/installed-consumer" -B consumer -G '${{ matrix.generator }}' -A '${{ matrix.arch }}' -T 'v143,version=14.44' "-DCMAKE_PREFIX_PATH=$Prefix"
           if ($LASTEXITCODE -ne 0) { throw 'Consumer configure failed' }
           cmake --build consumer --config $Configuration --parallel 4 2>&1 | Tee-Object consumer-build.log
           if ($LASTEXITCODE -ne 0) { throw 'Consumer build failed' }

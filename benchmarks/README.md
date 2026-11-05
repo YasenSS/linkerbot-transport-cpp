@@ -50,7 +50,7 @@ these rows by subscriber count and repetition. The invocation loop and all other
 instrumentation remain identical.
 
 Alternatively, the parent project may enable its optional benchmark target via
-`-DLINKERBOT_COMM_BUILD_BENCHMARKS=ON`; the standalone project does not force the
+`-DLINKERBOT_TRANSPORT_BUILD_BENCHMARKS=ON`; the standalone project does not force the
 parent project's test/example choices when the library target already exists.
 
 `idle_unrouted` creates 0/1/8/32 Sessions with no inbox; `idle_routed` also retains

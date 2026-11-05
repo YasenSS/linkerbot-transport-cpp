@@ -2,6 +2,8 @@
 
 [English](../en/build.md) · [文档索引](../README.md) · [Windows 专项说明](windows-build.md)
 
+规范包名、链接目标及保留的兼容入口见[命名迁移](naming.md)。已发布的 v0.3.2 包保留旧名称。
+
 ## 前置条件与目录约定
 
 核心库需要 CMake 3.16+、C++17 编译器和线程支持。本文常规测试命令使用
@@ -29,8 +31,8 @@ sudo apt-get install -y --no-install-recommends build-essential cmake ninja-buil
 
 ```bash
 cmake -S . -B build-minimum -DCMAKE_BUILD_TYPE=Release \
-  -DLINKERBOT_COMM_BUILD_TESTS=OFF \
-  -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF \
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=OFF \
+  -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=OFF \
   -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
 cmake --build build-minimum --parallel 4
 cmake --install build-minimum --prefix "$PWD/install/minimum"
@@ -47,10 +49,10 @@ cmake --build build-quickstart-minimum --parallel 4
 
 ```bash
 cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON
 cmake --build build-release --parallel 4
 ctest --test-dir build-release --output-on-failure --no-tests=error --timeout 60
-./build-release/comm-example
+./build-release/can-example
 ```
 
 Debug 使用另一个目录 `build-debug` 和 `-DCMAKE_BUILD_TYPE=Debug`。单配置生成器需要在
@@ -85,18 +87,18 @@ initializer 后，等待边会绑定到新的初始化尝试。同步门固定�
 
 | 配置项 | 默认值 | 作用 |
 | --- | --- | --- |
-| `LINKERBOT_COMM_BUILD_TESTS` | 顶层 ON，子目录 OFF | 构建 Catch2 测试及原生 ABI fixture |
-| `LINKERBOT_COMM_BUILD_EXAMPLES` | 顶层 ON，子目录 OFF | 构建 `comm-example` |
+| `LINKERBOT_TRANSPORT_BUILD_TESTS` | 顶层 ON，子目录 OFF | 构建 Catch2 测试及原生 ABI fixture |
+| `LINKERBOT_TRANSPORT_BUILD_EXAMPLES` | 顶层 ON，子目录 OFF | 构建 `can-example` |
 | `LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS` | ON | 缺少 Catch2 3 时允许下载 v3.8.1 |
-| `LINKERBOT_COMM_ENABLE_COVERAGE` | OFF | 仅 Linux/GCC；要求测试 ON；加入 `--coverage -fprofile-update=atomic -O0 -g` |
-| `LINKERBOT_COMM_ENABLE_SERIAL` | ON | 构建和导出 `linkerbot::serial` |
-| `LINKERBOT_COMM_ENABLE_MODBUS` | ON | 构建和导出 `linkerbot::modbus`；依赖 serial |
-| `LINKERBOT_COMM_BUILD_FUZZERS` | OFF | 构建 Clang RTU 编解码模糊测试；依赖 Modbus |
-| `LINKERBOT_COMM_BUILD_BENCHMARKS` | OFF | 在根项目中构建仅支持 Linux 的性能测量程序 |
+| `LINKERBOT_TRANSPORT_ENABLE_COVERAGE` | OFF | 仅 Linux/GCC；要求测试 ON；加入 `--coverage -fprofile-update=atomic -O0 -g` |
+| `LINKERBOT_TRANSPORT_ENABLE_SERIAL` | ON | 构建和导出 `linkerbot::serial` |
+| `LINKERBOT_TRANSPORT_ENABLE_MODBUS` | ON | 构建和导出 `linkerbot::modbus`；依赖 serial |
+| `LINKERBOT_TRANSPORT_BUILD_FUZZERS` | OFF | 构建 Clang RTU 编解码模糊测试；依赖 Modbus |
+| `LINKERBOT_TRANSPORT_BUILD_BENCHMARKS` | OFF | 在根项目中构建仅支持 Linux 的性能测量程序 |
 | `LINKERBOT_PERF_COUNT_ALLOCATIONS` | OFF | 为基准程序启用 C++ 分配计数；启用基准子目录后可用 |
 | `Catch2_DIR` | 由 CMake 查找 | 已安装的 Catch2 3 CMake 配置目录 |
 | `CMAKE_INSTALL_PREFIX` | CMake 平台默认 | 安装前缀；也可在安装时用 `--prefix` |
-| `LINKERBOT_COMM_SOURCE_REVISION` | 自动读 Git；不可用时 unknown | 导出源码构建时人工提供完整来源 SHA |
+| `LINKERBOT_TRANSPORT_SOURCE_REVISION` | 自动读 Git；不可用时 unknown | 导出源码构建时人工提供完整来源 SHA |
 | `CMAKE_MSVC_RUNTIME_LIBRARY` | MSVC 默认为动态 CRT | 默认 Release `/MD`、Debug `/MDd`；须和消费者一致 |
 
 这些是 CMake 缓存变量，不是运行时环境变量。修改下载开关不会删除已经存在的 Catch2
@@ -106,9 +108,9 @@ initializer 后，等待边会绑定到新的初始化尝试。同步门固定�
 
 ```bash
 cmake -S . -B build-core -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_EXAMPLES=OFF \
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=OFF -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=OFF \
   -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF \
-  -DLINKERBOT_COMM_ENABLE_SERIAL=OFF -DLINKERBOT_COMM_ENABLE_MODBUS=OFF
+  -DLINKERBOT_TRANSPORT_ENABLE_SERIAL=OFF -DLINKERBOT_TRANSPORT_ENABLE_MODBUS=OFF
 cmake --build build-core --parallel 4
 ```
 
@@ -125,7 +127,7 @@ cmake --build build/perf --parallel 4
 ./build/perf/linkerbot-perf --iterations 200000 --idle-ms 500 --repetitions 5
 ```
 
-也可在配置根项目时指定 `-DLINKERBOT_COMM_BUILD_BENCHMARKS=ON`，此时可执行文件位于
+也可在配置根项目时指定 `-DLINKERBOT_TRANSPORT_BUILD_BENCHMARKS=ON`，此时可执行文件位于
 `build/benchmarks/`。计时保持分配计数 OFF；分配次数使用独立构建，并指定
 `-DLINKERBOT_PERF_COUNT_ALLOCATIONS=ON`。测量边界、复现命令和已记录的 ARM64 结果见
 [性能指南](performance.md)。
@@ -141,7 +143,7 @@ Linux CI 的 `benchmark-smoke` 任务在 ARM64 上使用 Clang 18/libc++ 构建�
 ```bash
 sudo apt-get install -y --no-install-recommends gcovr
 cmake -S . -B build-coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_ENABLE_COVERAGE=ON
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON -DLINKERBOT_TRANSPORT_ENABLE_COVERAGE=ON
 cmake --build build-coverage --parallel 4
 ctest --test-dir build-coverage --output-on-failure --no-tests=error --timeout 60
 gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build-coverage/_deps' \
@@ -188,7 +190,7 @@ cmake -S . -B build-asan-ubsan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Wpedantic -fsanitize=address,undefined -fno-omit-frame-pointer' \
   '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined' \
   '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined' \
-  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON
 cmake --build build-asan-ubsan --parallel 4
 env ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer-18)" \
   ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
@@ -202,7 +204,7 @@ cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Wpedantic -fsanitize=thread -fno-omit-frame-pointer' \
   '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread' \
   '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=thread' \
-  -DLINKERBOT_COMM_BUILD_TESTS=ON -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON
 cmake --build build-tsan --parallel 4
 env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_path=$(command -v llvm-symbolizer-18)" \
   ctest --test-dir build-tsan --output-on-failure --no-tests=error --timeout 120
@@ -290,8 +292,8 @@ cmake -S . -B build-tidy -G Ninja \
   '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
   '-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++' \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-  -DLINKERBOT_COMM_BUILD_TESTS=ON \
-  -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON \
+  -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON
 
 run-clang-tidy-18 -p build-tidy -j 2 -quiet \
   -warnings-as-errors='*' \
@@ -324,26 +326,26 @@ clang-tidy-18 validation/installed-consumer/main.cpp \
 
 ```cmake
 add_subdirectory(../linkerbot-transport-cpp linkerbot-transport-cpp)
-target_link_libraries(your-sdk PRIVATE linkerbot::comm)
+target_link_libraries(your-sdk PRIVATE linkerbot::can)
 ```
 
 本项目作为子目录时测试和示例默认关闭；若显式开启测试，顶层工程也需开启 CTest 发现。
 按下面方式安装并验证不依赖源码树的消费者：
 
 ```bash
-cmake --install build-release --prefix "$PWD/install/comm"
-cmake -S install/comm/share/linkerbot-comm/validation/installed-consumer \
+cmake --install build-release --prefix "$PWD/install/transport"
+cmake -S install/transport/share/linkerbot-transport/validation/installed-consumer \
   -B build-consumer -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_PREFIX_PATH="$PWD/install/comm"
+  -DCMAKE_PREFIX_PATH="$PWD/install/transport"
 cmake --build build-consumer --parallel 4
 ctest --test-dir build-consumer --output-on-failure --no-tests=error --timeout 60
 ```
 
-应用工程使用 `find_package(linkerbot-comm 0.3 CONFIG REQUIRED)`：
+应用工程使用 `find_package(linkerbot-transport 0.3 CONFIG REQUIRED)`：
 
-- `linkerbot::comm`：实现、头文件、C++17 和线程链接依赖。
-- `linkerbot::comm-compat`：同时提供旧的扁平头文件路径，并链接实现。
-- `linkerbot::comm-values`：头文件路径和 C++17，不链接实现；须链接所调用 API 对应的模块。
+- `linkerbot::can`：实现、头文件、C++17 和线程链接依赖。
+- `linkerbot::can-compat`：同时提供旧的扁平头文件路径，并链接实现。
+- `linkerbot::headers`：头文件路径和 C++17，不链接实现；须链接所调用 API 对应的模块。
 - `linkerbot::serial`：串口字节流（启用时）。
 - `linkerbot::modbus`：RTU 事务及串口依赖（启用时）。
 
@@ -363,7 +365,7 @@ CPack 生成相邻 SHA256 文件；新 Linux 包名包含版本、系统、架�
 标准库和配置。不同配置仍使用独立构建目录，已发布资产保留原名。Windows ZIP 命名及
 运行库另见专项说明。
 
-`share/linkerbot-comm/build-info.json` 包含版本、`comm_sha`、`source_dirty`、系统、架构、
+`share/linkerbot-transport/build-info.json` 包含版本、`transport_sha`、`source_dirty`、系统、架构、
 编译器、工具集、配置和运行库。来源信息在 CMake 配置时生成：更换源码提交后应重新配置，
 不能用旧构建目录的 metadata 声称新提交已验证。无 Git 的导出源码可显式传入完整 SHA，
 但它是调用者提供的来源说明，不是内容校验或签名。
@@ -375,7 +377,7 @@ CPack 生成相邻 SHA256 文件；新 Linux 包名包含版本、系统、架�
 且门禁通过后创建草稿；CI 成功和打包成功都不等于正式发布。
 
 串口与 RTU 分别导出 `linkerbot::serial` 和 `linkerbot::modbus`，须显式链接；
-`linkerbot::comm` 不传递链接这两项。未发布的新模块需要当前源码，已发布的 v0.3.2 包不包含它们。
+`linkerbot::can` 不传递链接这两项。未发布的新模块需要当前源码，已发布的 v0.3.2 包不包含它们。
 参见[串口与 RTU](modbus-rtu.md)。
 
 生命周期分配失败夹具替换全局分配函数，因此不在同样替换这些符号的 TSan 构建中运行。

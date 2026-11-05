@@ -65,13 +65,13 @@ and further matrix reduction need separate measurements.
 
 ## Package identity and validation
 
-Archive names and `share/linkerbot-comm/build-info.json` distinguish source SHA, distribution,
+Archive names and `share/linkerbot-transport/build-info.json` distinguish source SHA, distribution,
 architecture, compiler, probed standard library/dual ABI, configuration and Windows CRT.
 PIC and instrumentation state are recorded. Probe caches include configuration flags;
 multi-config CPack names use the selected `-C` configuration. Reconfigure when inputs change.
 
-`LINKERBOT_COMM_RELEASE_BUILD=ON` requires clean source/full SHA and rejects recognized
-coverage/sanitizer flags. `LINKERBOT_COMM_BUILD_IMAGE` records an optional image identity.
+`LINKERBOT_TRANSPORT_RELEASE_BUILD=ON` requires clean source/full SHA and rejects recognized
+coverage/sanitizer flags. `LINKERBOT_TRANSPORT_BUILD_IMAGE` records an optional image identity.
 Developer dirty/unknown-source builds remain allowed. Provenance is not an exhaustive ABI
 attestation, and a caller-supplied SHA for a source export is not a content signature.
 

@@ -8,7 +8,9 @@
 
 // Public feature-test macros must remain usable in #if expressions.
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage,cppcoreguidelines-macro-to-enum,modernize-macro-to-enum)
-#define LINKERBOT_COMM_SLCAN_FD 1
+#define LINKERBOT_TRANSPORT_SLCAN_FD 1
+// Legacy feature-test spelling remains available to existing consumers.
+#define LINKERBOT_COMM_SLCAN_FD LINKERBOT_TRANSPORT_SLCAN_FD
 
 namespace linkerbot::can {
     // Firmware profiles are explicit: Lawicel requires command ACKs; CANable 2

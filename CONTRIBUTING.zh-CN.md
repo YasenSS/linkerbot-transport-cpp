@@ -46,11 +46,11 @@ cmake -S . -B build-libcxx -G Ninja \
   '-DCMAKE_CXX_FLAGS=-stdlib=libc++ -Wall -Wextra -Wpedantic -Werror' \
   '-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++' \
   '-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++' \
-  -DLINKERBOT_COMM_BUILD_TESTS=ON \
-  -DLINKERBOT_COMM_BUILD_EXAMPLES=ON
+  -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON \
+  -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON
 cmake --build build-libcxx --parallel 4
 ctest --test-dir build-libcxx --output-on-failure --no-tests=error --timeout 90
-./build-libcxx/comm-example
+./build-libcxx/can-example
 ```
 
 生产代码的 Linux 汇总行覆盖率要求按原始行数计算超过 99%（不使用舍入后的百分比），范围是 `src/` 与 `include/`，不是每个文件、

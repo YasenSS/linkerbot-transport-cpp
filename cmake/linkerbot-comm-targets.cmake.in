@@ -1,0 +1,2 @@
+# Compatibility for consumers that directly included the former export file.
+include("${CMAKE_CURRENT_LIST_DIR}/../linkerbot-transport/linkerbot-transport-config.cmake")

@@ -62,8 +62,8 @@ The library has no HTTP endpoint, Prometheus exporter, PromQL, or alert rules. A
 | Symptom | Check first |
 | --- | --- |
 | CMake cannot find Catch2 | Use Catch2 3; install it or provide `Catch2_DIR` for offline builds; check the download option |
-| `find_package` cannot find the package | Package name is `linkerbot-comm`; `CMAKE_PREFIX_PATH` points to the install prefix, not the source directory |
-| Undefined symbols / coverage link errors | Link the comm implementation; match architecture/CRT; consumers of coverage-instrumented static libraries also need `--coverage` |
+| `find_package` cannot find the package | Package name is `linkerbot-transport`; `CMAKE_PREFIX_PATH` points to the install prefix, not the source directory |
+| Undefined symbols / coverage link errors | Link the matching transport module; match architecture/CRT; consumers of coverage-instrumented static libraries also need `--coverage` |
 | Dynamic library cannot load | Explicit paths override environment variables; check architecture, dependencies, and exports in the backend guide |
 | Windows errors 126/193/127 | These can indicate missing dependencies, wrong architecture, or missing exports respectively; 126 does not prove the top-level DLL is missing |
 | Session route conflict | Exact `(id, extended)` already belongs to another open inbox; coordinate routes between Session sharers |

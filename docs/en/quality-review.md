@@ -47,7 +47,7 @@ no CAN hardware. The fix moves the consumer work into `run_consumer()` and
 catches `std::exception` at `main()`, retaining the existing success and explicit
 failure return values.
 
-The permanent `comm-consumer-allocation-failure` test runs on Linux with GNU or
+The permanent `transport-consumer-allocation-failure` test runs on Linux with GNU or
 Clang. Linker wrapping injects a failure at the first allocation after entry to
 `main()`; subsequent allocations use the real allocator, including its sanitizer
 hooks. The test requires exit 1, the failure diagnostic, and no success message.

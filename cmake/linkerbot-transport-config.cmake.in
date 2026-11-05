@@ -1,0 +1,13 @@
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+include("${CMAKE_CURRENT_LIST_DIR}/linkerbot-transport-targets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/LegacyTargets.cmake")
+foreach(component IN LISTS linkerbot-transport_FIND_COMPONENTS)
+    if(component MATCHES "^(can|serial|modbus|headers|can-compat)$" AND TARGET linkerbot::${component})
+        set(linkerbot-transport_${component}_FOUND TRUE)
+    else()
+        set(linkerbot-transport_${component}_FOUND FALSE)
+    endif()
+endforeach()
+check_required_components(linkerbot-transport)

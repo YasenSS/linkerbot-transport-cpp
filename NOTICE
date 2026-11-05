@@ -11,7 +11,7 @@ Third-party software
 
 Catch2 3
   Catch2 is used only to build and run this project's tests. It is not linked
-  into or distributed with the linkerbot-comm runtime library.
+  into or distributed with the Linkerbot transport libraries.
   The CMake download fallback (including GitHub CI) pins v3.8.1.
   An installed Catch2 3 package may also be used.
   Catch2 is licensed under the Boost Software License 1.0.

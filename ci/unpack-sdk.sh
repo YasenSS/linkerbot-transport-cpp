@@ -13,5 +13,5 @@ tar -xzf "${archives[0]}" -C "$destination"
 roots=("$destination"/*)
 test "${#roots[@]}" -eq 1
 test -d "${roots[0]}"
-test -s "${roots[0]}/share/linkerbot-comm/build-info.json"
+test -s "${roots[0]}/share/linkerbot-transport/build-info.json"
 printf '%s\n' "${roots[0]}"

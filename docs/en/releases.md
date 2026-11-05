@@ -4,6 +4,10 @@ English · [简体中文](../zh/releases.md)
 
 [Documentation index](../README.md) · [Build from source](build.md) · [Upgrade and rollback](operations.md)
 
+Current source uses the `linkerbot-transport` package name. Published releases
+through v0.3.2 retain `linkerbot-comm`; the download examples below deliberately
+use those historical asset names and paths. See [name migration](naming.md).
+
 ## 0.3.2 artifact matrix
 
 The [v0.3.2 release page](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.2)

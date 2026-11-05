@@ -28,7 +28,7 @@ def main():
         root = Path(directory)
         single = root / "single"
         multi = root / "multi"
-        common = ("-DLINKERBOT_COMM_BUILD_TESTS=OFF", "-DLINKERBOT_COMM_BUILD_EXAMPLES=OFF",
+        common = ("-DLINKERBOT_TRANSPORT_BUILD_TESTS=OFF", "-DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=OFF",
                   "-DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF", "-DCMAKE_INSTALL_LIBDIR=lib",
                   "-DCMAKE_CXX_COMPILER=" + args.compiler)
         run("cmake", "-S", str(source), "-B", str(single), "-G", "Ninja",
@@ -36,7 +36,7 @@ def main():
         run("cmake", "--build", str(single), "--parallel", "4")
         info = json.loads((single / "release/Release/build-info.json").read_text())
         assert info["standard_library"] == "libcxx", info
-        assert info["components"] == ["comm", "serial", "modbus"], info
+        assert info["components"] == ["can", "serial", "modbus"], info
         assert info["libstdcxx_dual_abi"] == "unknown", info
         # Reconfigure the same build tree: old cached libc++ results must not
         # survive a change to libstdc++ or the nondefault dual ABI.
@@ -60,7 +60,7 @@ def main():
         configurations = set()
         for archive in archives:
             with tarfile.open(archive) as package:
-                entries = [m for m in package.getmembers() if m.name.endswith("/share/linkerbot-comm/build-info.json")]
+                entries = [m for m in package.getmembers() if m.name.endswith("/share/linkerbot-transport/build-info.json")]
                 assert len(entries) == 1
                 info = json.load(package.extractfile(entries[0]))
             configuration = info["configuration"]
@@ -70,13 +70,27 @@ def main():
             assert info["standard_library"] == expected, info
             assert ("-libcxx-Release" if configuration == "Release" else "-libstdcxx-abi1-Debug") in archive.name, archive
         assert configurations == {"Debug", "Release"}, configurations
-        for serial_enabled, expected in (("ON", ["comm", "serial"]), ("OFF", ["comm"])):
+        for serial_enabled, expected in (("ON", ["can", "serial"]), ("OFF", ["can"])):
             run("cmake", "-S", str(source), "-B", str(single),
-                "-DLINKERBOT_COMM_ENABLE_MODBUS=OFF",
-                "-DLINKERBOT_COMM_ENABLE_SERIAL=" + serial_enabled)
+                "-DLINKERBOT_TRANSPORT_ENABLE_MODBUS=OFF",
+                "-DLINKERBOT_TRANSPORT_ENABLE_SERIAL=" + serial_enabled)
             run("cmake", "--build", str(single), "--parallel", "4")
             info = json.loads((single / "release/Release/build-info.json").read_text())
             assert info["components"] == expected, info
+        # Both spellings remain editable in an existing build directory.
+        run("cmake", "-S", str(source), "-B", str(single), "-DLINKERBOT_COMM_ENABLE_SERIAL=ON")
+        run("cmake", "--build", str(single), "--parallel", "2")
+        info = json.loads((single / "release/Release/build-info.json").read_text())
+        assert info["components"] == ["can", "serial"], info
+        run("cmake", "-S", str(source), "-B", str(single), "-DLINKERBOT_TRANSPORT_ENABLE_SERIAL=OFF")
+        run("cmake", "--build", str(single), "--parallel", "2")
+        info = json.loads((single / "release/Release/build-info.json").read_text())
+        assert info["components"] == ["can"], info
+        conflict = subprocess.run(["cmake", "-S", str(source), "-B", str(root / "conflict"),
+                                   *common, "-DLINKERBOT_TRANSPORT_ENABLE_SERIAL=ON",
+                                   "-DLINKERBOT_COMM_ENABLE_SERIAL=OFF"], text=True,
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        assert conflict.returncode != 0 and "Conflicting" in conflict.stdout, conflict.stdout
         print("Passed: config-specific libc++, changed-flag cache invalidation/ABI0, single-config fallback, distinct multi-config Debug/Release archives")
 
 

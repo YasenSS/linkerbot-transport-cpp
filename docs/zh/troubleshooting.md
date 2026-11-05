@@ -76,8 +76,8 @@ Dispatcher 默认连续 10 次计入故障的接收错误后进入 faulted，默
 | 现象 | 首先核对 |
 | --- | --- |
 | CMake 找不到 Catch2 | Catch2 必须为 3；离线时显式安装或提供 Catch2_DIR，检查下载开关 |
-| `find_package` 找不到包 | 包名为 linkerbot-comm；CMAKE_PREFIX_PATH 指向安装前缀而非源码目录 |
-| 符号未定义 / coverage 链接错误 | 是否链接 comm 实现、架构/CRT 是否一致；coverage 静态库消费需加 --coverage |
+| `find_package` 找不到包 | 包名为 linkerbot-transport；CMAKE_PREFIX_PATH 指向安装前缀而非源码目录 |
+| 符号未定义 / coverage 链接错误 | 是否链接对应通信模块、架构/CRT 是否一致；coverage 静态库消费需加 --coverage |
 | 动态库加载失败 | 显式路径覆盖环境变量；检查同架构库、依赖库及导出符号，见后端指南 |
 | Windows 错误 126/193/127 | 可能分别涉及缺依赖、架构不匹配、缺导出；126 不证明顶层文件不存在 |
 | Session 路由冲突 | 精确 `(id, extended)` 已属于另一未关闭 inbox；共享 Session 应协调路由 |

@@ -10,6 +10,7 @@ Start with the offline quickstart, then choose a physical backend. Device exampl
 require parameters confirmed for the actual hardware; offline CI does not run them.
 
 - [Terminology and observable behavior](en/terminology.md)
+- [Package names and compatibility](en/naming.md)
 - [Build, install and CMake integration](en/build.md)
 - [Release downloads, checksums and documentation](en/releases.md)
 - [CI packages and compatibility validation](en/ci.md)
@@ -45,6 +46,7 @@ under `docs/archive/`, with a historical-status notice and a link to this index.
 ## 入门与构建
 
 - [术语与可观测行为](zh/terminology.md)：后端接受、CAN 确认、业务确认、超时和恢复的精确定义。
+- [包名、目标及兼容迁移](zh/naming.md)
 - [构建、安装与 CMake 接入](zh/build.md)：依赖、选项、Debug/Release、覆盖率、安装消费。
 - [发行版下载、校验与文档](zh/releases.md)：稳定版入口、源码标签、SDK 包和文档勘误。
 - [CI 产物与兼容性验证](zh/ci.md)：Ubuntu 20.04 至 26.04、Noetic、缓存和草稿发行。
@@ -70,5 +72,5 @@ under `docs/archive/`, with a historical-status notice and a link to this index.
 - [贡献流程](../CONTRIBUTING.zh-CN.md)、[版本变更](../CHANGELOG.md)、[第三方组件](../NOTICE)。
 - [支持范围与敏感报告](../SECURITY.zh-CN.md)：普通可靠性问题与敏感内容的不同提交路径。
 
-安装后本索引位于 `<prefix>/share/linkerbot-comm/docs/README.md`。文档间使用相对链接，
+安装后本索引位于 `<prefix>/share/linkerbot-transport/docs/README.md`。文档间使用相对链接，
 源码树和完整安装包都可浏览；源码文件名作为定位线索，不代表安装包包含测试源文件或 CI 配置。

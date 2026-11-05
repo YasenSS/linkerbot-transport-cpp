@@ -13,10 +13,10 @@ head 的实际 run，不能把旧记录沿用为新包证明。核心库、测�
 以下命令针对 x64，从源码根目录执行；构建、测试、安装和 CPack 必须选择同一配置：
 
 ```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T "v143,version=14.44" -DLINKERBOT_COMM_BUILD_TESTS=ON
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T "v143,version=14.44" -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON
 cmake --build build --config Release --parallel 4
 ctest --test-dir build -C Release --output-on-failure --no-tests=error --timeout 60
-cmake --install build --config Release --prefix C:/sdk/comm-release
+cmake --install build --config Release --prefix C:/sdk/transport-release
 cpack --config build/CPackConfig.cmake -C Release -B dist
 ```
 
@@ -26,13 +26,13 @@ Debug 为 `/MDd`，依赖 Visual Studio 的调试运行库，供开发使用，�
 静态 SDK 不会消除运行库、Windows 系统库或真实通信所需厂商驱动和 DLL 的依赖。
 
 ZIP 名包含 Windows、实际 x64/ARM64 目标、MSVC 工具集和编译器版本、配置及 MD/MDd；旁边生成
-`.sha256`。包内 `share/linkerbot-comm/build-info.json` 保存源码 SHA、配置和编译器。
+`.sha256`。包内 `share/linkerbot-transport/build-info.json` 保存源码 SHA、配置和编译器。
 发布前使用固定的干净源码提交，并核对该文件中的版本、配置和运行库。
 
-将 ZIP 解压至另一条含中文或空格的路径，例如 `C:/验证 SDK/comm Release`：
+将 ZIP 解压至另一条含中文或空格的路径，例如 `C:/验证 SDK/transport Release`：
 
 ```powershell
-cmake -S "C:/验证 SDK/comm Release/share/linkerbot-comm/validation/installed-consumer" -B consumer -G "Visual Studio 17 2022" -A x64 -T "v143,version=14.44" "-DCMAKE_PREFIX_PATH=C:/验证 SDK/comm Release"
+cmake -S "C:/验证 SDK/transport Release/share/linkerbot-transport/validation/installed-consumer" -B consumer -G "Visual Studio 17 2022" -A x64 -T "v143,version=14.44" "-DCMAKE_PREFIX_PATH=C:/验证 SDK/transport Release"
 cmake --build consumer --config Release
 ctest --test-dir consumer -C Release --output-on-failure --no-tests=error
 ```
@@ -52,7 +52,7 @@ CI 不连接 USB 实物，也不验证异常驱动的硬性退出时限。
 指定工具集必须存在，工作流不会静默换用其他工具集。
 
 ```powershell
-cmake -S . -B build-arm64 -G "Visual Studio 18 2026" -A ARM64 -T "v143,version=14.44" -DLINKERBOT_COMM_BUILD_TESTS=ON
+cmake -S . -B build-arm64 -G "Visual Studio 18 2026" -A ARM64 -T "v143,version=14.44" -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON
 cmake --build build-arm64 --config Release --parallel 4
 ctest --test-dir build-arm64 -C Release --output-on-failure --no-tests=error --timeout 60
 cpack --config build-arm64/CPackConfig.cmake -C Release -B dist-arm64
@@ -81,4 +81,4 @@ Get-FileHash -Algorithm SHA256 -LiteralPath 'dist/实际包名.zip'
 
 应用必须使用与库一致的目标架构、工具集、配置及 CRT。缺少厂商 DLL 不是链接本静态库失败的原因；
 运行时加载失败应检查实际路径、同目录依赖和位数，见 [排障指南](troubleshooting.md)。
-新文档随包安装于 `share/linkerbot-comm/docs/`，不需要原源码树即可浏览。
+新文档随包安装于 `share/linkerbot-transport/docs/`，不需要原源码树即可浏览。

@@ -18,10 +18,10 @@ The following commands target x64. Run from the source root and choose the same 
 for build, CTest, install and CPack:
 
 ```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T "v143,version=14.44" -DLINKERBOT_COMM_BUILD_TESTS=ON
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T "v143,version=14.44" -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON
 cmake --build build --config Release --parallel 4
 ctest --test-dir build -C Release --output-on-failure --no-tests=error --timeout 60
-cmake --install build --config Release --prefix C:/sdk/comm-release
+cmake --install build --config Release --prefix C:/sdk/transport-release
 cpack --config build/CPackConfig.cmake -C Release -B dist
 ```
 
@@ -33,14 +33,14 @@ dependencies on the CRT, Windows system libraries or hardware-specific vendor dr
 
 ZIP filenames include Windows, the actual x64/ARM64 target, MSVC toolset/compiler versions, configuration and MD/MDd;
 an adjacent `.sha256` file is generated. Package file
-`share/linkerbot-comm/build-info.json` records source SHA, configuration and compiler.
+`share/linkerbot-transport/build-info.json` records source SHA, configuration and compiler.
 Before release, use a fixed clean source commit and check the recorded version, configuration and CRT.
 
 Extract the ZIP into a different path containing Chinese characters or spaces, for example
-`C:/验证 SDK/comm Release`:
+`C:/验证 SDK/transport Release`:
 
 ```powershell
-cmake -S "C:/验证 SDK/comm Release/share/linkerbot-comm/validation/installed-consumer" -B consumer -G "Visual Studio 17 2022" -A x64 -T "v143,version=14.44" "-DCMAKE_PREFIX_PATH=C:/验证 SDK/comm Release"
+cmake -S "C:/验证 SDK/transport Release/share/linkerbot-transport/validation/installed-consumer" -B consumer -G "Visual Studio 17 2022" -A x64 -T "v143,version=14.44" "-DCMAKE_PREFIX_PATH=C:/验证 SDK/transport Release"
 cmake --build consumer --config Release
 ctest --test-dir consumer -C Release --output-on-failure --no-tests=error
 ```
@@ -65,7 +65,7 @@ CMake 4.2.3. The explicit hosted image is documented by
 The required toolset must be installed; the workflow fails rather than silently choosing another one.
 
 ```powershell
-cmake -S . -B build-arm64 -G "Visual Studio 18 2026" -A ARM64 -T "v143,version=14.44" -DLINKERBOT_COMM_BUILD_TESTS=ON
+cmake -S . -B build-arm64 -G "Visual Studio 18 2026" -A ARM64 -T "v143,version=14.44" -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON
 cmake --build build-arm64 --config Release --parallel 4
 ctest --test-dir build-arm64 -C Release --output-on-failure --no-tests=error --timeout 60
 cpack --config build-arm64/CPackConfig.cmake -C Release -B dist-arm64
@@ -100,4 +100,4 @@ Applications must match the library's target architecture, toolset, configuratio
 A missing vendor DLL does not cause static-library link failure; runtime loading failures
 require checking the actual path, dependent libraries and bitness. See
 [Troubleshooting](troubleshooting.md). Documentation is installed under
-`share/linkerbot-comm/docs/` and can be browsed without the original source tree.
+`share/linkerbot-transport/docs/` and can be browsed without the original source tree.

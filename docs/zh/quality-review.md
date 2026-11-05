@@ -40,7 +40,7 @@ CSV 的每一行记录基线中的文件、行号、规则、分类、处理方�
 也不需要 CAN 硬件。修复将消费者主体移入 `run_consumer()`，在 `main()` 中捕获
 `std::exception`，同时保留既有的成功及显式失败返回值。
 
-永久回归测试 `comm-consumer-allocation-failure` 在 Linux 的 GNU 或 Clang 构建中运行。
+永久回归测试 `transport-consumer-allocation-failure` 在 Linux 的 GNU 或 Clang 构建中运行。
 链接器包装在进入 `main()` 后的第一次分配处注入失败；之后的分配交给真实分配器，
 包括 sanitizer 的分配钩子。测试要求状态 1、错误说明，以及没有成功消息；进程中止不能
 算作通过。正常安装后消费者测试仍独立保留。

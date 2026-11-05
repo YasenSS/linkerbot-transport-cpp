@@ -1,6 +1,6 @@
 <launch>
-  <node pkg="nodelet" type="nodelet" name="comm_smoke_manager" args="manager" required="true"/>
-  <node pkg="linkerbot_comm_ros1_smoke" type="comm_smoke_node" name="comm_smoke_node"/>
-  <node pkg="nodelet" type="nodelet" name="comm_smoke_nodelet" args="load linkerbot_comm_ros1_smoke/CommSmoke comm_smoke_manager"/>
-  <test pkg="linkerbot_comm_ros1_smoke" type="check_smoke.py" test-name="comm_ros1_smoke" time-limit="30"/>
+  <node pkg="nodelet" type="nodelet" name="transport_smoke_manager" args="manager" required="true"/>
+  <node pkg="linkerbot_transport_ros1_smoke" type="transport_smoke_node" name="transport_smoke_node"/>
+  <node pkg="nodelet" type="nodelet" name="transport_smoke_nodelet" args="load linkerbot_transport_ros1_smoke/TransportSmoke transport_smoke_manager"/>
+  <test pkg="linkerbot_transport_ros1_smoke" type="check_smoke.py" test-name="transport_ros1_smoke" time-limit="30"/>
 </launch>

@@ -54,12 +54,12 @@ Windows 取消同工作流/ref 的过期运行，不预先宣称受控实测提�
 
 ## 包身份与校验
 
-包名及 `share/linkerbot-comm/build-info.json` 区分源码 SHA、发行版、架构、编译器、实际
+包名及 `share/linkerbot-transport/build-info.json` 区分源码 SHA、发行版、架构、编译器、实际
 标准库/dual ABI、配置和 Windows CRT，并记录 PIC、插桩状态。探测缓存包含配置参数，
 多配置 CPack 依据 `-C` 命名；输入变化后重新配置。
 
-`LINKERBOT_COMM_RELEASE_BUILD=ON` 要求干净源码和完整 SHA，拒绝已识别的 coverage/
-sanitizer 参数；`LINKERBOT_COMM_BUILD_IMAGE` 可记录镜像身份。开发构建仍可使用脏树或
+`LINKERBOT_TRANSPORT_RELEASE_BUILD=ON` 要求干净源码和完整 SHA，拒绝已识别的 coverage/
+sanitizer 参数；`LINKERBOT_TRANSPORT_BUILD_IMAGE` 可记录镜像身份。开发构建仍可使用脏树或
 未知来源。来源说明不是完整 ABI 证明，无 Git 导出源码的调用者 SHA 也不是内容签名。
 
 通用校验器检查预期发行版/系统/配置、metadata、全部 ELF 或 COFF archive 对象及泄漏的

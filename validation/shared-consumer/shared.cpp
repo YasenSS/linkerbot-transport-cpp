@@ -3,7 +3,7 @@
 
 #include <memory>
 
-extern "C" int comm_shared_smoke() {
+extern "C" int transport_shared_smoke() {
     auto session =
         linkerbot::transport::Session::own(std::make_unique<linkerbot::can::FakeTransport>());
     session->close();

@@ -19,6 +19,9 @@ Current source version: **0.3.2**. Serial and Modbus RTU are unreleased addition
 on `main`; the published v0.3.2 packages do not contain them. See the [latest published stable release](https://github.com/linker-bot/linkerbot-transport-cpp/releases/latest).
 See [downloads, checksums and release documentation](docs/en/releases.md).
 
+The canonical package is `linkerbot-transport`; former `linkerbot-comm` calls and
+archives remain available as compatibility entries. See [name migration](docs/en/naming.md).
+
 ## Linux quick start
 
 From the source root, with CMake 3.20+, a C++17 compiler and threads:
@@ -27,8 +30,8 @@ From the source root, with CMake 3.20+, a C++17 compiler and threads:
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel 4
 (cd build && ctest --output-on-failure)
-./build/comm-example
-cmake --install build --prefix "$PWD/install/comm"
+./build/can-example
+cmake --install build --prefix "$PWD/install/transport"
 ```
 
 The default build includes tests and examples. Tests require Catch2 3: CMake first
@@ -48,7 +51,7 @@ After the install step above, build the complete
 
 ```bash
 cmake -S examples/quickstart -B build-quickstart \
-  -DCMAKE_PREFIX_PATH="$PWD/install/comm"
+  -DCMAKE_PREFIX_PATH="$PWD/install/transport"
 cmake --build build-quickstart --parallel 4
 (cd build-quickstart && ctest --output-on-failure)
 ```
@@ -62,19 +65,19 @@ session shutdown. For two devices on one connection, see
 
 ## Use from CMake
 
-The repository is named `linkerbot-transport-cpp`; the installed package remains
-`linkerbot-comm`:
+The repository is named `linkerbot-transport-cpp`; the canonical installed package is
+`linkerbot-transport`:
 
 ```cmake
-find_package(linkerbot-comm 0.3 CONFIG REQUIRED)
-target_link_libraries(your-sdk PRIVATE linkerbot::comm)
+find_package(linkerbot-transport 0.3 CONFIG REQUIRED)
+target_link_libraries(your-sdk PRIVATE linkerbot::can)
 ```
 
 For a source-tree dependency, replace `find_package` with
 `add_subdirectory(../linkerbot-transport-cpp linkerbot-transport-cpp)`.
-Use `linkerbot::comm-compat` for legacy flat includes, or
-`linkerbot::comm-values` for value-only headers. The `0.3.x` line pairs with hand
-SDK `0.3.x`; comm must be at least the hand version. Rebuild applications with
+Use `linkerbot::can-compat` for legacy flat includes, or
+`linkerbot::headers` for value-only headers. The `0.3.x` line pairs with hand
+SDK `0.3.x`; the transport SDK must be at least the hand version. Rebuild applications with
 matching headers, architecture, compiler and runtime.
 
 <a id="backends"></a>
@@ -115,7 +118,7 @@ before deploying with devices.
 [MIT license](LICENSE) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.en.md) ·
 [Third-party notices](NOTICE) · [Support and sensitive reports](SECURITY.md)
 
-Installed documentation lives under `share/linkerbot-comm`. Vendor drivers, DLLs
+Installed documentation lives under `share/linkerbot-transport`. Vendor drivers, DLLs
 and test fixtures are not included in the runtime package.
 
 <a id="简体中文"></a>
