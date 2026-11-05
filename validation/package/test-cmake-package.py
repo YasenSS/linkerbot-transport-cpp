@@ -36,6 +36,7 @@ def main():
         run("cmake", "--build", str(single), "--parallel", "4")
         info = json.loads((single / "release/Release/build-info.json").read_text())
         assert info["standard_library"] == "libcxx", info
+        assert info["components"] == ["comm", "serial", "modbus"], info
         assert info["libstdcxx_dual_abi"] == "unknown", info
         # Reconfigure the same build tree: old cached libc++ results must not
         # survive a change to libstdc++ or the nondefault dual ABI.
@@ -69,6 +70,13 @@ def main():
             assert info["standard_library"] == expected, info
             assert ("-libcxx-Release" if configuration == "Release" else "-libstdcxx-abi1-Debug") in archive.name, archive
         assert configurations == {"Debug", "Release"}, configurations
+        for serial_enabled, expected in (("ON", ["comm", "serial"]), ("OFF", ["comm"])):
+            run("cmake", "-S", str(source), "-B", str(single),
+                "-DLINKERBOT_COMM_ENABLE_MODBUS=OFF",
+                "-DLINKERBOT_COMM_ENABLE_SERIAL=" + serial_enabled)
+            run("cmake", "--build", str(single), "--parallel", "4")
+            info = json.loads((single / "release/Release/build-info.json").read_text())
+            assert info["components"] == expected, info
         print("Passed: config-specific libc++, changed-flag cache invalidation/ABI0, single-config fallback, distinct multi-config Debug/Release archives")
 
 

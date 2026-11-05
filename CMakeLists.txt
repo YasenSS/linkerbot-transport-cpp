@@ -184,6 +184,10 @@ if(LINKERBOT_COMM_BUILD_TESTS)
         catch_discover_tests(serial-tests)
     endif()
     if(LINKERBOT_COMM_ENABLE_MODBUS)
+        # Compile the optional libFuzzer entry point in ordinary test builds too,
+        # so installed-header and full-source analysis cover it without libFuzzer.
+        add_library(rtu-fuzz-entry OBJECT validation/fuzz-rtu.cpp)
+        target_link_libraries(rtu-fuzz-entry PRIVATE linkerbot-modbus)
         add_executable(modbus-tests tests/main.cpp tests/test_modbus_codec.cpp tests/test_modbus_session.cpp)
         target_link_libraries(modbus-tests PRIVATE linkerbot-modbus Catch2::Catch2)
         catch_discover_tests(modbus-tests)

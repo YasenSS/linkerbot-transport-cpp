@@ -42,6 +42,63 @@ class PackageValidation(unittest.TestCase):
         return subprocess.run([sys.executable, str(SCRIPT), str(self.root), '--sha', SHA,
                                '--arch', self.info['architecture'], '--system', self.info['system'], '--require-clean'], capture_output=True)
 
+    def add_optional_library(self, component, wrong_machine=False):
+        windows = self.info['system'] == 'Windows'
+        name = ('linkerbot-' + component + '.lib') if windows else ('liblinkerbot-' + component + '.a')
+        data = coff_archive(0xAA64 if wrong_machine else 0x8664) if windows else archive(183 if wrong_machine else 62)
+        (self.root / 'lib' / name).write_bytes(data)
+        headers = {'serial': 'include/linkerbot/serial/byte_stream.hpp',
+                   'modbus': 'include/linkerbot/modbus/rtu.hpp'}
+        path = self.root / headers[component]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'fixture')
+        if component == 'modbus':
+            (self.root / 'share/linkerbot-comm/validation/installed-consumer/rtu.cpp').write_bytes(b'fixture')
+        return self.root / 'lib' / name
+
+    def test_declared_optional_components(self):
+        self.info['components'] = ['comm']
+        self.assertEqual(self.verify().returncode, 0)
+        for component in ('serial', 'modbus'):
+            self.add_optional_library(component)
+            self.info['components'].append(component)
+            result = self.verify()
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['verified_objects'], 3)
+
+    def test_optional_library_architecture_is_checked(self):
+        self.info['components'] = ['comm', 'serial', 'modbus']
+        self.add_optional_library('serial')
+        library = self.add_optional_library('modbus', wrong_machine=True)
+        result = self.verify()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b'architecture mismatch', result.stderr)
+        library.unlink()
+        self.assertNotEqual(self.verify().returncode, 0)
+
+    def test_undeclared_and_duplicate_libraries_are_rejected(self):
+        library = self.add_optional_library('serial')
+        self.assertNotEqual(self.verify().returncode, 0)
+        self.info['components'] = ['comm', 'serial']
+        self.assertEqual(self.verify().returncode, 0)
+        duplicate = self.root / 'other' / library.name
+        duplicate.parent.mkdir()
+        duplicate.write_bytes(library.read_bytes())
+        self.assertNotEqual(self.verify().returncode, 0)
+
+    def test_invalid_component_declarations(self):
+        for components in ('comm', None, [], ['serial'], ['comm', 'modbus'],
+                           ['comm', 'vendor'], ['comm', 'comm'], ['comm', 1]):
+            with self.subTest(components=components):
+                self.info['components'] = components
+                self.assertNotEqual(self.verify().returncode, 0)
+
+    def test_optional_component_headers_are_required(self):
+        self.info['components'] = ['comm', 'serial']
+        self.add_optional_library('serial')
+        (self.root / 'include/linkerbot/serial/byte_stream.hpp').unlink()
+        self.assertNotEqual(self.verify().returncode, 0)
+
     def test_valid_package(self):
         self.assertEqual(self.verify().returncode, 0)
 

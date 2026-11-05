@@ -148,8 +148,16 @@ endfunction()
 _comm_json_escape("${LINKERBOT_COMM_BUILD_IMAGE}" _comm_image_json)
 _comm_json_escape("${_comm_distro}" _comm_distro_json)
 _comm_json_escape("${_comm_revision}" _comm_revision_json)
+# List the exact installed static-library components, including opt-in modules.
+set(_comm_components_json "\"comm\"")
+if(LINKERBOT_COMM_ENABLE_SERIAL)
+    string(APPEND _comm_components_json ", \"serial\"")
+endif()
+if(LINKERBOT_COMM_ENABLE_MODBUS)
+    string(APPEND _comm_components_json ", \"modbus\"")
+endif()
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/release/$<CONFIG>/build-info.json" CONTENT
-"{\n  \"schema_version\": 1,\n  \"package\": \"linkerbot-comm\",\n  \"version\": \"${PROJECT_VERSION}\",\n  \"comm_sha\": \"${_comm_revision_json}\",\n  \"source_dirty\": ${_comm_dirty},\n  \"system\": \"${CMAKE_SYSTEM_NAME}\",\n  \"architecture\": \"${_comm_arch}\",\n  \"distribution\": \"${_comm_distro_json}\",\n  \"compiler\": \"${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\",\n  \"standard_library\": \"${_comm_stdlib}\",\n  \"libstdcxx_dual_abi\": \"${_comm_dual_abi}\",\n  \"cxx_standard\": 17,\n  \"pic\": $<IF:$<BOOL:$<TARGET_PROPERTY:linkerbot-comm,POSITION_INDEPENDENT_CODE>>,true,false>,\n  \"instrumented\": ${_comm_instrumented},\n  \"build_image\": \"${_comm_image_json}\",\n  \"toolset\": \"${MSVC_TOOLSET_VERSION}\",\n  \"configuration\": \"$<CONFIG>\",\n  \"runtime\": \"$<IF:$<BOOL:${MSVC}>,$<IF:$<CONFIG:Debug>,MDd,MD>,platform-default>\"\n}\n")
+"{\n  \"schema_version\": 1,\n  \"package\": \"linkerbot-comm\",\n  \"components\": [${_comm_components_json}],\n  \"version\": \"${PROJECT_VERSION}\",\n  \"comm_sha\": \"${_comm_revision_json}\",\n  \"source_dirty\": ${_comm_dirty},\n  \"system\": \"${CMAKE_SYSTEM_NAME}\",\n  \"architecture\": \"${_comm_arch}\",\n  \"distribution\": \"${_comm_distro_json}\",\n  \"compiler\": \"${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\",\n  \"standard_library\": \"${_comm_stdlib}\",\n  \"libstdcxx_dual_abi\": \"${_comm_dual_abi}\",\n  \"cxx_standard\": 17,\n  \"pic\": $<IF:$<BOOL:$<TARGET_PROPERTY:linkerbot-comm,POSITION_INDEPENDENT_CODE>>,true,false>,\n  \"instrumented\": ${_comm_instrumented},\n  \"build_image\": \"${_comm_image_json}\",\n  \"toolset\": \"${MSVC_TOOLSET_VERSION}\",\n  \"configuration\": \"$<CONFIG>\",\n  \"runtime\": \"$<IF:$<BOOL:${MSVC}>,$<IF:$<CONFIG:Debug>,MDd,MD>,platform-default>\"\n}\n")
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/release/$<CONFIG>/build-info.json"
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm)
 

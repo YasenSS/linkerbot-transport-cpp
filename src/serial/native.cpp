@@ -41,14 +41,17 @@ namespace linkerbot::serial {
             }
         }
 
-        auto acquire(std::timed_mutex &mutex, Deadline deadline, CancellationToken token,
-                     const std::atomic<bool> &cancelled) -> std::unique_lock<std::timed_mutex> {
-            std::unique_lock<std::timed_mutex> lock(mutex, std::defer_lock);
+        auto acquire(std::mutex &mutex, Deadline deadline, CancellationToken token,
+                     const std::atomic<bool> &cancelled) -> std::unique_lock<std::mutex> {
+            std::unique_lock<std::mutex> lock(mutex, std::defer_lock);
             for (;;) {
                 check(deadline, token, cancelled.load());
-                if (lock.try_lock_until(std::min(deadline, Clock::now() + kPollInterval))) {
+                if (lock.try_lock()) {
                     return lock;
                 }
+                // Avoid libstdc++ clock-lock specializations that are unavailable
+                // in some Clang/TSan builds. The same deadline bounds contention.
+                std::this_thread::sleep_until(std::min(deadline, Clock::now() + kPollInterval));
             }
         }
 
@@ -62,7 +65,7 @@ namespace linkerbot::serial {
             int fd_ = -1;
             bool exclusive_ = false;
             std::atomic<bool> cancelled_{false};
-            std::timed_mutex read_mutex_, write_mutex_;
+            std::mutex read_mutex_, write_mutex_;
             std::mutex close_mutex_;
 
             void wait(short events, Deadline deadline, CancellationToken token) {
@@ -259,7 +262,7 @@ namespace linkerbot::serial {
         class NativeSerial final : public ByteStream {
             HANDLE handle_ = INVALID_HANDLE_VALUE;
             std::atomic<bool> cancelled_{false};
-            std::timed_mutex read_mutex_, write_mutex_;
+            std::mutex read_mutex_, write_mutex_;
             std::mutex close_mutex_;
 
             size_t transfer(bool writing, uint8_t *data, size_t size, Deadline deadline,

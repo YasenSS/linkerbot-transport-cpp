@@ -43,12 +43,18 @@ TEST_CASE("Serial configuration validates every public enum and byte width", "[s
         invalid.data_bits = bits;
         REQUIRE_THROWS_AS(validate_config(invalid), std::invalid_argument);
     }
+    // Scoped enums have fixed underlying types and permit unnamed representable
+    // values ([expr.static.cast]).
+    // Clang 18 narrows these to the enumerator range; keep the negative tests.
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     config.parity = static_cast<Parity>(99);
     REQUIRE_THROWS_AS(validate_config(config), std::invalid_argument);
     config.parity = Parity::kOdd;
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     config.stop_bits = static_cast<StopBits>(99);
     REQUIRE_THROWS_AS(validate_config(config), std::invalid_argument);
     config.stop_bits = StopBits::kTwo;
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     config.rs485 = static_cast<Rs485Mode>(99);
     REQUIRE_THROWS_AS(validate_config(config), std::invalid_argument);
     config.rs485 = Rs485Mode::kKernel;

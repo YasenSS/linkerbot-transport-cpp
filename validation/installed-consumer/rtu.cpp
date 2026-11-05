@@ -1,9 +1,11 @@
 #include <linkerbot/modbus/rtu.hpp>
 #include <linkerbot/serial/byte_stream.hpp>
 
+#include <cstdio>
+#include <exception>
 #include <stdexcept>
 
-int main() {
+int main() try {
     linkerbot::serial::Config config;
     config.port = "not-opened";
     linkerbot::serial::validate_config(config);
@@ -14,4 +16,7 @@ int main() {
         throw std::runtime_error("Installed RTU codec mismatch");
     }
     return 0;
+} catch (const std::exception &error) {
+    std::fprintf(stderr, "%s\n", error.what());
+    return 1;
 }
