@@ -1,5 +1,7 @@
 # linkerbot-transport-cpp
 
+![像素风横幅：控制板连接 CAN 和串口接口](.github/assets/transport-banner.png)
+
 [![C++ Report Card](.github/cppreportcard/badge.svg)](.github/cppreportcard/README.md)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [完整文档](docs/README.md)
