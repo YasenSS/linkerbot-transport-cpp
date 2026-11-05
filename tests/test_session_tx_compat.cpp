@@ -1,3 +1,5 @@
+#include "optional_value.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <future>
@@ -33,9 +35,15 @@ namespace {
             return receipt;
         }
     };
-    transport::MessageBatch batch(size_t count, uint32_t id = 0x28) {
+    transport::MessageBatch batch(size_t count) {
         transport::MessageBatch result;
         result.frames.resize(count);
+        for (auto &frame : result.frames) {
+            frame.id = 0x28;
+        }
+        return result;
+    }
+    transport::MessageBatch with_id(transport::MessageBatch result, uint32_t id) {
         for (auto &frame : result.frames) {
             frame.id = id;
         }
@@ -46,10 +54,10 @@ namespace {
         options.endpoint = name;
         return options;
     }
-    transport::SendOptions latest(const std::string &name, const std::string &family = "angles") {
+    transport::SendOptions latest(const std::string &name) {
         auto options = endpoint(name);
         options.policy = transport::SendPolicy::latest;
-        options.family = family;
+        options.family = "angles";
         return options;
     }
 } // namespace
@@ -85,7 +93,7 @@ TEST_CASE("Session SDK capacity atomically admits frame groups separately from l
     rig.fake->release_tx_gate();
     blocker.wait();
     group.wait();
-    replacement->wait();
+    test_support::require_value(replacement).wait();
     REQUIRE(rig.fake->sent().size() == 11);
     REQUIRE(rig.session->health().pending_fifo == 0);
     REQUIRE(rig.session->health().dispatched == 3);
@@ -143,10 +151,10 @@ TEST_CASE(
     "[session]") {
     TxRig rig;
     rig.fake->arm_tx_gate();
-    auto active = rig.session->submit(batch(3, 0x30), endpoint("left"));
+    auto active = rig.session->submit(with_id(batch(3), 0x30), endpoint("left"));
     REQUIRE(rig.fake->wait_until_tx_entered(2s));
-    auto dropped = rig.session->submit(batch(1, 0x31), endpoint("left"));
-    auto retained = rig.session->submit(batch(1, 0x32), endpoint("right"));
+    auto dropped = rig.session->submit(with_id(batch(1), 0x31), endpoint("left"));
+    auto retained = rig.session->submit(with_id(batch(1), 0x32), endpoint("right"));
     // A bounded timeout leaves the admission gate closed, retaining drain ownership.
     REQUIRE_THROWS_AS(rig.session->stop_endpoint("left", transport::Clock::now()),
                       can::TimeoutError);
@@ -219,9 +227,9 @@ TEST_CASE("Session optional endpoint FIFO prevents priority from overtaking an e
     later.priority = 100;
     auto unrelated = endpoint("hand");
     unrelated.priority = 1;
-    auto a = rig.session->submit(batch(1, 0x11), first);
-    auto b = rig.session->submit(batch(1, 0x12), later);
-    auto c = rig.session->submit(batch(1, 0x13), unrelated);
+    auto a = rig.session->submit(with_id(batch(1), 0x11), first);
+    auto b = rig.session->submit(with_id(batch(1), 0x12), later);
+    auto c = rig.session->submit(with_id(batch(1), 0x13), unrelated);
     rig.fake->release_tx_gate();
     blocker.wait();
     a.wait();

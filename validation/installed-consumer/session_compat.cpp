@@ -76,13 +76,15 @@ namespace {
         latest.policy = transport::SendPolicy::latest;
         auto old = session->submit(single, latest);
         auto replacement = session->replace_latest_if_pending(single, latest);
-        check(replacement.has_value(), "installed conditional replacement missed pending slot");
+        if (!replacement.has_value()) {
+            throw std::runtime_error("installed conditional replacement missed pending slot");
+        }
         check(old.wait_result_until(transport::Clock::now() + 2s).outcome ==
                   transport::SendOutcome::superseded,
               "installed receipt did not return superseded value");
         check(session->stop_endpoint("hand", transport::Clock::now() + 2s) == 1,
               "installed endpoint stop did not remove pending slot");
-        check(replacement->wait_result_until(transport::Clock::now() + 2s).outcome ==
+        check(replacement.value().wait_result_until(transport::Clock::now() + 2s).outcome ==
                   transport::SendOutcome::cancelled,
               "installed endpoint stop did not complete receipt");
         session->resume_endpoint("hand");

@@ -1100,7 +1100,11 @@ namespace linkerbot::transport {
         p.routing_started = true;
     }
     SendReceipt Session::submit(MessageBatch batch, SendOptions options) {
-        return *submit_impl(std::move(batch), std::move(options), false);
+        auto receipt = submit_impl(std::move(batch), std::move(options), false);
+        if (!receipt.has_value()) {
+            throw can::InternalError("ordinary submission returned no receipt");
+        }
+        return receipt.value();
     }
     std::optional<SendReceipt> Session::replace_latest_if_pending(MessageBatch batch,
                                                                   SendOptions options) {
@@ -1144,8 +1148,8 @@ namespace linkerbot::transport {
         if (p.stopped_endpoints.count(job->options.endpoint) != 0u) {
             throw can::ClosedError("endpoint admission is stopped");
         }
-        if (job->options.expected_generation &&
-            *job->options.expected_generation != p.health.generation) {
+        const auto expected_generation = job->options.expected_generation;
+        if (expected_generation.has_value() && expected_generation.value() != p.health.generation) {
             throw can::ClosedError("submission generation is stale");
         }
         job->options.cancellation.throw_if_cancelled();
@@ -1153,9 +1157,10 @@ namespace linkerbot::transport {
             throw can::TimeoutError("send deadline expired");
         }
         const auto now = Clock::now();
-        if (job->options.max_pending_age && p.oldest_accepted() != Deadline::max() &&
+        const auto max_pending_age = job->options.max_pending_age;
+        if (max_pending_age.has_value() && p.oldest_accepted() != Deadline::max() &&
             std::chrono::duration_cast<std::chrono::microseconds>(now - p.oldest_accepted()) >=
-                *job->options.max_pending_age) {
+                max_pending_age.value()) {
             ++p.health.rejected_stale;
             throw can::TimeoutError("pending work exceeded age budget");
         }

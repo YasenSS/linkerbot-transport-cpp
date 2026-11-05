@@ -1,3 +1,5 @@
+#include "optional_value.hpp"
+
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
@@ -36,8 +38,9 @@ TEST_CASE("Session accepts an initial extractor after unsolicited unmatched star
     fake->inject(frame);
     auto received = inbox->receive_until(transport::Clock::now() + 2s);
     REQUIRE(received.has_value());
-    REQUIRE(received->message.id == frame.id);
-    REQUIRE(received->route_key == transport::RouteKey{0x3d00, true});
+    const auto routed = test_support::require_value(received);
+    REQUIRE(routed.message.id == frame.id);
+    REQUIRE(routed.route_key == transport::RouteKey{0x3d00, true});
     session->close();
 }
 
@@ -198,6 +201,7 @@ TEST_CASE("Session generation admission stays aligned with physical recovery und
     std::atomic<bool> stop{false};
     std::atomic<size_t> health_reads{0};
     std::atomic<size_t> attempted_sends{0};
+    std::atomic<size_t> rejected_sends{0};
     std::atomic<bool> unexpected{false};
     std::promise<void> start;
     auto started = start.get_future().share();
@@ -228,6 +232,7 @@ TEST_CASE("Session generation admission stays aligned with physical recovery und
                 (void)receipt.wait_result_until(transport::Clock::now() + 2s);
             } catch (const can::ClosedError &) {
                 // Recovery gates submission or invalidates the observed generation.
+                ++rejected_sends;
             } catch (...) {
                 unexpected.store(true);
                 return;
@@ -267,6 +272,7 @@ TEST_CASE("Session generation admission stays aligned with physical recovery und
     REQUIRE(recovery_consistent);
     REQUIRE(health_reads.load() != 0);
     REQUIRE(attempted_sends.load() != 0);
+    REQUIRE(rejected_sends.load() <= attempted_sends.load());
     REQUIRE_FALSE(mismatch.load());
     REQUIRE(final_generation == physical_generation.load());
 }
