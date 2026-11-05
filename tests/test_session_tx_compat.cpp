@@ -23,7 +23,7 @@ namespace {
             fake->release_tx_gate();
             session->close();
         }
-        transport::SendReceipt block_writer(const std::string &endpoint = "blocker") {
+        transport::SendReceipt block_writer(const std::string &endpoint = "blocker") const {
             fake->arm_tx_gate();
             transport::SendOptions options;
             options.endpoint = endpoint;

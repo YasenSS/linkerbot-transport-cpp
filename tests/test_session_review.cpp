@@ -132,6 +132,12 @@ namespace {
         bool entered_ = false;
         bool released_ = false;
     };
+    struct ReleaseSecondWrite {
+        SecondWriteGate &gate;
+        ~ReleaseSecondWrite() {
+            gate.release();
+        }
+    };
 } // namespace
 
 TEST_CASE("Session pending receipts expose only the known accepted frame prefix", "[session]") {
@@ -139,6 +145,7 @@ TEST_CASE("Session pending receipts expose only the known accepted frame prefix"
     auto backend = std::make_unique<SecondWriteGate>(fail);
     auto *gate = backend.get();
     auto session = transport::Session::own(std::move(backend));
+    const ReleaseSecondWrite release_on_exit{*gate};
     transport::MessageBatch batch;
     batch.frames.resize(2);
     auto receipt = session->submit(std::move(batch));
