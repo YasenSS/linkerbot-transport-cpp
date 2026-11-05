@@ -232,14 +232,14 @@ namespace linkerbot::transport {
 
         std::shared_ptr<RouteInbox> subscribe_routes(const std::vector<RouteKey> &keys,
                                                      size_t capacity = 512);
-        // Configure before any routes or TX/RX events. The extractor must be fast,
-        // non-blocking and must not reenter Session; it runs under the state lock.
+        // Configure before the first route registration or accepted send. Unmatched RX is allowed.
+        // Must be fast, non-blocking and non-reentrant; runs under the state lock.
         // Empty restores exact ID/format routing. Failures drop only that frame.
         void set_route_key_extractor(std::function<RouteKey(const can::Message &)> extractor);
         [[nodiscard]] std::shared_ptr<ChangeSignal> notification() const;
         void update_routes(const std::shared_ptr<RouteInbox> &inbox,
                            const std::vector<RouteKey> &keys);
-        // Validate and enqueue without waiting for transmission. Capacity counts
+        // Validate and enqueue without waiting for transmission. Default capacity counts
         // waiting batches, not the executing batch. Invalid input, closed state,
         // prior cancellation, an expired deadline or a full queue throws here;
         // later transmission errors are retained in the returned receipt.
