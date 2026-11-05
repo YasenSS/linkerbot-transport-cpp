@@ -96,7 +96,7 @@ jobs:
         if: matrix.build_type == 'Debug'
         run: |
           gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build/_deps' \
-            --fail-under-line 99 --txt --json-summary coverage-summary.json build
+            --fail-under-line 99 --txt --json coverage.json --json-summary coverage-summary.json build
           python3 - <<'PYTHON'
           import json
           with open('coverage-summary.json', encoding='utf-8') as stream:
@@ -218,6 +218,7 @@ jobs:
             dist/*.tar.gz
             dist/*.sha256
             coverage-summary.json
+            coverage.json
             build/CMakeCache.txt
             build/Testing/Temporary/LastTest.log
             consumer/Testing/Temporary/LastTest.log
