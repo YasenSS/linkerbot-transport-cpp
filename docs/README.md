@@ -22,7 +22,6 @@ require parameters confirmed for the actual hardware; offline CI does not run th
 - [Errors, diagnostics and troubleshooting](en/troubleshooting.md)
 - [Operations, upgrades and rollback](en/operations.md)
 - [Performance measurement and ARM64 results](en/performance.md)
-- [Quality-report diagnostic review](en/quality-review.md)
 - [Validation evidence and limits](en/validation.md)
 - [Contributing](../CONTRIBUTING.md), [Changelog](../CHANGELOG.en.md),
   [support and sensitive reports](../SECURITY.md)
@@ -50,7 +49,6 @@ under `docs/archive/`, with a historical-status notice and a link to this index.
 - [CI 产物与兼容性验证](zh/ci.md)：Ubuntu 20.04 至 26.04、Noetic、缓存和草稿发行。
 - [Windows 构建与独立通信包](zh/windows-build.md)：MSVC、运行库、ZIP、来源和校验。
 - [性能测量与 ARM64 结果](zh/performance.md)：计时、分配、空闲唤醒与优化取舍。
-- [质量报告诊断复核](zh/quality-review.md)：逐项分类、确认的缺陷、误报与分析模型。
 - [验证记录与支持边界](zh/validation.md)：固定提交证据、CI 范围、历史实机陈述。
 
 ## API 与后端

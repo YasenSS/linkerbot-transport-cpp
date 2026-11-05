@@ -273,9 +273,7 @@ model check from the source root:
 python3 validation/test-cppcheck-model.py --compile-commands build/report-compile-commands.json
 ```
 
-See the [diagnostic review](quality-review.md) and its per-diagnostic ledger for
-the distinction between confirmed defects, intentional contracts and false
-positives. CI reports are tied to the commit they analyze.
+CI reports are tied to the commit they analyze.
 
 Download the `cppreportcard-ubuntu-24.04-arm` artifact from a workflow run for
 `report.json`, `report.md` and `badge.svg`, or read its job summary. CI writes these
