@@ -245,7 +245,6 @@ Catch2 模型处理的是 Cppcheck 2.13 的解析限制，不会从分析中移�
 python3 validation/test-cppcheck-model.py --compile-commands build/report-compile-commands.json
 ```
 
-已确认缺陷、有意保留的契约及误报的区别，见[诊断复核](quality-review.md)及其逐项记录。
 CI 报告对应其实际分析的提交。
 
 从工作流下载 `cppreportcard-ubuntu-24.04-arm` 附件，可查看 `report.json`、`report.md`
