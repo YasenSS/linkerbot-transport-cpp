@@ -15,8 +15,7 @@ This is a fixed release snapshot, not a live grade for later commits.
 - All three tools passed with **zero diagnostics**. The grade is not test coverage or hardware validation.
 
 Download that run's `cppreportcard-ubuntu-24.04-arm` artifact for the original
-`report.json`, `report.md` and `badge.svg`. The [diagnostic review](../../docs/en/quality-review.md)
-records the earlier findings and distinguishes runtime defects from analyzer limitations.
+`report.json`, `report.md` and `badge.svg`.
 The rule groups, source exclusions and scoring configuration were not relaxed.
 
 CI requires complete, finding-free A+ analysis. New runs write reports and the
@@ -36,8 +35,7 @@ See the [configuration and scope](../../docs/en/build.md#c-report-card).
 - 三个工具均通过，**零诊断**。等级不代表测试覆盖率或实机验收。
 
 对应运行的 `cppreportcard-ubuntu-24.04-arm` 附件保留原始 `report.json`、`report.md`
-和 `badge.svg`。[诊断复核](../../docs/zh/quality-review.md)记录了原有发现，并区分运行时缺陷
-与分析器限制。本轮没有放宽规则组、源码排除范围或评分配置。
+和 `badge.svg`。本轮没有放宽规则组、源码排除范围或评分配置。
 
 CI 要求完整、零诊断的 A+ 分析。后续运行会把报告和 badge 写入 `.github/cppreportcard/`
 并上传为附件，不会自动提交。更新快照时，应从已完成的运行取得 SVG，并在签名维护提交中

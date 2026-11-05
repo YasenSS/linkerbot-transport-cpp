@@ -58,7 +58,7 @@ English · [简体中文](CHANGELOG.md)
 - Cache immutable subscriber membership between changes. The recorded ARM64 workload eliminates the steady nonempty snapshot allocation and has lower measured timing medians. Empty registries and cold membership rebuilds cost more; no idle-wakeup improvement is claimed. Keep the original copying `snapshot()` API and lifecycle semantics. See the [measurements and raw evidence](docs/en/performance.md).
 - Review all 156 baseline report diagnostics, distinguishing confirmed runtime failures, intentional contracts and analyzer limitations. Make optional access explicit, preserve fixed vendor ABI signatures and throwing lease-move behavior, and avoid an unnecessary configuration copy without changing initialization order.
 - Add a Catch2 model for Cppcheck with 29 static probes, two real/model runtime comparisons and a literal-registration guard. Test bodies and assertion operands remain analyzed.
-- Require complete, finding-free A+ analysis in CI without lowering rule groups, scoring or source coverage. The verified report scores 100/100. Record individual decisions in the [diagnostic review](docs/en/quality-review.md).
+- Require complete, finding-free A+ analysis in CI without lowering rule groups, scoring or source coverage. The verified report scores 100/100.
 
 ### Builds, packages and documentation
 
