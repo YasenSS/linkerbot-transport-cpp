@@ -23,6 +23,12 @@ option(LINKERBOT_COMM_BUILD_TESTS "Build Catch2 unit tests" ${LINKERBOT_COMM_IS_
 option(LINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS "Allow missing test dependencies to be fetched" ON)
 option(LINKERBOT_COMM_BUILD_EXAMPLES "Build example programs" ${LINKERBOT_COMM_IS_TOP_LEVEL})
 option(LINKERBOT_COMM_ENABLE_COVERAGE "Instrument Linux tests for gcovr line coverage" OFF)
+option(LINKERBOT_COMM_ENABLE_SERIAL "Build native serial byte streams" ON)
+option(LINKERBOT_COMM_ENABLE_MODBUS "Build Modbus RTU (requires serial)" ON)
+if(LINKERBOT_COMM_ENABLE_MODBUS AND NOT LINKERBOT_COMM_ENABLE_SERIAL)
+    message(FATAL_ERROR "LINKERBOT_COMM_ENABLE_MODBUS requires LINKERBOT_COMM_ENABLE_SERIAL")
+endif()
+
 option(LINKERBOT_COMM_BUILD_BENCHMARKS "Build Linux performance measurement tools" OFF)
 
 if(LINKERBOT_COMM_ENABLE_COVERAGE)
@@ -32,7 +38,8 @@ if(LINKERBOT_COMM_ENABLE_COVERAGE)
     if(NOT LINKERBOT_COMM_BUILD_TESTS)
         message(FATAL_ERROR "Coverage requires LINKERBOT_COMM_BUILD_TESTS=ON")
     endif()
-    add_compile_options(--coverage -O0 -g)
+    # Concurrent fixtures must not race while updating gcov counters.
+    add_compile_options(--coverage -fprofile-update=atomic -O0 -g)
     add_link_options(--coverage)
 endif()
 
@@ -76,6 +83,23 @@ target_include_directories(linkerbot-comm
 target_link_libraries(linkerbot-comm PUBLIC Threads::Threads)
 if(CMAKE_DL_LIBS)
     target_link_libraries(linkerbot-comm PRIVATE ${CMAKE_DL_LIBS})
+endif()
+
+# Serial and RTU are independent of CAN Message/Session and have separate link targets.
+set(_linkerbot_optional_targets "")
+if(LINKERBOT_COMM_ENABLE_SERIAL)
+    add_library(linkerbot-serial STATIC src/serial/common.cpp src/serial/native.cpp)
+    add_library(linkerbot::serial ALIAS linkerbot-serial)
+    target_link_libraries(linkerbot-serial PUBLIC linkerbot::comm-values Threads::Threads)
+    set_target_properties(linkerbot-serial PROPERTIES POSITION_INDEPENDENT_CODE ON EXPORT_NAME serial)
+    list(APPEND _linkerbot_optional_targets linkerbot-serial)
+endif()
+if(LINKERBOT_COMM_ENABLE_MODBUS)
+    add_library(linkerbot-modbus STATIC src/modbus/codec.cpp src/modbus/session.cpp)
+    add_library(linkerbot::modbus ALIAS linkerbot-modbus)
+    target_link_libraries(linkerbot-modbus PUBLIC linkerbot-serial)
+    set_target_properties(linkerbot-modbus PROPERTIES POSITION_INDEPENDENT_CODE ON EXPORT_NAME modbus)
+    list(APPEND _linkerbot_optional_targets linkerbot-modbus)
 endif()
 
 # Flat-name compatibility headers (`#include "can_transport.hpp"`), for
@@ -154,6 +178,16 @@ if(LINKERBOT_COMM_BUILD_TESTS)
 
     include(Catch)
     catch_discover_tests(comm-tests)
+    if(LINKERBOT_COMM_ENABLE_SERIAL)
+        add_executable(serial-tests tests/main.cpp tests/test_serial.cpp)
+        target_link_libraries(serial-tests PRIVATE linkerbot-serial linkerbot-comm Catch2::Catch2)
+        catch_discover_tests(serial-tests)
+    endif()
+    if(LINKERBOT_COMM_ENABLE_MODBUS)
+        add_executable(modbus-tests tests/main.cpp tests/test_modbus_codec.cpp tests/test_modbus_session.cpp)
+        target_link_libraries(modbus-tests PRIVATE linkerbot-modbus Catch2::Catch2)
+        catch_discover_tests(modbus-tests)
+    endif()
 
     add_library(pcan-fixture SHARED tests/pcan_fixture.cpp)
     add_library(pcan-fixture-classic SHARED tests/pcan_fixture.cpp)
@@ -223,6 +257,17 @@ if(LINKERBOT_COMM_BUILD_EXAMPLES)
     endif()
 endif()
 
+option(LINKERBOT_COMM_BUILD_FUZZERS "Build the Clang RTU codec fuzzer" OFF)
+if(LINKERBOT_COMM_BUILD_FUZZERS)
+    if(NOT LINKERBOT_COMM_ENABLE_MODBUS OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR WIN32)
+        message(FATAL_ERROR "RTU fuzzing requires Modbus and a Unix Clang toolchain")
+    endif()
+    add_executable(rtu-codec-fuzz validation/fuzz-rtu.cpp src/modbus/codec.cpp src/serial/common.cpp)
+    target_link_libraries(rtu-codec-fuzz PRIVATE linkerbot::comm-values)
+    target_compile_options(rtu-codec-fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
+    target_link_options(rtu-codec-fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
+endif()
+
 if(LINKERBOT_COMM_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)
 endif()
@@ -233,7 +278,7 @@ set_target_properties(linkerbot-comm PROPERTIES
     EXPORT_PROPERTIES LINKERBOT_COMM_VERSION)
 set_target_properties(linkerbot-comm-values PROPERTIES EXPORT_NAME comm-values)
 set_target_properties(linkerbot-comm-compat PROPERTIES EXPORT_NAME comm-compat)
-install(TARGETS linkerbot-comm linkerbot-comm-values linkerbot-comm-compat
+install(TARGETS linkerbot-comm linkerbot-comm-values linkerbot-comm-compat ${_linkerbot_optional_targets}
     EXPORT linkerbot-comm-targets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -269,6 +314,7 @@ install(DIRECTORY benchmarks/results/
 
 include(cmake/ReleasePackage.cmake)
 install(FILES validation/installed-consumer/CMakeLists.txt validation/installed-consumer/main.cpp
+    validation/installed-consumer/rtu.cpp
     validation/installed-consumer/allocation_failure.cpp
     validation/installed-consumer/expect-allocation-failure.cmake
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-comm/validation/installed-consumer)

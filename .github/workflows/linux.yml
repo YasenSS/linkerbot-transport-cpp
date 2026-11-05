@@ -97,6 +97,20 @@ jobs:
         run: |
           gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build/_deps' \
             --fail-under-line 95 --txt --json-summary coverage-summary.json build
+      - name: Verify CAN-only installation with serial and RTU disabled
+        if: matrix.build_type == 'Release'
+        run: |
+          cmake -S . -B build-can-only -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DLINKERBOT_COMM_ENABLE_SERIAL=OFF -DLINKERBOT_COMM_ENABLE_MODBUS=OFF \
+            -DLINKERBOT_COMM_BUILD_TESTS=OFF -DLINKERBOT_COMM_BUILD_EXAMPLES=ON \
+            -DLINKERBOT_ALLOW_DEPENDENCY_DOWNLOADS=OFF
+          cmake --build build-can-only --parallel 4
+          ./build-can-only/comm-example
+          cmake --install build-can-only --prefix "$RUNNER_TEMP/comm-can-only"
+          cmake -S validation/installed-consumer -B consumer-can-only -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/comm-can-only"
+          cmake --build consumer-can-only --parallel 4
+          ctest --test-dir consumer-can-only --output-on-failure --no-tests=error --timeout 60
       - name: Repeat Session recovery regression
         run: |
           ctest --test-dir build -R '^Session recover' --repeat until-fail:20 \
