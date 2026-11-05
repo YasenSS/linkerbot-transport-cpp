@@ -274,9 +274,12 @@ Final-frame cooldown cannot change known backend acceptance into a cancelled/exp
 Legacy direct `send()`/`send_batch()` entry points are not a way to share this pacing contract.
 
 A nonzero `max_consecutive_send_errors` makes that many consecutive failed sends terminal
-for the Session; a successful dispatch resets the counter. The default zero leaves this
+for the Session. Each known successful frame resets the counter, including a successful prefix
+before a later failure; unknown partial native-batch delivery cannot reset it. The default zero leaves this
 policy disabled. Terminal Sessions require closing and recreation, rather than `recover()`.
-Queue expiry and cancellation are separate outcomes, not failed backend writes.
+Backend-thrown timeouts count toward this threshold while retaining the existing `expired`
+outcome and `current_frame_uncertain=true`. Queue/lock/pacing expiry and cancellation do not
+count as backend write failures.
 
 ## Routing and bridge notifications
 

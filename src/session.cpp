@@ -544,9 +544,15 @@ namespace linkerbot::transport {
                         if (error) {
                             health.last_error = std::move(diagnostic);
                         }
-                        if (outcome == SendOutcome::dispatched) {
+                        if (outcome == SendOutcome::dispatched || sent != 0u) {
+                            // A known successful frame ends the prior failure
+                            // streak even if a later frame in this batch fails.
                             health.consecutive_send_errors = 0;
-                        } else if (outcome == SendOutcome::failed) {
+                        }
+                        if (outcome == SendOutcome::failed ||
+                            (outcome == SendOutcome::expired && uncertain)) {
+                            // A TimeoutError from inside a driver write is a
+                            // backend failure; queue/pacing expiry is not.
                             ++health.consecutive_send_errors;
                         }
                         finish(job, outcome, std::move(error), sent, uncertain);

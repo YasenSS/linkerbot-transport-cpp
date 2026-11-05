@@ -4,6 +4,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <exception>
+#include <future>
 #include <linkerbot/can/fake_transport.hpp>
 #include <linkerbot/transport/session.hpp>
 #include <memory>
@@ -268,4 +269,112 @@ TEST_CASE("Session generation admission stays aligned with physical recovery und
     REQUIRE(attempted_sends.load() != 0);
     REQUIRE_FALSE(mismatch.load());
     REQUIRE(final_generation == physical_generation.load());
+}
+
+namespace {
+    class TimeoutWriteTransport : public can::FakeTransport {
+      public:
+        void write(const can::Message &) override {
+            throw can::TimeoutError("backend write timed out");
+        }
+    };
+    struct ReleaseFakeWrite {
+        can::FakeTransport *fake;
+        ~ReleaseFakeWrite() {
+            fake->release_tx_gate();
+        }
+    };
+} // namespace
+
+TEST_CASE("Session backend write timeouts retain expiry and count toward the fault threshold",
+          "[session]") {
+    auto session = transport::Session::own(std::make_unique<TimeoutWriteTransport>());
+    transport::SessionOptions options;
+    options.max_consecutive_send_errors = 2;
+    session->configure(options);
+    const auto first = session->submit({{{}}}).wait_result_until(transport::Clock::now() + 2s);
+    REQUIRE(first.outcome == transport::SendOutcome::expired);
+    REQUIRE(first.current_frame_uncertain);
+    REQUIRE(session->health().open);
+    REQUIRE(session->health().consecutive_send_errors == 1);
+    const auto second = session->submit({{{}}}).wait_result_until(transport::Clock::now() + 2s);
+    const auto health = session->health();
+    session->close();
+    REQUIRE(second.outcome == transport::SendOutcome::expired);
+    REQUIRE(second.current_frame_uncertain);
+    REQUIRE_FALSE(health.open);
+    REQUIRE(health.consecutive_send_errors == 2);
+    REQUIRE(health.expired == 2);
+}
+
+TEST_CASE("Session queued expiry does not count as a failed backend write", "[session]") {
+    auto backend = std::make_unique<can::FakeTransport>();
+    auto *fake = backend.get();
+    auto session = transport::Session::own(std::move(backend));
+    const ReleaseFakeWrite release_on_exit{fake};
+    transport::SessionOptions config;
+    config.max_consecutive_send_errors = 1;
+    session->configure(config);
+    fake->arm_tx_gate();
+    auto blocker = session->submit({{{}}});
+    const bool entered = fake->wait_until_tx_entered(2s);
+    transport::SendOptions options;
+    options.deadline = transport::Clock::now() + 500ms;
+    auto queued = session->submit({{{}}}, options);
+    std::this_thread::sleep_until(options.deadline + 1ms);
+    fake->release_tx_gate();
+    blocker.wait();
+    const auto result = queued.wait_result_until(transport::Clock::now() + 2s);
+    const auto health = session->health();
+    const auto sent = fake->sent().size();
+    session->close();
+    REQUIRE(entered);
+    REQUIRE(result.outcome == transport::SendOutcome::expired);
+    REQUIRE_FALSE(result.current_frame_uncertain);
+    REQUIRE(result.sent_frames == 0);
+    REQUIRE(health.open);
+    REQUIRE(health.consecutive_send_errors == 0);
+    REQUIRE(health.expired == 1);
+    REQUIRE(sent == 1);
+}
+
+namespace {
+    class PrefixTimeoutTransport : public can::FakeTransport {
+      public:
+        void write(const can::Message &message) override {
+            if (message.id == 1) {
+                can::FakeTransport::write(message);
+            } else {
+                throw can::TimeoutError("backend write timed out");
+            }
+        }
+    };
+} // namespace
+
+TEST_CASE("Session successful prefixes reset earlier backend failure streaks", "[session]") {
+    auto session = transport::Session::own(std::make_unique<PrefixTimeoutTransport>());
+    transport::SessionOptions options;
+    options.max_consecutive_send_errors = 2;
+    session->configure(options);
+    const auto first = session->submit({{{}}}).wait_result_until(transport::Clock::now() + 2s);
+    REQUIRE(first.outcome == transport::SendOutcome::expired);
+    REQUIRE(session->health().consecutive_send_errors == 1);
+    can::Message accepted;
+    accepted.id = 1;
+    const auto partial =
+        session->submit({{accepted, {}}}).wait_result_until(transport::Clock::now() + 2s);
+    const auto after_partial = session->health();
+    REQUIRE(partial.outcome == transport::SendOutcome::expired);
+    REQUIRE(partial.sent_frames == 1);
+    REQUIRE(partial.current_frame_uncertain);
+    REQUIRE(after_partial.consecutive_send_errors == 1);
+    REQUIRE(after_partial.open);
+    const auto final = session->submit({{{}}}).wait_result_until(transport::Clock::now() + 2s);
+    const auto after_final = session->health();
+    session->close();
+    REQUIRE(final.outcome == transport::SendOutcome::expired);
+    REQUIRE(final.sent_frames == 0);
+    REQUIRE(final.current_frame_uncertain);
+    REQUIRE(after_final.consecutive_send_errors == 2);
+    REQUIRE_FALSE(after_final.open);
 }
