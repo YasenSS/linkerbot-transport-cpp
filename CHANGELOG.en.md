@@ -4,6 +4,8 @@ English · [简体中文](CHANGELOG.md)
 
 ## Unreleased
 
+- Fix syscall fault injection on Focal/glibc 2.31 by wrapping the legacy `__xstat` entry point; run the regression in native Focal x86_64/ARM64 CI.
+
 ## 0.3.3 — 2026-11-06
 
 - Use `linkerbot-transport` for the package and `linkerbot::can` for the CAN library. Retain legacy package/target/options, byte-identical comm archives and share paths; update build, package and consumer validation and both documentation editions. Published release assets are unchanged.
