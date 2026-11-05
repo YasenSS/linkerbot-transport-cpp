@@ -119,3 +119,10 @@ and test fixtures are not included in the runtime package.
 <a id="帧与完成语义"></a>
 
 中文内容已移至 [简体中文 README](README.zh-CN.md)。
+
+## Serial and Modbus RTU
+
+Optional serial byte streams and a Modbus RTU client are available as separate
+`linkerbot::serial` and `linkerbot::modbus` targets. They do not implement hand
+register maps. See the [RTU guide](docs/en/modbus-rtu.md) for configuration,
+transaction semantics and validation limits.

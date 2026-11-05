@@ -144,13 +144,38 @@ def verify_files(files, info):
         elif (data[:4] == b"\x7fELF" or data[:2] == b"MZ"
               or data[:4] in (b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe")):
             raise ValueError("Unexpected runtime binary: " + relative)
-    expected_name = "liblinkerbot-comm.a" if info["system"] == "Linux" else "linkerbot-comm.lib"
-    if len(libraries) != 1 or Path(libraries[0]).name != expected_name:
-        raise ValueError("Expected exactly the comm static library")
-    machines = archive_machines(files[libraries[0]], info["system"])
+    # Older comm-only packages have no component list. New packages must declare
+    # exactly the installed components; unknown archives are still rejected.
+    components = info.get("components", ["comm"])
+    if (not isinstance(components, list) or not components
+            or any(not isinstance(component, str) for component in components)
+            or len(set(components)) != len(components)
+            or "comm" not in components
+            or set(components) - {"comm", "serial", "modbus"}
+            or ("modbus" in components and "serial" not in components)):
+        raise ValueError("Invalid SDK component declaration")
+    prefix, suffix = ("liblinkerbot-", ".a") if info["system"] == "Linux" else ("linkerbot-", ".lib")
+    expected_names = {prefix + component + suffix for component in components}
+    if len(libraries) != len(expected_names) or {Path(path).name for path in libraries} != expected_names:
+        raise ValueError("Static libraries do not match declared SDK components")
+    if len({Path(path).parent for path in libraries}) != 1:
+        raise ValueError("SDK static libraries must share one library directory")
+    machines = []
     expected_machine = (ELF_MACHINES if info["system"] == "Linux" else COFF_MACHINES)[info["architecture"]]
-    if any(machine != expected_machine for machine in machines):
-        raise ValueError("Archive object architecture mismatch: %r" % machines)
+    for library in libraries:
+        objects = archive_machines(files[library], info["system"])
+        if any(machine != expected_machine for machine in objects):
+            raise ValueError("Archive object architecture mismatch in %s: %r" % (library, objects))
+        machines.extend(objects)
+    optional_entries = {
+        "serial": ("include/linkerbot/serial/byte_stream.hpp",),
+        "modbus": ("include/linkerbot/modbus/rtu.hpp",
+                   "share/linkerbot-comm/validation/installed-consumer/rtu.cpp"),
+    }
+    for component in components:
+        for required in optional_entries.get(component, ()):
+            if required not in files:
+                raise ValueError("Missing SDK entry: " + required)
     for required in ("include/linkerbot/transport/session.hpp", "share/linkerbot-comm/LICENSE",
                      "share/linkerbot-comm/validation/installed-consumer/CMakeLists.txt"):
         if required not in files:

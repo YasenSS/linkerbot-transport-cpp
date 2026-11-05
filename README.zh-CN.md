@@ -89,3 +89,8 @@ Linux amd64/ARM64 和 Windows x64 有离线 CI。硬件能力取决于适配器�
 [第三方组件](NOTICE) · [支持范围与敏感报告](SECURITY.zh-CN.md)
 
 安装文档位于 `share/linkerbot-comm`。运行时包不包含厂商驱动、DLL 或测试 fixture。
+
+## 串口与 Modbus RTU
+
+可选模块提供独立的 `linkerbot::serial` 和 `linkerbot::modbus` 目标，不包含手型寄存器映射。
+配置、事务语义与验证边界见 [RTU 说明](docs/zh/modbus-rtu.md)。

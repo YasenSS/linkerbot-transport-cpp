@@ -15,3 +15,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Cla
             -DPROGRAM=$<TARGET_FILE:comm-consumer-allocation-failure>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/expect-allocation-failure.cmake)
 endif()
+if(TARGET linkerbot::modbus)
+    add_executable(comm-rtu-consumer rtu.cpp)
+    target_link_libraries(comm-rtu-consumer PRIVATE linkerbot::modbus)
+    add_test(NAME comm-rtu-consumer COMMAND comm-rtu-consumer)
+endif()
