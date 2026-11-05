@@ -479,7 +479,7 @@ namespace linkerbot::can {
                               std::chrono::microseconds send_period,
                               std::atomic<size_t> *progress = nullptr) -> void {
             sent = 0;
-            if (progress) {
+            if (progress != nullptr) {
                 progress->store(0, std::memory_order_relaxed);
             }
             uncertain = false;
@@ -529,7 +529,7 @@ namespace linkerbot::can {
                     uncertain = true;
                     transport_->write_batch(frames);
                     sent = frames.size();
-                    if (progress) {
+                    if (progress != nullptr) {
                         progress->store(sent, std::memory_order_relaxed);
                     }
                     uncertain = false;
@@ -549,7 +549,7 @@ namespace linkerbot::can {
                         transport_->write(frame);
                         uncertain = false;
                         ++sent;
-                        if (progress) {
+                        if (progress != nullptr) {
                             progress->store(sent, std::memory_order_relaxed);
                         }
                         if (send_period.count() != 0) {
