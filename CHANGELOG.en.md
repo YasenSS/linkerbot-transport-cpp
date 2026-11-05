@@ -4,6 +4,8 @@ English · [简体中文](CHANGELOG.md)
 
 ## Unreleased
 
+## 0.3.3 — 2026-11-06
+
 - Use `linkerbot-transport` for the package and `linkerbot::can` for the CAN library. Retain legacy package/target/options, byte-identical comm archives and share paths; update build, package and consumer validation and both documentation editions. Published release assets are unchanged.
 
 - Add optional serial byte streams and a Modbus RTU client (03/04/06/10), separate CMake targets and package component metadata. These modules are not in published v0.3.2 packages.
@@ -12,6 +14,9 @@ English · [简体中文](CHANGELOG.md)
 - Add Linux syscall and allocation-failure regressions for serial, CAN sessions and resource rollback; update module and build documentation.
 
 - Fix unbounded Session receipt waits on Focal/GCC 9 by using the untimed condition-variable wait for a maximum deadline. Preserve finite deadlines and saved errors; add native Focal x86_64/ARM64 Session regression jobs.
+
+- Require Linux production line coverage above 99% before rounding across `src/` and `include/`, without excluding production sources. Retain CAN/SLCAN and native loader regression checks.
+- Require native Focal quality checks for the exact release source. Seal the original tag-push artifact identities and bytes; draft promotion reuses that explicit validated run without rebuilding or replacing published assets.
 
 ## 0.3.2 — 2026-11-04
 

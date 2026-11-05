@@ -5,8 +5,47 @@ English · [简体中文](../zh/releases.md)
 [Documentation index](../README.md) · [Build from source](build.md) · [Upgrade and rollback](operations.md)
 
 Current source uses the `linkerbot-transport` package name. Published releases
-through v0.3.2 retain `linkerbot-comm`; the download examples below deliberately
-use those historical asset names and paths. See [name migration](naming.md).
+through v0.3.2 retain `linkerbot-comm`; the 0.3.0 download example below deliberately
+uses its historical asset names and paths. See [name migration](naming.md).
+
+## 0.3.3
+
+[Version 0.3.3](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.3)
+adds optional serial byte streams and Modbus RTU (03/04/06/10), CAN/RTU lifecycle
+fixes and the `linkerbot-transport` package name. The CAN target is `linkerbot::can`;
+legacy package names, targets, options and archive paths remain supported.
+See [migration and rollback](naming.md) and [serial/RTU contracts](modbus-rtu.md).
+The hand SDK and device register maps are not part of this release.
+
+The release uses the same twelve-target matrix described below. New archive names
+start with `linkerbot-transport-0.3.3-`; installed documents and metadata live under
+`share/linkerbot-transport`. Each default SDK contains CAN, serial and Modbus
+libraries plus the byte-identical legacy comm archive. Check the signed tag,
+`release-manifest.json`, `SHA256SUMS.txt` and the matching package checksum.
+Assets become available after validation and publication complete; source version
+and CI artifacts alone do not establish publication.
+
+For example, on Ubuntu 24.04 ARM64, use GitHub CLI and Bash to download the matching
+Release SDK and its checksum, then build a relocated consumer:
+
+```bash
+gh release download v0.3.3 --repo linker-bot/linkerbot-transport-cpp \
+  --pattern 'linkerbot-transport-0.3.3-Linux-aarch64-ubuntu24.04-*-Release.tar.gz*' \
+  --dir sdk-0.3.3
+cd sdk-0.3.3
+sha256sum --check *.sha256
+archives=(*.tar.gz)
+test "${#archives[@]}" -eq 1
+tar -xzf "${archives[0]}"
+prefix="$PWD/${archives[0]%.tar.gz}"
+cmake -S "$prefix/share/linkerbot-transport/validation/installed-consumer" \
+  -B consumer -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$prefix"
+cmake --build consumer --parallel 4
+ctest --test-dir consumer --output-on-failure --no-tests=error
+```
+
+Choose the actual distribution and process architecture. Ubuntu userspace and
+offline adapter tests do not establish native-kernel or hardware acceptance.
 
 ## 0.3.2 artifact matrix
 
@@ -65,7 +104,7 @@ The packages contain a static SDK, not a device-control executable. Vendor drive
 and libraries are not included. Match the process architecture, compiler and runtime;
 check `share/linkerbot-comm/build-info.json` against the tag and release manifest.
 
-## Download and consume the Linux ARM64 package
+## Download and consume the historical 0.3.0 Linux ARM64 package
 
 Run on ARM64 Linux with `curl`, `sha256sum`, `tar`, a C++17 compiler and CMake 3.20+.
 Use a fresh directory. For Linux amd64, select the `x86_64` archive instead.

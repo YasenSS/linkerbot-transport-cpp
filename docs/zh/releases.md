@@ -5,7 +5,42 @@
 [文档索引](../README.md) · [源码构建](build.md) · [升级与回滚](operations.md)
 
 当前源码使用 `linkerbot-transport` 包名。已发布至 v0.3.2 的包仍名为 `linkerbot-comm`；
-下面的下载示例保留真实的旧资产名和安装路径。参见[命名迁移](naming.md)。
+下方 0.3.0 下载示例保留真实的旧资产名和安装路径。参见[命名迁移](naming.md)。
+
+## 0.3.3
+
+[版本 0.3.3](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.3)
+新增可选通用串口和 Modbus RTU（03/04/06/10），修复 CAN/RTU 生命周期问题，
+规范包名改为 `linkerbot-transport`，CAN 目标为 `linkerbot::can`。
+旧包名、目标、选项及归档路径继续兼容。见[命名迁移与回滚](naming.md)和
+[串口/RTU 契约](modbus-rtu.md)。本版本不包含 hand SDK 或设备寄存器映射。
+
+沿用下方的十二目标产物矩阵。新归档以 `linkerbot-transport-0.3.3-` 开头，
+安装文档和 metadata 位于 `share/linkerbot-transport`。默认 SDK 包含 CAN、串口、
+Modbus 库及与 CAN 字节完全相同的旧 comm 库副本。核对签名标签、
+`release-manifest.json`、`SHA256SUMS.txt` 和对应包的校验值。
+验证和发布完成后才提供附件，源码版本及 CI 产物本身不代表正式发布。
+
+例如在 Ubuntu 24.04 ARM64 上，使用 GitHub CLI 和 Bash 下载对应 Release SDK
+及校验值，再构建移动目录后的消费者：
+
+```bash
+gh release download v0.3.3 --repo linker-bot/linkerbot-transport-cpp \
+  --pattern 'linkerbot-transport-0.3.3-Linux-aarch64-ubuntu24.04-*-Release.tar.gz*' \
+  --dir sdk-0.3.3
+cd sdk-0.3.3
+sha256sum --check *.sha256
+archives=(*.tar.gz)
+test "${#archives[@]}" -eq 1
+tar -xzf "${archives[0]}"
+prefix="$PWD/${archives[0]%.tar.gz}"
+cmake -S "$prefix/share/linkerbot-transport/validation/installed-consumer" \
+  -B consumer -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$prefix"
+cmake --build consumer --parallel 4
+ctest --test-dir consumer --output-on-failure --no-tests=error
+```
+
+按实际发行版和进程架构选择包。Ubuntu 用户态及离线适配器测试不代表原生内核或实机验收。
 
 ## 0.3.2 产物矩阵
 
@@ -53,7 +88,7 @@ x86_64/aarch64），以及四份 Windows SDK（x64/ARM64 × Debug/Release）。�
 选择时匹配进程架构、编译器和运行库；将 `share/linkerbot-comm/build-info.json`
 与源码标签、发行清单核对。
 
-## 下载并使用 Linux ARM64 包
+## 下载并使用历史 0.3.0 Linux ARM64 包
 
 在 ARM64 Linux 上执行，需要 `curl`、`sha256sum`、`tar`、C++17 编译器和 CMake 3.20+。
 使用新目录。Linux amd64 应选择 `x86_64` 归档。
