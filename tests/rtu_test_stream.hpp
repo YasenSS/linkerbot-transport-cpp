@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -29,6 +30,7 @@ namespace linkerbot::test_support {
         bool zero_write = false;
         bool oversized_write = false;
         bool oversized_read = false;
+        std::chrono::milliseconds idle_wakeup_delay{0};
         std::function<modbus::Bytes(const modbus::Bytes &)> reply;
     };
     class RtuStream final : public serial::ByteStream {
@@ -45,6 +47,11 @@ namespace linkerbot::test_support {
                     throw serial::ClosedError("fake stream closed");
                 }
                 if (transport::Clock::now() >= deadline) {
+                    // Model a scheduler waking the initial idle read after its deadline.
+                    const auto delay = wire_->writes == 0 ? wire_->idle_wakeup_delay
+                                                          : std::chrono::milliseconds{0};
+                    lock.unlock();
+                    std::this_thread::sleep_for(delay);
                     return 0;
                 }
                 wire_->changed.wait_until(
