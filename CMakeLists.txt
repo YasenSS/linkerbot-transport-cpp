@@ -151,6 +151,11 @@ if(LINKERBOT_TRANSPORT_BUILD_TESTS)
         tests/main.cpp
         tests/test_dispatcher.cpp
         tests/test_session.cpp
+        tests/test_session_receive_compat.cpp
+        tests/test_session_tx_compat.cpp
+        tests/test_session_tx_edges.cpp
+        tests/test_session_physical_compat.cpp
+        tests/test_session_review.cpp
         tests/test_fault_contracts.cpp
         tests/test_fake_transport.cpp
         tests/test_frame.cpp
@@ -377,6 +382,7 @@ install(DIRECTORY benchmarks/results/
 
 include(cmake/ReleasePackage.cmake)
 install(FILES validation/installed-consumer/CMakeLists.txt validation/installed-consumer/main.cpp
+    validation/installed-consumer/session_compat.cpp
     validation/installed-consumer/rtu.cpp
     validation/installed-consumer/allocation_failure.cpp
     validation/installed-consumer/expect-allocation-failure.cmake

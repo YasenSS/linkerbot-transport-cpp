@@ -88,6 +88,21 @@ Session 默认发送队列容量为 2000 个**等待批次**，路由 inbox 默�
 或等待超时都不能证明已经进入驱动的帧未送达，业务层仍须核对 `sent_frames`、
 `current_frame_uncertain` 和设备状态。
 
+## SDK 兼容接口
+
+`SessionOptions` 可选地配置 FIFO/latest 容量计量、同 endpoint FIFO、等待老化、原生最小
+发送周期和连续发送失败终止阈值，须在接受任何发送前配置；默认仍为 2000 个等待批次。
+`SendOptions` 新增准入锁内的预期 generation 校验、等待年龄准入和
+`DeadlinePolicy::kStartOnly`。`replace_latest_if_pending()` 在旧槽位已领取时不会新建任务。
+`stop_endpoint()` 关闭准入并排空已领取任务，与原有会取消任务的 `cancel_endpoint()` 不同。
+单位、排序、超时和共享所有权见 [Session SDK 选项](session.md#sdk-发送调度选项)。
+
+`SendReceipt::wait_result_until()` 将保存的终态异常放在 `SendResult` 返回，不重新抛出；
+原等待接口保持异常行为。`ChangeSignal` 提供共享、可合并的 revision 通知，供外部桥接等待，
+不执行应用回调，不增加载荷队列。路由提取器保留原始消息并交付逻辑路由 key；原生领取和
+路由接收事件序号属于同一个 Session 事件域。这些接口为后续绑定接入唯一发送队列提供基础，
+不包含 Python 绑定，也不代表实机验收。
+
 ## 错误与健康状态
 
 `CANError` 提供稳定的 `code()`、可选 `system_error()` 和 `native_status()`；不要解析 `what()`

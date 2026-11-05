@@ -199,6 +199,80 @@ namespace {
             session->close();
             return success;
         });
+        sweep("latest replacement admission", [&](int index) {
+            auto backend = std::make_unique<can::FakeTransport>();
+            auto *raw = backend.get();
+            auto session = transport::Session::own(std::move(backend));
+            struct ReleaseGate {
+                can::FakeTransport *backend;
+                ~ReleaseGate() {
+                    backend->release_tx_gate();
+                }
+            } release{raw};
+            transport::SessionOptions settings;
+            settings.separate_policy_capacity = true;
+            settings.fifo_unit = transport::CapacityUnit::kFrames;
+            settings.fifo_capacity = 29;
+            settings.latest_capacity = 1;
+            session->configure(settings);
+            can::Message frame;
+            frame.id = 0x20;
+            const transport::MessageBatch request{{frame}};
+            raw->arm_tx_gate();
+            transport::SendOptions blocking;
+            blocking.endpoint = "blocker";
+            auto blocker = session->submit(request, blocking);
+            require(raw->wait_until_tx_entered(std::chrono::seconds(2)));
+            transport::SendOptions latest;
+            latest.endpoint = "hand";
+            latest.family = "angles";
+            latest.policy = transport::SendPolicy::latest;
+            auto old = session->submit(request, latest);
+            // Fill a deque block without running its tasks. A replacement must
+            // preserve the old slot even if growing queue storage fails.
+            transport::SendOptions fifo;
+            fifo.endpoint = "arm";
+            for (unsigned i = 0; i < 29; ++i) {
+                (void)session->submit(request, fifo);
+            }
+            const auto before = session->health();
+            auto signal = session->notification();
+            const auto revision = signal->revision();
+            bool success = false;
+            std::optional<transport::SendReceipt> replacement;
+            countdown = index;
+            try {
+                replacement = session->replace_latest_if_pending(request, latest);
+                success = true;
+            } catch (const std::bad_alloc &) {
+                require(countdown == -1);
+            }
+            countdown = -1;
+            const auto after = session->health();
+            require(after.pending_fifo == before.pending_fifo);
+            require(after.pending_latest == before.pending_latest);
+            require(after.accepted == before.accepted + (success ? 1 : 0));
+            require(after.superseded == before.superseded + (success ? 1 : 0));
+            if (success) {
+                require(replacement.has_value());
+            } else {
+                require(old.result().outcome == transport::SendOutcome::pending);
+                require(!old.completed());
+                require(signal->revision() == revision);
+                require(raw->sent().empty());
+                replacement = session->replace_latest_if_pending(request, latest);
+                require(replacement.has_value());
+            }
+            require(old.result().outcome == transport::SendOutcome::superseded);
+            require(replacement->result().outcome == transport::SendOutcome::pending);
+            require(signal->revision() != revision);
+            raw->release_tx_gate();
+            blocker.wait();
+            replacement->wait();
+            session->close();
+            require(session->health().accepted == before.accepted + 1);
+            return success;
+        });
         sweep("pool acquire", [&](int index) {
             can::SharedCANBusPool pool;
             const can::CANBusKey key{"allocation", "rollback"};

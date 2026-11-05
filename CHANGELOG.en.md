@@ -4,6 +4,12 @@ English · [简体中文](CHANGELOG.md)
 
 ## Unreleased
 
+- Add opt-in Session scheduling for SDK bindings: weighted FIFO and separate latest capacity, endpoint FIFO/fair selection, generation/age admission, start-only deadlines, native per-frame pacing and a consecutive-send-failure threshold. Preserve existing signatures and defaults.
+- Add atomic conditional latest replacement, endpoint admission/drain gates and value-returning terminal receipt waits. Existing cancellation and throwing waits retain their behavior.
+- Add coalesced state-change signals, route-key extraction with original frame preservation, shared claim/RX event ordering and queue/route diagnostics. Document the single-writer integration boundary and add offline regressions; no Python binding or hardware acceptance is included.
+
+- Reject stale health snapshots across Session lifecycle changes so concurrent recovery cannot roll generation or admission state back.
+
 - Fix syscall fault injection on Focal/glibc 2.31 by wrapping the legacy `__xstat` entry point; run the regression in native Focal x86_64/ARM64 CI.
 
 ## 0.3.3 — 2026-11-06

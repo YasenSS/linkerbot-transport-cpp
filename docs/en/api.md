@@ -105,6 +105,25 @@ Cancellation is repeatable but cannot be reversed. Cancellation, deadline expiry
 timeout does not establish that a frame already passed to a driver was not delivered.
 Inspect `sent_frames`, `current_frame_uncertain` and device state at the business layer.
 
+## SDK compatibility surface
+
+`SessionOptions` adds opt-in weighted FIFO/latest admission, endpoint FIFO selection, aging,
+minimum native send period and a terminal consecutive-send-error threshold. Configure before
+any accepted send; the existing default remains 2000 waiting batches. `SendOptions` adds an
+atomic expected-generation check, pending-age admission and `DeadlinePolicy::kStartOnly`.
+`replace_latest_if_pending()` does not enqueue a new task when the old slot is already claimed.
+`stop_endpoint()` gates admission and drains claimed work, unlike the existing cancelling
+`cancel_endpoint()`. See [Session SDK options](session.md#sdk-scheduling-options) for units,
+ordering, timeouts and shared ownership.
+
+`SendReceipt::wait_result_until()` returns saved terminal errors in `SendResult` rather than
+rethrowing them; existing waits retain their exception behavior. `ChangeSignal` is a shared,
+coalesced revision notification for external bridges, with no application callbacks or payload
+queue. Route extractors preserve original messages and provide the logical route key; native
+claim and routed-RX event orders share a Session-local domain. These APIs support a future
+binding without adding another transmit queue. No Python binding or hardware acceptance is
+provided by these additions.
+
 ## Errors and health
 
 `CANError` exposes stable `code()`, optional `system_error()` and `native_status()` values.

@@ -461,9 +461,30 @@ namespace linkerbot::can {
                               const std::function<bool()> &cancelled,
                               size_t &sent, // NOLINT(bugprone-easily-swappable-parameters)
                               bool &uncertain) -> void {
+            send_batch_until(frames, deadline, gap, initial_delay, cancelled, sent, uncertain,
+                             false, std::chrono::microseconds{0});
+        }
+
+        // start_only stops checking the deadline once the first backend write
+        // starts. send_period includes backend time and the final frame's
+        // cooldown, and is shared across calls through this dispatcher. Optional
+        // progress must outlive this call; it publishes only known accepted frames.
+        auto send_batch_until(const std::vector<Message> &frames,
+                              std::chrono::steady_clock::time_point deadline,
+                              std::chrono::microseconds gap,
+                              std::chrono::microseconds initial_delay,
+                              const std::function<bool()> &cancelled,
+                              size_t &sent, // NOLINT(bugprone-easily-swappable-parameters)
+                              bool &uncertain, bool start_only,
+                              std::chrono::microseconds send_period,
+                              std::atomic<size_t> *progress = nullptr) -> void {
             sent = 0;
+            if (progress != nullptr) {
+                progress->store(0, std::memory_order_relaxed);
+            }
             uncertain = false;
-            if (gap.count() < 0 || initial_delay.count() < 0) {
+            bool begun = false;
+            if (gap.count() < 0 || initial_delay.count() < 0 || send_period.count() < 0) {
                 throw ValidationError("negative transmit pacing");
             }
             const auto check = [&] {
@@ -471,9 +492,13 @@ namespace linkerbot::can {
                 if (cancelled && cancelled()) {
                     throw transport::CancelledError("physical batch cancelled");
                 }
-                if (std::chrono::steady_clock::now() >= deadline) {
+                if ((!start_only || !begun) && std::chrono::steady_clock::now() >= deadline) {
                     throw TimeoutError("physical batch deadline expired");
                 }
+            };
+            const auto effective_deadline = [&] {
+                return start_only && begun ? std::chrono::steady_clock::time_point::max()
+                                           : deadline;
             };
             std::unique_lock<std::mutex> lock(send_mutex_, std::defer_lock);
             while (!lock.try_lock()) {
@@ -486,7 +511,7 @@ namespace linkerbot::can {
                 while (std::chrono::steady_clock::now() < until) {
                     check();
                     std::this_thread::sleep_until(std::min(
-                        {until, deadline,
+                        {until, effective_deadline(),
                          std::chrono::steady_clock::now() + std::chrono::microseconds(250)}));
                 }
                 check();
@@ -494,21 +519,64 @@ namespace linkerbot::can {
             try {
                 check();
                 pace(initial_delay);
-                if (gap.count() == 0 && transport_->prefers_write_batch() && !frames.empty()) {
+                if (gap.count() == 0 && send_period.count() == 0 &&
+                    transport_->prefers_write_batch() && !frames.empty()) {
+                    while (std::chrono::steady_clock::now() < next_write_at_) {
+                        pace(std::chrono::duration_cast<std::chrono::microseconds>(
+                            next_write_at_ - std::chrono::steady_clock::now()));
+                    }
+                    begun = true;
                     uncertain = true;
                     transport_->write_batch(frames);
                     sent = frames.size();
+                    if (progress != nullptr) {
+                        progress->store(sent, std::memory_order_relaxed);
+                    }
                     uncertain = false;
                 } else {
                     for (const auto &frame : frames) {
                         if (sent != 0u) {
                             pace(gap);
                         }
+                        while (std::chrono::steady_clock::now() < next_write_at_) {
+                            pace(std::chrono::duration_cast<std::chrono::microseconds>(
+                                next_write_at_ - std::chrono::steady_clock::now()));
+                        }
                         check();
+                        const auto write_started = std::chrono::steady_clock::now();
+                        begun = true;
                         uncertain = true;
                         transport_->write(frame);
                         uncertain = false;
                         ++sent;
+                        if (progress != nullptr) {
+                            progress->store(sent, std::memory_order_relaxed);
+                        }
+                        if (send_period.count() != 0) {
+                            const auto remaining =
+                                std::chrono::duration_cast<std::chrono::microseconds>(
+                                    std::chrono::steady_clock::time_point::max() - write_started);
+                            next_write_at_ = send_period >= remaining
+                                                 ? std::chrono::steady_clock::time_point::max()
+                                                 : write_started + send_period;
+                            // Once every frame was accepted, cancellation or expiry
+                            // may shorten cooldown but cannot deny known delivery.
+                            while (std::chrono::steady_clock::now() < next_write_at_) {
+                                if (sent == frames.size()) {
+                                    if (!running_.load(std::memory_order_acquire) ||
+                                        (cancelled && cancelled()) ||
+                                        std::chrono::steady_clock::now() >= effective_deadline()) {
+                                        break;
+                                    }
+                                } else {
+                                    check();
+                                }
+                                std::this_thread::sleep_until(
+                                    std::min({next_write_at_, effective_deadline(),
+                                              std::chrono::steady_clock::now() +
+                                                  std::chrono::microseconds(250)}));
+                            }
+                        }
                     }
                 }
                 const std::scoped_lock health_lock(health_mutex_);
@@ -803,6 +871,7 @@ namespace linkerbot::can {
         std::thread recv_thread_;
         mutable std::mutex stop_mutex_;
         mutable std::mutex send_mutex_;
+        std::chrono::steady_clock::time_point next_write_at_{};
         bool transport_closed_ = false;
 
         detail::SubscriberRegistry<FrameCallback> subscribers_;
