@@ -26,6 +26,18 @@ namespace {
     thread_local int countdown = -1;
     thread_local bool unknown_failure = false;
     // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
+    bool recoverable_allocation(std::size_t bytes) noexcept {
+#if defined(_MSC_VER) && _ITERATOR_DEBUG_LEVEL != 0
+        // MSVC's noexcept empty-container constructors allocate iterator proxies.
+        // A proxy failure terminates inside the STL, rather than reaching the
+        // production rollback path. Keep this size class out of Debug injection;
+        // this also leaves any same-size payload allocation unarmed on MSVC Debug.
+        return bytes != sizeof(std::_Container_proxy);
+#else
+        (void)bytes;
+        return true;
+#endif
+    }
 } // namespace
 
 // Replacement allocation functions deliberately use malloc/free to inject a
@@ -34,21 +46,21 @@ namespace {
 auto operator new(std::size_t bytes) -> void * {
     // Debug standard libraries allocate small iterator bookkeeping objects.
     // Pause queue storage, not bookkeeping which may hold a CRT-wide lock.
-    if (bytes >= sizeof(linkerbot::can::Message) && std::this_thread::get_id() != kMainThread &&
-        pause_worker.exchange(false)) {
+    if (recoverable_allocation(bytes) && bytes >= sizeof(linkerbot::can::Message) &&
+        std::this_thread::get_id() != kMainThread && pause_worker.exchange(false)) {
         allocation_paused = true;
         while (!resume_allocation.load()) {
             std::this_thread::yield();
         }
     }
-    if (countdown == 0) {
+    if (recoverable_allocation(bytes) && countdown == 0) {
         countdown = -1;
         if (std::exchange(unknown_failure, false)) {
             throw 42;
         }
         throw std::bad_alloc();
     }
-    if (countdown > 0) {
+    if (recoverable_allocation(bytes) && countdown > 0) {
         --countdown;
     }
     if (void *memory = std::malloc(bytes == 0 ? 1 : bytes)) {

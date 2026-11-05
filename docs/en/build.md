@@ -434,3 +434,8 @@ under TSan. Linux syscall wrappers are isolated from the ordinary PTY tests.
 The CI threshold uses the original `line_covered` and `line_total` counts and
 requires `line_covered * 100 > line_total * 99`. A rounded gcovr percentage of
 99.0 is insufficient when the underlying ratio is below the threshold.
+
+In MSVC Debug builds the allocation fixture leaves iterator-proxy-sized requests
+unarmed: the STL allocates those proxies from `noexcept` empty-container
+constructors. This size-based limitation also affects any same-size payload
+allocation in that fixture. Linux coverage injection is unchanged.

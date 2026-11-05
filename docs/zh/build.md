@@ -384,3 +384,6 @@ Linux 系统调用包装夹具与常规 PTY 测试分别运行。
 
 CI 使用原始 `line_covered`、`line_total` 行数，要求
 `line_covered * 100 > line_total * 99`。gcovr 舍入后显示 99.0，不能替代实际比例超过门槛。
+
+MSVC Debug 下，分配夹具不对迭代器代理大小的请求注入故障：STL 会在 `noexcept` 的空容器
+构造函数中分配代理。按大小区分也会使夹具中的同大小有效载荷分配不被注入。Linux 覆盖率注入不受影响。

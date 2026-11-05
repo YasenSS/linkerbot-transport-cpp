@@ -1842,3 +1842,14 @@ TEST_CASE("Final Session releases retain every owner queued behind active cleanu
         REQUIRE(receipt.completed());
     }
 }
+
+TEST_CASE("Session writer remains usable after an idle queue wait", "[session][lifecycle]") {
+    SessionRig rig;
+    auto first = rig.session->submit({{frame(0x28)}});
+    REQUIRE(first.wait_until(transport::Clock::now() + 1s).sent_frames == 1);
+    std::this_thread::sleep_for(10ms);
+    auto second = rig.session->submit({{frame(0x29)}});
+    REQUIRE(second.wait_until(transport::Clock::now() + 1s).sent_frames == 1);
+    REQUIRE(rig.session->health().open);
+    REQUIRE(rig.fake->sent().size() == 2);
+}
