@@ -12,14 +12,10 @@ Third-party software
 Catch2 3
   Catch2 is used only to build and run this project's tests. It is not linked
   into or distributed with the linkerbot-comm runtime library.
-  The CMake download fallback (including GitHub CI) pins v3.8.1. The
-  separate Gitea workflow configuration pins the v3.7.1 source tarball by
-  SHA256; that configuration is not evidence that Gitea ran for a particular
-  project commit.
+  The CMake download fallback (including GitHub CI) pins v3.8.1.
   An installed Catch2 3 package may also be used.
   Catch2 is licensed under the Boost Software License 1.0.
   Source (v3.8.1): https://github.com/catchorg/Catch2/tree/2b60af89e23d28eefc081bc930831ee9d45ea58b
-  Source (Gitea v3.7.1): https://github.com/catchorg/Catch2/tree/fa43b77429ba76c462b1898d6cd2f2d7a9416b14
   License: https://www.boost.org/LICENSE_1_0.txt
 
 Optional vendor CAN FD library

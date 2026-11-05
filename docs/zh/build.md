@@ -314,11 +314,6 @@ clang-tidy-18 validation/installed-consumer/main.cpp \
 
 格式或静态检查通过不代表编译、CTest、sanitizer、实机或发布已经通过，必须分别保留结果。
 
-`.gitea/workflows/ci.yaml` 是次级离线配置，监听 `main`/`master`，使用固定 Catch2 3.7.1
-镜像，执行 Debug/Release 全目标构建、CTest、示例和安装后 consumer，并在 Debug 要求同一
-95% 行覆盖率门槛。它不包含 GitHub 的双架构 Clang/sanitizer/style 矩阵，runner 架构由具体
-Gitea 实例决定；配置文件存在不等于某个提交已经在 Gitea 运行，验证记录必须附实际 run。
-
 ## 源码接入和安装接入
 
 源码接入时，调用者的 CMakeLists 应先定义自己的 `your-sdk` 目标：

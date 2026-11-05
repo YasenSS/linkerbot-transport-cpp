@@ -95,8 +95,6 @@ CTest 通过。通过、失败和跳过项不能相互替代。
 
 本节较早的记录属于 `soulteary/linkerbot-transport-cpp` fork，单独使用不能证明上游 main 的状态。
 上方发行验证章节记录了后来在上游发布提交上完成的检查。
-仓库同时保留次级 Gitea workflow 配置，但当前没有可公开核对的 act_runner 运行链接；不能把
-该配置或 GitHub 上对 YAML 的检查当作 Gitea 已通过证据。
 
 ## 平台与设备能力
 
