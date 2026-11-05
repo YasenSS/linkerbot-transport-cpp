@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <linkerbot/can/dispatcher.hpp>
@@ -45,6 +46,31 @@ namespace linkerbot::transport {
             uint64_t generation = 0;
         };
     } // namespace
+    struct ChangeSignal::State {
+        mutable std::mutex mutex;
+        mutable std::condition_variable cv;
+        uint64_t revision = 0;
+    };
+    ChangeSignal::ChangeSignal() : state_(std::make_unique<State>()) {}
+    ChangeSignal::~ChangeSignal() = default;
+    uint64_t ChangeSignal::revision() const {
+        std::lock_guard<std::mutex> lock(state_->mutex);
+        return state_->revision;
+    }
+    bool ChangeSignal::wait_until(uint64_t observed, Deadline deadline) const {
+        std::unique_lock<std::mutex> lock(state_->mutex);
+        const auto changed = [&] { return state_->revision != observed; };
+        if (deadline == Deadline::max()) {
+            state_->cv.wait(lock, changed);
+            return true;
+        }
+        return state_->cv.wait_until(lock, deadline, changed);
+    }
+    void ChangeSignal::notify() noexcept {
+        std::lock_guard<std::mutex> lock(state_->mutex);
+        ++state_->revision;
+        state_->cv.notify_all();
+    }
     struct RouteInbox::State {
         mutable std::mutex mutex;
         std::condition_variable cv;
@@ -52,6 +78,7 @@ namespace linkerbot::transport {
         RouteHealth health;
         size_t capacity = 512;
         const void *owner = nullptr;
+        std::shared_ptr<ChangeSignal> signal;
     };
     RouteInbox::RouteInbox(std::shared_ptr<State> state) : state_(std::move(state)) {}
     RouteInbox::~RouteInbox() {
@@ -60,14 +87,19 @@ namespace linkerbot::transport {
     void RouteInbox::close() noexcept {
         std::lock_guard<std::mutex> lock(state_->mutex);
         state_->health.closed = true;
+        state_->health.dropped_on_close += state_->queue.size();
         state_->queue.clear();
         state_->cv.notify_all();
+        state_->signal->notify();
     }
     RouteHealth RouteInbox::health() const {
         std::lock_guard<std::mutex> lock(state_->mutex);
         auto h = state_->health;
         h.pending = state_->queue.size();
         return h;
+    }
+    std::shared_ptr<ChangeSignal> RouteInbox::notification() const {
+        return state_->signal;
     }
     std::optional<RoutedMessage> RouteInbox::try_receive() {
         return receive_until(Clock::now());
@@ -91,6 +123,8 @@ namespace linkerbot::transport {
         mutable std::mutex mutex;
         std::condition_variable cv;
         SendResult result;
+        std::atomic<size_t> progress{0};
+        std::shared_ptr<ChangeSignal> signal;
     };
     SendReceipt::SendReceipt(std::shared_ptr<State> state) : state_(std::move(state)) {}
     SendResult SendReceipt::result() const {
@@ -98,12 +132,29 @@ namespace linkerbot::transport {
             throw can::ValidationError("empty send receipt");
         }
         std::lock_guard<std::mutex> lock(state_->mutex);
-        return state_->result;
+        auto result = state_->result;
+        if (result.outcome == SendOutcome::pending) {
+            result.sent_frames = state_->progress.load(std::memory_order_relaxed);
+        }
+        return result;
+    }
+    std::shared_ptr<ChangeSignal> SendReceipt::notification() const {
+        if (!state_) {
+            throw can::ValidationError("empty send receipt");
+        }
+        return state_->signal;
     }
     bool SendReceipt::completed() const {
         return result().outcome != SendOutcome::pending;
     }
     SendResult SendReceipt::wait_until(Deadline deadline) const {
+        const auto result = wait_result_until(deadline);
+        if (result.error) {
+            std::rethrow_exception(result.error);
+        }
+        return result;
+    }
+    SendResult SendReceipt::wait_result_until(Deadline deadline) const {
         if (!state_) {
             throw can::ValidationError("empty send receipt");
         }
@@ -118,11 +169,7 @@ namespace linkerbot::transport {
             throw can::TimeoutError(
                 "send receipt wait expired; a claimed backend write may still complete");
         }
-        const auto result = state_->result;
-        if (result.error) {
-            std::rethrow_exception(result.error);
-        }
-        return result;
+        return state_->result;
     }
     void SendReceipt::wait() const {
         (void)wait_until(Deadline::max());
@@ -156,12 +203,20 @@ namespace linkerbot::transport {
         bool stopping = false;
         bool recovering = false;
         bool terminal_failure = false;
+        bool routing_started = false;
         size_t tx_capacity = 2000;
+        SessionOptions options;
+        std::set<std::string> stopped_endpoints;
+        uint64_t event_order = 0;
+        uint64_t service_order = 0;
+        std::map<std::string, uint64_t> last_served;
         uint64_t sequence = 0;
+        std::shared_ptr<ChangeSignal> signal = std::make_shared<ChangeSignal>();
+        std::function<RouteKey(const can::Message &)> route_key_of;
         SessionHealth health;
 
-        static void finish(const std::shared_ptr<Job> &job, SendOutcome outcome,
-                           std::exception_ptr error = {}, size_t sent = 0, bool uncertain = false) {
+        void finish(const std::shared_ptr<Job> &job, SendOutcome outcome,
+                    std::exception_ptr error = {}, size_t sent = 0, bool uncertain = false) {
             std::lock_guard<std::mutex> lock(job->receipt->mutex);
             auto &r = job->receipt->result;
             if (r.outcome != SendOutcome::pending) {
@@ -172,7 +227,49 @@ namespace linkerbot::transport {
             r.sent_frames = sent;
             r.current_frame_uncertain = uncertain;
             r.completed_at = Clock::now();
+            switch (outcome) {
+            case SendOutcome::dispatched:
+                ++health.dispatched;
+                break;
+            case SendOutcome::superseded:
+                ++health.superseded;
+                break;
+            case SendOutcome::cancelled:
+                ++health.cancelled;
+                break;
+            case SendOutcome::expired:
+                ++health.expired;
+                break;
+            case SendOutcome::failed:
+                ++health.failed;
+                break;
+            case SendOutcome::pending:
+                break;
+            }
             job->receipt->cv.notify_all();
+            signal->notify();
+        }
+        size_t fifo_cost(const Job &job) const {
+            return options.fifo_unit == CapacityUnit::kFrames ? job.batch.frames.size() : 1;
+        }
+        std::pair<size_t, size_t> pending_units() const {
+            size_t fifo = 0;
+            size_t latest = 0;
+            for (const auto &job : jobs) {
+                if (job->options.policy == SendPolicy::latest) {
+                    ++latest;
+                } else {
+                    fifo += fifo_cost(*job);
+                }
+            }
+            return {fifo, latest};
+        }
+        Deadline oldest_accepted() const {
+            auto oldest = claimed ? claimed->receipt->result.accepted_at : Deadline::max();
+            for (const auto &job : jobs) {
+                oldest = std::min(oldest, job->receipt->result.accepted_at);
+            }
+            return oldest;
         }
         void invalidate_locked(std::exception_ptr reason) {
             for (auto &[key, weak] : routes) {
@@ -180,8 +277,10 @@ namespace linkerbot::transport {
                 if (auto route = weak.lock()) {
                     std::lock_guard<std::mutex> lock(route->mutex);
                     route->health.closed = true;
+                    route->health.dropped_on_close += route->queue.size();
                     route->queue.clear();
                     route->cv.notify_all();
+                    route->signal->notify();
                 }
             }
             routes.clear();
@@ -194,6 +293,7 @@ namespace linkerbot::transport {
                 claimed->abort.cancel();
             }
             cv.notify_all();
+            signal->notify();
         }
         void refresh() {
             const auto h = bus ? bus->get_health() : borrowed->get_health();
@@ -231,7 +331,18 @@ namespace linkerbot::transport {
                 }
                 ++health.rx_frames;
                 health.rx_bytes += message.dlc;
-                const auto it = routes.find({message.id, message.is_extended});
+                RouteKey key{message.id, message.is_extended};
+                try {
+                    if (route_key_of) {
+                        key = route_key_of(message);
+                    }
+                    can::validate_arbitration_id(key.id, key.extended);
+                } catch (...) {
+                    ++health.route_key_errors;
+                    signal->notify();
+                    return;
+                }
+                const auto it = routes.find(key);
                 auto route = it == routes.end() ? nullptr : it->second.lock();
                 if (!route) {
                     ++health.route_misses;
@@ -246,11 +357,15 @@ namespace linkerbot::transport {
                     ++route->health.overflow;
                     ++health.overflows;
                     route->cv.notify_all();
+                    route->signal->notify();
                     return;
                 }
-                route->queue.push_back({message, health.generation, ++sequence, Clock::now()});
+                route->queue.push_back(
+                    {message, health.generation, ++sequence, Clock::now(), key, ++event_order});
+                ++route->health.delivered;
                 route->health.high_water = std::max(route->health.high_water, route->queue.size());
                 route->cv.notify_one();
+                route->signal->notify();
             } catch (const std::exception &error) {
                 std::lock_guard<std::mutex> lock(mutex);
                 health.last_error = error.what();
@@ -288,16 +403,34 @@ namespace linkerbot::transport {
                         }
                         // Priority includes bounded aging; equal ranks retain FIFO.
                         const auto now = Clock::now();
-                        auto rank = [now](const std::shared_ptr<Job> &j) {
+                        auto rank = [this, now](const std::shared_ptr<Job> &j) {
                             return static_cast<long long>(j->options.priority) +
                                    std::chrono::duration_cast<std::chrono::milliseconds>(
                                        now - j->receipt->result.accepted_at)
                                            .count() /
-                                       10;
+                                       options.aging_quantum.count();
                         };
                         auto best = jobs.begin();
                         for (auto it = jobs.begin(); it != jobs.end(); ++it) {
-                            if (rank(*it) > rank(*best)) {
+                            if (options.endpoint_fifo &&
+                                (*it)->options.policy == SendPolicy::fifo &&
+                                std::any_of(jobs.begin(), it, [&](const auto &prior) {
+                                    return prior->options.policy == SendPolicy::fifo &&
+                                           prior->options.endpoint == (*it)->options.endpoint;
+                                })) {
+                                continue;
+                            }
+                            const auto served = [&](const auto &candidate) {
+                                return last_served.at(candidate->options.endpoint);
+                            };
+                            const bool earlier =
+                                (*it)->options.deadline < (*best)->options.deadline;
+                            const bool fairer =
+                                (*it)->options.deadline == (*best)->options.deadline &&
+                                served(*it) < served(*best);
+                            if (rank(*it) > rank(*best) ||
+                                (options.endpoint_fifo && rank(*it) == rank(*best) &&
+                                 (earlier || fairer))) {
                                 best = it;
                             }
                         }
@@ -323,8 +456,11 @@ namespace linkerbot::transport {
                             continue;
                         }
                         claimed = job;
+                        last_served.at(job->options.endpoint) = ++service_order;
                         std::lock_guard<std::mutex> receipt_lock(job->receipt->mutex);
                         job->receipt->result.claimed_at = Clock::now();
+                        job->receipt->result.claimed_order = ++event_order;
+                        signal->notify();
                     }
                     size_t sent = 0;
                     bool uncertain = false;
@@ -338,13 +474,17 @@ namespace linkerbot::transport {
                         // This primitive holds the same physical boundary used by
                         // legacy synchronous and queued sends across all pacing.
                         if (bus) {
-                            bus->send_batch_until(job->batch.frames, job->options.deadline,
-                                                  job->batch.gap, job->batch.initial_delay,
-                                                  cancelled, sent, uncertain);
+                            bus->send_batch_until(
+                                job->batch.frames, job->options.deadline, job->batch.gap,
+                                job->batch.initial_delay, cancelled, sent, uncertain,
+                                job->options.deadline_policy == DeadlinePolicy::kStartOnly,
+                                options.send_period, &job->receipt->progress);
                         } else {
-                            borrowed->send_batch_until(job->batch.frames, job->options.deadline,
-                                                       job->batch.gap, job->batch.initial_delay,
-                                                       cancelled, sent, uncertain);
+                            borrowed->send_batch_until(
+                                job->batch.frames, job->options.deadline, job->batch.gap,
+                                job->batch.initial_delay, cancelled, sent, uncertain,
+                                job->options.deadline_policy == DeadlinePolicy::kStartOnly,
+                                options.send_period, &job->receipt->progress);
                         }
                         // A normal return means the backend accepted every frame.
                         // A cancel seen only now lost the race, and reporting it
@@ -390,8 +530,20 @@ namespace linkerbot::transport {
                         if (error) {
                             health.last_error = std::move(diagnostic);
                         }
+                        if (outcome == SendOutcome::dispatched) {
+                            health.consecutive_send_errors = 0;
+                        } else if (outcome == SendOutcome::failed) {
+                            ++health.consecutive_send_errors;
+                        }
                         finish(job, outcome, std::move(error), sent, uncertain);
                         claimed.reset();
+                        if (options.max_consecutive_send_errors != 0 &&
+                            health.consecutive_send_errors >= options.max_consecutive_send_errors) {
+                            health.open = false;
+                            terminal_failure = true;
+                            invalidate_locked(std::make_exception_ptr(
+                                can::FaultedError("consecutive Session send failures")));
+                        }
                         cv.notify_all();
                     }
                 }
@@ -726,6 +878,7 @@ namespace linkerbot::transport {
         p->bus = std::make_shared<can::ManagedCANBus>(std::move(factory));
         p->owns_bus = true;
         p->tx_capacity = capacity;
+        p->options.tx_capacity = capacity;
         p->bus->start();
         auto result = std::shared_ptr<Session>(new Session(std::move(p)));
         result->start();
@@ -843,9 +996,25 @@ namespace linkerbot::transport {
         auto state = std::make_shared<RouteInbox::State>();
         state->capacity = capacity;
         state->owner = impl_.get();
+        state->signal = impl_->signal;
+        state->health.capacity = capacity;
         auto inbox = std::shared_ptr<RouteInbox>(new RouteInbox(state));
         update_routes(inbox, keys);
         return inbox;
+    }
+    void Session::set_route_key_extractor(std::function<RouteKey(const can::Message &)> extractor) {
+        auto &p = *impl_;
+        std::lock_guard<std::mutex> lock(p.mutex);
+        if (p.stopping || !p.health.open) {
+            throw can::ClosedError("session is closed");
+        }
+        if (p.routing_started || p.health.accepted != 0u) {
+            throw can::ValidationError("route extractor must be configured before Session use");
+        }
+        p.route_key_of = std::move(extractor);
+    }
+    std::shared_ptr<ChangeSignal> Session::notification() const {
+        return impl_->signal;
     }
     void Session::update_routes(const std::shared_ptr<RouteInbox> &inbox,
                                 const std::vector<RouteKey> &keys) {
@@ -908,8 +1077,20 @@ namespace linkerbot::transport {
             }
         }
         inbox->state_->health.generation = p.health.generation;
+        p.routing_started = true;
     }
     SendReceipt Session::submit(MessageBatch batch, SendOptions options) {
+        return *submit_impl(std::move(batch), std::move(options), false);
+    }
+    std::optional<SendReceipt> Session::replace_latest_if_pending(MessageBatch batch,
+                                                                  SendOptions options) {
+        if (options.policy != SendPolicy::latest) {
+            throw can::ValidationError("conditional replacement requires latest policy");
+        }
+        return submit_impl(std::move(batch), std::move(options), true);
+    }
+    std::optional<SendReceipt> Session::submit_impl(MessageBatch batch, SendOptions options,
+                                                    bool replace_only) {
         if (batch.frames.empty()) {
             throw can::ValidationError("empty send batch");
         }
@@ -921,6 +1102,9 @@ namespace linkerbot::transport {
             can::validate_frame_flags(m.is_fd, m.is_brs);
             // TX retains the legacy untagged-on-FD-link compatibility rule.
             can::validate_payload_length(m.dlc, can::LinkKind::kCanFd);
+        }
+        if (options.max_pending_age && options.max_pending_age->count() <= 0) {
+            throw can::ValidationError("pending age must be positive");
         }
         if (options.policy == SendPolicy::latest &&
             (options.endpoint.empty() || options.family.empty())) {
@@ -936,33 +1120,66 @@ namespace linkerbot::transport {
         if (p.stopping || !p.health.open) {
             throw can::ClosedError("session is closed");
         }
+        job->receipt->signal = p.signal;
+        if (p.stopped_endpoints.count(job->options.endpoint) != 0u) {
+            throw can::ClosedError("endpoint admission is stopped");
+        }
+        if (job->options.expected_generation &&
+            *job->options.expected_generation != p.health.generation) {
+            throw can::ClosedError("submission generation is stale");
+        }
         job->options.cancellation.throw_if_cancelled();
         if (Clock::now() >= job->options.deadline) {
             throw can::TimeoutError("send deadline expired");
         }
+        const auto now = Clock::now();
+        if (job->options.max_pending_age && p.oldest_accepted() != Deadline::max() &&
+            std::chrono::duration_cast<std::chrono::microseconds>(now - p.oldest_accepted()) >=
+                *job->options.max_pending_age) {
+            ++p.health.rejected_stale;
+            throw can::TimeoutError("pending work exceeded age budget");
+        }
+        auto previous = p.jobs.end();
         if (job->options.policy == SendPolicy::latest) {
-            for (auto it = p.jobs.begin(); it != p.jobs.end();) {
-                auto &old = *it;
-                if (old->options.policy == SendPolicy::latest &&
-                    old->options.endpoint == job->options.endpoint &&
-                    old->options.family == job->options.family) {
-                    Impl::finish(
-                        old, SendOutcome::superseded,
-                        std::make_exception_ptr(CancelledError("pending latest send superseded")));
-                    it = p.jobs.erase(it);
-                } else {
-                    ++it;
-                }
+            previous = std::find_if(p.jobs.begin(), p.jobs.end(), [&](const auto &old) {
+                return old->options.policy == SendPolicy::latest &&
+                       old->options.endpoint == job->options.endpoint &&
+                       old->options.family == job->options.family;
+            });
+        }
+        if (replace_only && previous == p.jobs.end()) {
+            return std::nullopt;
+        }
+        const auto units = p.pending_units();
+        bool full = previous == p.jobs.end() && p.jobs.size() >= p.tx_capacity;
+        if (p.options.separate_policy_capacity) {
+            if (job->options.policy == SendPolicy::latest) {
+                full = previous == p.jobs.end() && units.second >= p.options.latest_capacity;
+            } else {
+                full = p.fifo_cost(*job) > p.options.fifo_capacity - units.first;
             }
         }
-        if (p.jobs.size() >= p.tx_capacity) {
+        if (full) {
+            ++p.health.rejected_full;
             throw can::QueueFullError("session send queue is full");
         }
         auto &result = job->receipt->result;
         result.generation = p.health.generation;
         result.accepted_at = Clock::now();
         result.total_frames = job->batch.frames.size();
+        // Allocate before changing an old receipt: failed admission must not
+        // supersede accepted work. deque insertion may invalidate iterators.
+        auto old = previous == p.jobs.end() ? nullptr : *previous;
+        p.last_served.try_emplace(job->options.endpoint, 0);
+        auto replacement_error =
+            old ? std::make_exception_ptr(CancelledError("pending latest send superseded"))
+                : std::exception_ptr{};
         p.jobs.push_back(job);
+        if (old) {
+            p.finish(old, SendOutcome::superseded, std::move(replacement_error));
+            p.jobs.erase(std::find(p.jobs.begin(), p.jobs.end(), old));
+        }
+        ++p.health.accepted;
         p.health.queue_high_water = std::max(p.health.queue_high_water, p.jobs.size());
         p.cv.notify_one();
         return SendReceipt(job->receipt);
@@ -978,8 +1195,8 @@ namespace linkerbot::transport {
         for (auto it = p.jobs.begin(); it != p.jobs.end();) {
             if ((*it)->options.endpoint == endpoint) {
                 (*it)->abort.cancel();
-                Impl::finish(*it, SendOutcome::cancelled,
-                             std::make_exception_ptr(CancelledError("endpoint cancelled")));
+                p.finish(*it, SendOutcome::cancelled,
+                         std::make_exception_ptr(CancelledError("endpoint cancelled")));
                 it = p.jobs.erase(it);
             } else {
                 ++it;
@@ -990,11 +1207,75 @@ namespace linkerbot::transport {
         }
         p.cv.notify_all();
     }
+    void Session::configure(SessionOptions options) {
+        if (options.tx_capacity == 0 || options.fifo_capacity == 0 ||
+            options.latest_capacity == 0 || options.aging_quantum.count() <= 0 ||
+            options.send_period.count() < 0) {
+            throw can::ValidationError("invalid Session scheduling options");
+        }
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        if (impl_->stopping || impl_->health.accepted != 0) {
+            throw can::ValidationError("configure requires a session with no accepted sends");
+        }
+        impl_->options = options;
+        impl_->tx_capacity = options.tx_capacity;
+    }
+    SessionOptions Session::options() const {
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        return impl_->options;
+    }
+    size_t Session::stop_endpoint(const std::string &endpoint, Deadline deadline) {
+        if (current_writer() != nullptr || can::CANDispatcher::is_any_receive_thread()) {
+            throw can::ValidationError("endpoint drain requires an external caller");
+        }
+        auto &p = *impl_;
+        std::unique_lock<std::mutex> lock(p.mutex);
+        p.stopped_endpoints.insert(endpoint);
+        size_t count = 0;
+        for (auto it = p.jobs.begin(); it != p.jobs.end();) {
+            if ((*it)->options.endpoint == endpoint) {
+                p.finish(*it, SendOutcome::cancelled,
+                         std::make_exception_ptr(can::ClosedError("endpoint stopped")));
+                it = p.jobs.erase(it);
+                ++count;
+            } else {
+                ++it;
+            }
+        }
+        p.cv.notify_all();
+        const auto drained = [&] { return !p.claimed || p.claimed->options.endpoint != endpoint; };
+        if (deadline == Deadline::max()) {
+            p.cv.wait(lock, drained);
+        } else if (!p.cv.wait_until(lock, deadline, drained)) {
+            throw can::TimeoutError("endpoint claimed send did not drain");
+        }
+        return count;
+    }
+    void Session::resume_endpoint(const std::string &endpoint) {
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        if (impl_->stopping || !impl_->health.open) {
+            throw can::ClosedError("session closed");
+        }
+        if (impl_->claimed && impl_->claimed->options.endpoint == endpoint) {
+            throw can::ValidationError("endpoint still has a claimed send");
+        }
+        impl_->stopped_endpoints.erase(endpoint);
+    }
     SessionHealth Session::health() const {
         impl_->refresh();
         std::lock_guard<std::mutex> lock(impl_->mutex);
         auto h = impl_->health;
         h.pending_tx = impl_->jobs.size() + (impl_->claimed ? 1 : 0);
+        const auto units = impl_->pending_units();
+        h.pending_fifo = units.first;
+        h.pending_latest = units.second;
+        h.in_flight = bool(impl_->claimed);
+        h.in_flight_frames = impl_->claimed ? impl_->claimed->batch.frames.size() : 0;
+        const auto oldest = impl_->oldest_accepted();
+        if (oldest != Deadline::max()) {
+            h.oldest_pending_age =
+                std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - oldest);
+        }
         return h;
     }
     can::TransportHealth Session::transport_health() const {

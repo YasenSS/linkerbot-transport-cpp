@@ -23,6 +23,24 @@ namespace linkerbot::can {
 
 namespace linkerbot::transport {
 
+    // Coalesced state-change notification for a language/runtime bridge. Read the
+    // revision before inspecting state, then wait on that revision. No application
+    // callback executes on the writer or receiver, and no payload queue is added.
+    class ChangeSignal {
+      public:
+        ChangeSignal();
+        ~ChangeSignal();
+        ChangeSignal(const ChangeSignal &) = delete;
+        ChangeSignal &operator=(const ChangeSignal &) = delete;
+        [[nodiscard]] uint64_t revision() const;
+        [[nodiscard]] bool wait_until(uint64_t observed, Deadline deadline) const;
+        void notify() noexcept;
+
+      private:
+        struct State;
+        std::unique_ptr<State> state_;
+    };
+
     struct RouteKey {
         uint32_t id = 0;
         bool extended = false;
@@ -39,6 +57,8 @@ namespace linkerbot::transport {
         uint64_t generation = 0;
         uint64_t sequence = 0;
         Deadline received_at{};
+        RouteKey route_key{};
+        uint64_t received_order = 0; // Same Session event domain as SendResult::claimed_order.
     };
 
     struct RouteHealth {
@@ -47,6 +67,9 @@ namespace linkerbot::transport {
         uint64_t overflow = 0;
         size_t pending = 0;
         size_t high_water = 0;
+        size_t capacity = 0;
+        uint64_t delivered = 0;
+        uint64_t dropped_on_close = 0;
     };
 
     // A group owns all keys atomically. close() wakes receivers and releases keys;
@@ -59,6 +82,7 @@ namespace linkerbot::transport {
         std::optional<RoutedMessage> receive_until(Deadline deadline);
         std::optional<RoutedMessage> try_receive();
         [[nodiscard]] RouteHealth health() const;
+        [[nodiscard]] std::shared_ptr<ChangeSignal> notification() const;
         void close() noexcept;
 
       private:
@@ -81,6 +105,22 @@ namespace linkerbot::transport {
         std::chrono::microseconds initial_delay{0};
     };
 
+    enum class CapacityUnit { kBatches, kFrames };
+    enum class DeadlinePolicy { kExecution, kStartOnly };
+
+    // Opt-in SDK scheduling. Defaults retain the existing Session behavior.
+    struct SessionOptions {
+        size_t tx_capacity = 2000;
+        bool separate_policy_capacity = false;
+        size_t fifo_capacity = 2000;
+        size_t latest_capacity = 64;
+        CapacityUnit fifo_unit = CapacityUnit::kBatches;
+        bool endpoint_fifo = false;
+        std::chrono::milliseconds aging_quantum{10};
+        std::chrono::microseconds send_period{0};
+        uint32_t max_consecutive_send_errors = 0; // zero disables terminal TX faulting
+    };
+
     struct SendOptions {
         Deadline deadline = Deadline::max();
         CancellationToken cancellation;
@@ -88,6 +128,9 @@ namespace linkerbot::transport {
         std::string family;
         SendPolicy policy = SendPolicy::fifo;
         int priority = 0;
+        std::optional<uint64_t> expected_generation = std::nullopt;
+        std::optional<std::chrono::microseconds> max_pending_age = std::nullopt;
+        DeadlinePolicy deadline_policy = DeadlinePolicy::kExecution;
     };
 
     struct SendResult {
@@ -102,6 +145,7 @@ namespace linkerbot::transport {
         // or native batch; no per-frame acceptance count is known for that call.
         bool current_frame_uncertain = false;
         std::exception_ptr error;
+        std::optional<uint64_t> claimed_order = std::nullopt;
     };
 
     class SendReceipt {
@@ -118,10 +162,14 @@ namespace linkerbot::transport {
         // The final backend call may succeed after the send deadline; a wait
         // timeout can therefore precede a later dispatched result.
         [[nodiscard]] SendResult wait_until(Deadline deadline) const;
+        // Wait for any terminal outcome without rethrowing its saved task error.
+        // Waiting timeout still throws; useful for Future adapters (superseded is a value).
+        [[nodiscard]] SendResult wait_result_until(Deadline deadline) const;
         // Wait without a deadline, with the same saved-error behavior.
         void wait() const;
         // True for any terminal outcome, including failure or cancellation.
         [[nodiscard]] bool completed() const;
+        [[nodiscard]] std::shared_ptr<ChangeSignal> notification() const;
 
       private:
         friend class Session;
@@ -144,6 +192,21 @@ namespace linkerbot::transport {
         size_t pending_tx = 0;
         size_t queue_high_water = 0;
         std::string last_error;
+        size_t pending_fifo = 0; // capacity units, excludes the claimed batch
+        size_t pending_latest = 0;
+        bool in_flight = false;
+        size_t in_flight_frames = 0;
+        std::optional<std::chrono::microseconds> oldest_pending_age = std::nullopt;
+        uint64_t accepted = 0;
+        uint64_t dispatched = 0;
+        uint64_t superseded = 0;
+        uint64_t failed = 0;
+        uint64_t cancelled = 0;
+        uint64_t expired = 0;
+        uint64_t rejected_full = 0;
+        uint64_t rejected_stale = 0;
+        uint32_t consecutive_send_errors = 0;
+        uint64_t route_key_errors = 0;
     };
 
     // One Session per physical ManagedCANBus/borrowed Dispatcher. All Session
@@ -169,6 +232,11 @@ namespace linkerbot::transport {
 
         std::shared_ptr<RouteInbox> subscribe_routes(const std::vector<RouteKey> &keys,
                                                      size_t capacity = 512);
+        // Configure before any routes or TX/RX events. The extractor must be fast,
+        // non-blocking and must not reenter Session; it runs under the state lock.
+        // Empty restores exact ID/format routing. Failures drop only that frame.
+        void set_route_key_extractor(std::function<RouteKey(const can::Message &)> extractor);
+        [[nodiscard]] std::shared_ptr<ChangeSignal> notification() const;
         void update_routes(const std::shared_ptr<RouteInbox> &inbox,
                            const std::vector<RouteKey> &keys);
         // Validate and enqueue without waiting for transmission. Capacity counts
@@ -179,6 +247,15 @@ namespace linkerbot::transport {
         // Submit and wait until options.deadline; a wait timeout does not cancel.
         void send(MessageBatch batch, SendOptions options = {});
         void cancel_endpoint(const std::string &endpoint);
+        // Configure before the first accepted send. No second writer is created.
+        void configure(SessionOptions options);
+        [[nodiscard]] SessionOptions options() const;
+        [[nodiscard]] std::optional<SendReceipt> replace_latest_if_pending(MessageBatch batch,
+                                                                           SendOptions options);
+        // Permanently gate admission until resume_endpoint(), cancel only unclaimed
+        // jobs, and wait for this endpoint's claimed batch without truncating it.
+        size_t stop_endpoint(const std::string &endpoint, Deadline deadline);
+        void resume_endpoint(const std::string &endpoint);
         SessionHealth health() const;
         // Legacy transport diagnostics projected through the Session boundary.
         can::TransportHealth transport_health() const;
@@ -198,6 +275,8 @@ namespace linkerbot::transport {
         class Cleanup;
         explicit Session(std::unique_ptr<Impl> impl);
         void start();
+        std::optional<SendReceipt> submit_impl(MessageBatch batch, SendOptions options,
+                                               bool replace_only);
         std::unique_ptr<Impl> impl_;
     };
 } // namespace linkerbot::transport
