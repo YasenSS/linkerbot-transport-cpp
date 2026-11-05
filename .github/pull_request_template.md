@@ -31,7 +31,7 @@
 - [ ] CTest
 - [ ] ASan and UBSan where applicable
 - [ ] TSan where applicable
-- [ ] Production line coverage at least 99%
+- [ ] Production line coverage above 99% before rounding
 
 Passed:
 

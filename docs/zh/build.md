@@ -381,3 +381,6 @@ CPack 生成相邻 SHA256 文件；新 Linux 包名包含版本、系统、架�
 生命周期分配失败夹具替换全局分配函数，因此不在同样替换这些符号的 TSan 构建中运行。
 该夹具仍参与 GCC 覆盖率、严格 libc++ 和 ASan/UBSan；常规并发测试继续由 TSan 验证。
 Linux 系统调用包装夹具与常规 PTY 测试分别运行。
+
+CI 使用原始 `line_covered`、`line_total` 行数，要求
+`line_covered * 100 > line_total * 99`。gcovr 舍入后显示 99.0，不能替代实际比例超过门槛。

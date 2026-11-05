@@ -430,3 +430,7 @@ The allocation-failure lifecycle fixture replaces global allocation functions an
 is omitted from TSan builds, which supply their own replacements. It remains in
 GCC coverage, strict libc++ and ASan/UBSan builds; ordinary concurrency tests run
 under TSan. Linux syscall wrappers are isolated from the ordinary PTY tests.
+
+The CI threshold uses the original `line_covered` and `line_total` counts and
+requires `line_covered * 100 > line_total * 99`. A rounded gcovr percentage of
+99.0 is insufficient when the underlying ratio is below the threshold.

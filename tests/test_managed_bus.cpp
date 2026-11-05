@@ -1359,7 +1359,7 @@ TEST_CASE("deferred worker preserves multiple tasks queued behind an active clos
     auto gate = release.get_future().share();
     auto first = std::make_unique<GatedClose>(gate);
     auto entered = first->entered.get_future();
-    auto enqueue = [&](CANBusKey key, ManagedCANBus::TransportFactory factory) {
+    auto enqueue = [&](const CANBusKey &key, ManagedCANBus::TransportFactory factory) {
         auto bus = state->acquire(key, std::move(factory), {});
         auto task = std::make_unique<linkerbot::can::detail::DeferredLeaseCloseTask>();
         task->state = state;

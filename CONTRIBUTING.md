@@ -44,7 +44,7 @@ ctest --test-dir build-libcxx --output-on-failure --no-tests=error --timeout 90
 ./build-libcxx/comm-example
 ```
 
-Linux aggregate production line coverage must be at least 99% over `src/` and `include/`. This is not a per-file threshold, branch coverage requirement, or hardware acceptance. Use TSan or other applicable tools for concurrency changes; explain skipped checks. Go race/vet, Redis, and database tests apply only to relevant application projects; this transport library has no such dependencies.
+Linux aggregate production line coverage must exceed 99% before rounding over `src/` and `include/`. This is not a per-file threshold, branch coverage requirement, or hardware acceptance. Use TSan or other applicable tools for concurrency changes; explain skipped checks. Go race/vet, Redis, and database tests apply only to relevant application projects; this transport library has no such dependencies.
 
 Installation, export, or CMake package changes also need an independent `find_package` consumer. Check interfaces, defaults, commands, links, and installed relative paths for documentation changes. Mark historical material explicitly and link the maintained guides.
 

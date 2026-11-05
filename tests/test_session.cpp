@@ -1,6 +1,7 @@
 #include "optional_value.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
@@ -1781,4 +1782,63 @@ TEST_CASE("Session worker observes cancellation of a queued token", "[session]")
     REQUIRE_THROWS_AS(queued.wait(), transport::CancelledError);
     REQUIRE(queued.result().sent_frames == 0);
     REQUIRE(rig.fake->sent().size() == 1);
+}
+
+TEST_CASE("Final Session releases retain every owner queued behind active cleanup",
+          "[session][lifecycle]") {
+    class CleanupTransport final : public can::FakeTransport {
+      public:
+        std::shared_future<void> gate;
+        std::promise<void> closing;
+        std::atomic<unsigned> &destroyed;
+        explicit CleanupTransport(std::atomic<unsigned> &count) : destroyed(count) {}
+        ~CleanupTransport() override {
+            ++destroyed;
+        }
+        void close() override {
+            if (gate.valid()) {
+                closing.set_value();
+                gate.wait();
+            }
+            can::FakeTransport::close();
+        }
+    };
+    transport::Session::drain_deferred_cleanup();
+    std::atomic<unsigned> destroyed{0};
+    std::promise<void> release;
+    auto gate = release.get_future().share();
+    std::array<std::shared_ptr<transport::Session>, 3> sessions;
+    std::array<std::promise<void>, 3> released;
+    std::array<std::future<void>, 3> done;
+    std::array<transport::SendReceipt, 3> receipts;
+    std::future<void> first_closing;
+    for (size_t i = 0; i < sessions.size(); ++i) {
+        auto backend = std::make_unique<CleanupTransport>(destroyed);
+        if (i == 0) {
+            backend->gate = gate;
+            first_closing = backend->closing.get_future();
+        }
+        done[i] = released[i].get_future();
+        backend->on_request(0x28, [&, i](const can::Message &) {
+            sessions[i].reset();
+            released[i].set_value();
+            return std::vector<can::Message>{};
+        });
+        sessions[i] = transport::Session::own(std::move(backend));
+    }
+    receipts[0] = sessions[0]->submit({{frame(0x28)}});
+    const bool first_active = first_closing.wait_for(2s) == std::future_status::ready;
+    bool all_released = true;
+    for (size_t i = 1; i < sessions.size(); ++i) {
+        receipts[i] = sessions[i]->submit({{frame(0x28)}});
+        all_released = (done[i].wait_for(2s) == std::future_status::ready) && all_released;
+    }
+    release.set_value();
+    transport::Session::drain_deferred_cleanup();
+    REQUIRE(first_active);
+    REQUIRE(all_released);
+    REQUIRE(destroyed.load() == 3);
+    for (const auto &receipt : receipts) {
+        REQUIRE(receipt.completed());
+    }
 }

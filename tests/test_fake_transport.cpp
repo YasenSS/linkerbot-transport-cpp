@@ -268,7 +268,7 @@ TEST_CASE("Fake batch replies wake a waiting reader", "[fake]") {
     fake.write_batch({frame});
     const auto reply = fake.read();
     REQUIRE(reply.has_value());
-    REQUIRE(reply->data[1] == 7);
+    REQUIRE(require_value(reply).data[1] == 7);
 }
 
 TEST_CASE("Fake read failure wakes an idle receiver", "[fake][concurrency]") {

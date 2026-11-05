@@ -377,6 +377,11 @@ TEST_CASE("Linux SLCAN I/O failures preserve retry and close semantics", "[slcan
     config.port = pty.path;
     auto stream = linkerbot::can::open_slcan_serial(config);
     REQUIRE(::write(pty.master, "q", 1) == 1);
+    {
+        Arm arm(Fault::kPollInterrupt);
+        REQUIRE(stream->read_some(1, 500ms) == "q");
+    }
+    REQUIRE(::write(pty.master, "q", 1) == 1);
     for (auto value : {Fault::kPollError, Fault::kPollInvalid, Fault::kPollHangup, Fault::kReadZero,
                        Fault::kReadError}) {
         Arm arm(value);

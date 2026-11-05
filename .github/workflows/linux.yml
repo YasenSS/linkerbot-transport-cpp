@@ -97,6 +97,14 @@ jobs:
         run: |
           gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build/_deps' \
             --fail-under-line 99 --txt --json-summary coverage-summary.json build
+          python3 - <<'PYTHON'
+          import json
+          with open('coverage-summary.json', encoding='utf-8') as stream:
+              coverage = json.load(stream)
+          covered, total = coverage['line_covered'], coverage['line_total']
+          print(f'Exact production line coverage: {covered}/{total} ({100 * covered / total:.6f}%)')
+          assert covered * 100 > total * 99, 'Production line coverage must exceed 99% before rounding'
+          PYTHON
       - name: Verify CAN-only installation with serial and RTU disabled
         if: matrix.build_type == 'Release'
         run: |
