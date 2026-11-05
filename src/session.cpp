@@ -208,6 +208,7 @@ namespace linkerbot::transport {
         SessionOptions options;
         std::set<std::string> stopped_endpoints;
         uint64_t event_order = 0;
+        uint64_t lifecycle_revision = 0;
         uint64_t service_order = 0;
         std::map<std::string, uint64_t> last_served;
         uint64_t sequence = 0;
@@ -272,6 +273,7 @@ namespace linkerbot::transport {
             return oldest;
         }
         void invalidate_locked(std::exception_ptr reason) {
+            ++lifecycle_revision;
             for (auto &[key, weak] : routes) {
                 (void)key;
                 if (auto route = weak.lock()) {
@@ -296,9 +298,21 @@ namespace linkerbot::transport {
             signal->notify();
         }
         void refresh() {
+            uint64_t observed_revision = 0;
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                if (stopping || recovering || terminal_failure) {
+                    return;
+                }
+                observed_revision = lifecycle_revision;
+            }
+            // Backend diagnostics are copied outside the Session lock. A recover
+            // or fault may invalidate that snapshot before it can be applied,
+            // including a failed reopen which retains the same generation.
             const auto h = bus ? bus->get_health() : borrowed->get_health();
             std::lock_guard<std::mutex> lock(mutex);
-            if (stopping || recovering || terminal_failure) {
+            if (stopping || recovering || terminal_failure ||
+                observed_revision != lifecycle_revision) {
                 return;
             }
             if (h.generation != health.generation || (!h.connected() && health.open)) {

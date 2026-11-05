@@ -1,3 +1,4 @@
+#include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <chrono>
@@ -133,9 +134,9 @@ namespace {
         bool released_ = false;
     };
     struct ReleaseSecondWrite {
-        SecondWriteGate &gate;
+        SecondWriteGate *gate;
         ~ReleaseSecondWrite() {
-            gate.release();
+            gate->release();
         }
     };
 } // namespace
@@ -145,7 +146,7 @@ TEST_CASE("Session pending receipts expose only the known accepted frame prefix"
     auto backend = std::make_unique<SecondWriteGate>(fail);
     auto *gate = backend.get();
     auto session = transport::Session::own(std::move(backend));
-    const ReleaseSecondWrite release_on_exit{*gate};
+    const ReleaseSecondWrite release_on_exit{gate};
     transport::MessageBatch batch;
     batch.frames.resize(2);
     auto receipt = session->submit(std::move(batch));
@@ -162,4 +163,109 @@ TEST_CASE("Session pending receipts expose only the known accepted frame prefix"
     REQUIRE(completed.current_frame_uncertain == fail);
     REQUIRE(completed.outcome ==
             (fail ? transport::SendOutcome::failed : transport::SendOutcome::dispatched));
+}
+
+namespace {
+    class GenerationTransport : public can::FakeTransport {
+      public:
+        GenerationTransport(uint64_t generation, std::atomic<bool> *mismatch)
+            : generation_(generation), mismatch_(mismatch) {}
+        void write(const can::Message &message) override {
+            can::FakeTransport::write(message);
+            if (message.id != generation_) {
+                mismatch_->store(true);
+            }
+        }
+
+      private:
+        uint64_t generation_;
+        std::atomic<bool> *mismatch_;
+    };
+} // namespace
+
+TEST_CASE("Session generation admission stays aligned with physical recovery under health reads",
+          "[session]") {
+    std::atomic<uint64_t> physical_generation{0};
+    std::atomic<bool> mismatch{false};
+    std::atomic<bool> fail_next{false};
+    auto session = transport::Session::create([&] {
+        if (fail_next.exchange(false)) {
+            throw can::TransportIOError("expected reopen failure");
+        }
+        return std::make_unique<GenerationTransport>(++physical_generation, &mismatch);
+    });
+    std::atomic<bool> stop{false};
+    std::atomic<size_t> health_reads{0};
+    std::atomic<size_t> attempted_sends{0};
+    std::atomic<bool> unexpected{false};
+    std::promise<void> start;
+    auto started = start.get_future().share();
+    auto observer = std::async(std::launch::async, [&] {
+        started.wait();
+        while (!stop.load()) {
+            try {
+                (void)session->health();
+                ++health_reads;
+            } catch (...) {
+                unexpected.store(true);
+                return;
+            }
+            std::this_thread::yield();
+        }
+    });
+    auto sender = std::async(std::launch::async, [&] {
+        started.wait();
+        while (!stop.load()) {
+            try {
+                const auto observed = session->health().generation;
+                transport::SendOptions options;
+                options.expected_generation = observed;
+                can::Message message;
+                message.id = static_cast<uint32_t>(observed);
+                ++attempted_sends;
+                auto receipt = session->submit({{message}}, options);
+                (void)receipt.wait_result_until(transport::Clock::now() + 2s);
+            } catch (const can::ClosedError &) {
+                // Recovery gates submission or invalidates the observed generation.
+            } catch (...) {
+                unexpected.store(true);
+                return;
+            }
+            std::this_thread::yield();
+        }
+    });
+    start.set_value();
+    bool recovery_consistent = true;
+    try {
+        for (size_t round = 0; round < 32; ++round) {
+            auto observed = session->health().generation;
+            if (round % 4 == 0) {
+                fail_next.store(true);
+                bool failed = false;
+                try {
+                    (void)session->recover(observed);
+                } catch (const can::TransportIOError &) {
+                    failed = true;
+                }
+                recovery_consistent = recovery_consistent && failed && !session->health().open;
+            }
+            const auto recovered = session->recover(observed);
+            recovery_consistent = recovery_consistent && recovered == physical_generation.load();
+            // Give the two observers work between successful reopen boundaries.
+            std::this_thread::yield();
+        }
+    } catch (...) {
+        unexpected.store(true);
+    }
+    stop.store(true);
+    observer.get();
+    sender.get();
+    const auto final_generation = session->health().generation;
+    session->close();
+    REQUIRE_FALSE(unexpected.load());
+    REQUIRE(recovery_consistent);
+    REQUIRE(health_reads.load() != 0);
+    REQUIRE(attempted_sends.load() != 0);
+    REQUIRE_FALSE(mismatch.load());
+    REQUIRE(final_generation == physical_generation.load());
 }
