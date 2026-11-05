@@ -147,13 +147,34 @@ cmake -S . -B build-coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug \
 cmake --build build-coverage --parallel 4
 ctest --test-dir build-coverage --output-on-failure --no-tests=error --timeout 60
 gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build-coverage/_deps' \
-  --fail-under-line 99 --txt --json-summary coverage-summary.json build-coverage
+  --fail-under-line 99 --txt --json coverage.json --json-summary coverage-summary.json build-coverage
 ```
 
 99% 是整个 Linux 构建中生产代码的汇总**行覆盖率**，不要求每个文件或分支均为 99%。
 统计包含 `src/` 与 `include/`（包括对外提供的 FakeTransport），排除测试目录和 Catch2，
 不排除某些生产行来提高结果。平台条件编译未进入 Linux 构建的 Windows 代码不在分母中。
 固定提交的已执行结果见 [验证记录](validation.md)，CI 文件存在本身不算通过。
+
+Linux Debug 任务同时保留 `coverage.json` 和汇总报告。完整报告包含各被测文件的可执行行、
+执行次数和分支记录，可结合该次运行的源码版本逐项检查缺口。比较结果时使用全新构建和相同的
+测试顺序，不只比较舍入后的百分比。
+
+生产代码行覆盖率达到 100%，仅表示本次统计中的每一条可执行行均被执行。分支覆盖率、所有
+支持平台的代码覆盖和实机验证分别需要独立证据。Linux 预处理会省略 Windows 原生串口和
+DLL 加载路径；行计数达标也不能证明已经验证所有错误结果或并发交错。
+
+将门槛提高到 100% 前，应逐行确认剩余缺口：可通过补充测试覆盖的行为、需要受控故障注入的
+失败路径，或尚需分析可达性的路径。现有 Linux 系统调用包装、原生 ABI 替身库和分配失败
+可执行程序提供了故障注入手段，但不能据此认定所有剩余路径都能稳定触发。保留生产代码统计
+范围和防御行为。100% 门槛需要两个 Linux CI 架构上的可重复证据；当前仍要求舍入前严格
+超过 99%。
+
+部分现有路径无法通过普通公开 API 调用在现实时间内覆盖：`RtuSession::recover` 检查 64 位
+代次计数器耗尽，Session 注册表处理 64 位代次及初始化计数器回绕。注册表还会拒绝已经损坏的
+依赖环；Pool 清理在内部移动不变量被破坏时终止进程。这些路径需要有依据的内部测试接缝，
+或单独论证其可达性，不能靠重复公开操作来实际触发。厂商发送编码器在长度转换为 DLC 前已
+校验消息，因此无效的公开载荷会先被拒绝，无法进入转换辅助函数的防御性抛错。基于这些约束，
+不能承诺仅补充公开 API 测试即可达到 100%。
 
 覆盖率静态库的消费者也须在链接时加 `--coverage`，例如配置消费者时传
 `-DCMAKE_CXX_FLAGS=--coverage`。普通 Release 构建保持 coverage OFF。

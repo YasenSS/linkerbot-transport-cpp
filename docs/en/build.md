@@ -159,7 +159,7 @@ cmake -S . -B build-coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug \
 cmake --build build-coverage --parallel 4
 ctest --test-dir build-coverage --output-on-failure --no-tests=error --timeout 60
 gcovr --root . --filter '(src|include)/' --gcov-exclude-directories 'build-coverage/_deps' \
-  --fail-under-line 99 --txt --json-summary coverage-summary.json build-coverage
+  --fail-under-line 99 --txt --json coverage.json --json-summary coverage-summary.json build-coverage
 ```
 
 99% means aggregate production **line coverage** in the Linux build, not 99% per file or
@@ -167,6 +167,35 @@ per branch. It includes `src/` and `include/`, including public FakeTransport, a
 test directories and Catch2. Production lines are not selectively excluded to improve the
 result. Windows code omitted by Linux conditional compilation is outside the denominator.
 See [Validation](validation.md) for executed fixed-commit results; a CI file alone is not a pass.
+
+The Linux Debug jobs retain `coverage.json` alongside the summary. The full report lists
+executable lines, execution counts and branch records for each measured file, so remaining
+gaps can be inspected against the source revision of that run. Use a fresh build and the
+same test sequence when comparing results; do not compare rounded percentages alone.
+
+100% production line coverage would mean every executable line in this measurement was
+executed. It is a narrower target than 100% branch coverage, coverage of all supported
+platforms, or validation with physical devices. Linux preprocessing omits Windows native
+serial and DLL-loading paths. A passing line counter also does not establish that every
+error outcome or concurrent interleaving has been checked.
+
+Before raising the gate to 100%, classify each remaining line: a reachable behavior needing
+a test, a failure path needing controlled fault injection, or a path whose reachability
+needs investigation. The existing Linux syscall wrappers, native ABI fixture libraries and
+allocation-failure executables provide fault-injection mechanisms, but do not establish
+that every remaining path can be exercised deterministically. Keep production lines in
+the denominator and preserve defensive behavior. A 100% gate needs repeatable evidence
+on both Linux CI architectures; the current gate remains strictly above 99% before rounding.
+
+Some current paths cannot be covered practically through ordinary public API calls:
+`RtuSession::recover` guards exhaustion of a 64-bit generation counter, and the Session
+registry handles wraparound of 64-bit generation and initialization counters. The registry
+also rejects an already-corrupted dependency cycle, and pool cleanup terminates if its
+internal move invariant is broken. These need a justified internal test seam or a separate
+reachability argument; repeated public operations are not a practical way to reach them.
+The vendor transmit encoder validates a message before converting its length to a DLC,
+so an invalid public payload is rejected before the conversion helper's defensive throw.
+These constraints prevent a promise that adding public API tests alone will produce 100%.
 
 Consumers of coverage-instrumented static libraries also need `--coverage` at link time,
 for example `-DCMAKE_CXX_FLAGS=--coverage`. Normal Release builds keep coverage OFF.
