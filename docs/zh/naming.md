@@ -1,8 +1,7 @@
 # 包名与链接目标
 
-当前源码将 CMake 工程、安装包和新生成的 SDK 归档统一命名为 `linkerbot-transport`。
-已发布至 v0.3.2 的包保留原来的 `linkerbot-comm` 名称和内容。源码版本仍为 0.3.2，
-本次命名修改在后续发行前属于未发布内容。
+从 0.3.3 起，CMake 工程、安装包和生成的 SDK 归档统一命名为 `linkerbot-transport`。
+已发布至 v0.3.2 的包保留原来的 `linkerbot-comm` 名称和内容。
 
 ```cmake
 find_package(linkerbot-transport 0.3 CONFIG REQUIRED COMPONENTS can)

@@ -424,7 +424,7 @@ explicit manual request and its validation gates; CI and packaging success are n
 
 The serial and RTU modules export `linkerbot::serial` and `linkerbot::modbus`.
 Link their targets explicitly; `linkerbot::can` does not pull them in. These
-unreleased additions require current source, not the published v0.3.2 package.
+modules require 0.3.3 or later; the published v0.3.2 package does not include them.
 See [serial and RTU](modbus-rtu.md).
 
 The allocation-failure lifecycle fixture replaces global allocation functions and

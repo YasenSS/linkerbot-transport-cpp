@@ -5,8 +5,8 @@ They do not implement hand register maps, model discovery, motion control, or
 Modbus TCP/ASCII. Existing CAN and SLCAN interfaces are unchanged. A serial SLCAN
 adapter still speaks its configured CAN protocol; it is not an RTU endpoint.
 
-Serial and RTU are unreleased additions on `main`; published v0.3.2 packages
-do not contain these targets. Build current source to use them.
+Serial and RTU are available starting with 0.3.3. Published v0.3.2 packages
+do not contain these targets; use matching headers and libraries from 0.3.3 or later.
 
 ## Build and consume
 

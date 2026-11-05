@@ -2,7 +2,7 @@
 
 新增可选模块提供 Linux/Windows 串口字节流与 Modbus RTU 客户端；不包含灵巧手
 寄存器映射、型号发现或运动控制。现有 CAN/SLCAN 接口不变，SLCAN 不是 RTU。
-串口和 RTU 是 `main` 上未发布的新增模块，已发布的 v0.3.2 包不包含它们。
+串口和 RTU 从 0.3.3 起提供。已发布的 v0.3.2 包不包含它们，须使用 0.3.3 或更新版本的配套头文件和库。
 完整接口和失败语义见[英文说明](../en/modbus-rtu.md)。
 
 - 构建开关：`LINKERBOT_TRANSPORT_ENABLE_SERIAL`、`LINKERBOT_TRANSPORT_ENABLE_MODBUS`，默认开启；

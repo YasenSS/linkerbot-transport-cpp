@@ -1,9 +1,8 @@
 # Package and target names
 
-Current source uses `linkerbot-transport` for the CMake project, installed package
-and newly generated SDK archives. Published releases through v0.3.2 retain their
-original `linkerbot-comm` names and contents. The source version remains 0.3.2;
-these naming changes are unreleased until included in a new release.
+Starting with 0.3.3, `linkerbot-transport` names the CMake project, installed package
+and generated SDK archives. Published releases through v0.3.2 retain their
+original `linkerbot-comm` names and contents.
 
 ```cmake
 find_package(linkerbot-transport 0.3 CONFIG REQUIRED COMPONENTS can)
