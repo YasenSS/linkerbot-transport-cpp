@@ -74,7 +74,7 @@ target_link_libraries(your-sdk PRIVATE linkerbot::can)
 - **原生 SLCAN：** Linux / Windows，Classic / CANable FD；实验性，需要明确的串口与固件配置。
 - **FakeTransport：** 用于离线开发和测试的内存传输层。
 
-Linux amd64/ARM64 和 Windows x64 有离线 CI。硬件能力取决于适配器、驱动和固件，详见
+Linux amd64/ARM64 和 Windows x64/ARM64 有离线 CI。硬件能力取决于适配器、驱动和固件，详见
 [验证证据与边界](docs/zh/validation.md)。覆盖率和 Clang 质量检查命令见 [构建指南](docs/zh/build.md)。
 
 ## API 与设备接入
@@ -95,7 +95,7 @@ Linux amd64/ARM64 和 Windows x64 有离线 CI。硬件能力取决于适配器�
 [MIT 许可证](LICENSE) · [贡献流程](CONTRIBUTING.zh-CN.md) · [版本变更](CHANGELOG.md) ·
 [第三方组件](NOTICE) · [支持范围与敏感报告](SECURITY.zh-CN.md)
 
-安装文档位于 `share/linkerbot-transport`。运行时包不包含厂商驱动、DLL 或测试 fixture。
+安装文档位于 `share/linkerbot-transport`。SDK 安装包不包含厂商驱动、DLL 或测试 fixture。
 
 ## 串口与 Modbus RTU
 

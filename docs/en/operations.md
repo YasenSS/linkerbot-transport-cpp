@@ -50,7 +50,7 @@ in the [release guide](releases.md).
 Use an independent branch, signed commits, and an English PR describing the changes, compatibility, reproduction commands, and Linux results. Check CI, review, and unresolved threads for the latest head. After merging, synchronize main, verify it again, and clean up task branches and temporary environments. A formal release also requires a Changelog update, signed tag, and the established artifact workflow. CMake/CPack currently build and package artifacts; they do not publish a GitHub Release automatically.
 
 The Linux GCC Release jobs retain CPack TGZ archives and adjacent SHA256 files for
-amd64 and ARM64. Windows jobs retain x64 Debug/Release ZIPs and their SHA256 files.
+amd64 and ARM64. Windows jobs retain x64/ARM64 Debug/Release ZIPs and their SHA256 files.
 Use successful runs for the exact commit named by the signed release tag. Do not
 publish coverage-instrumented Linux Debug builds as Release packages. Check each
 archive's `build-info.json`, binary architecture and relocated installed consumer

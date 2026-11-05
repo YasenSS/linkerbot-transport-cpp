@@ -12,7 +12,7 @@ Catch2 3.8.1 本体声明最低 CMake 3.16，但其测试发现脚本需要 JSON
 启用测试时要求 CMake 3.19+；其他已安装 Catch2 版本还须核对其自身要求。Linux CI 使用 Ubuntu 24.04，主矩阵以
 GCC 13 覆盖原生 amd64、ARM64 的 Debug/Release 与 99% 行覆盖率；Clang 18 质量矩阵
 在两个架构上覆盖 libc++、ASan+UBSan 和 TSan。本地维护验证优先使用 Linux ARM64。
-Windows 使用 MSVC x64，见专项说明。macOS 不在当前实机支持和 CI 验证矩阵内。
+Windows 使用 MSVC x64/ARM64，见专项说明。macOS 不在当前实机支持和 CI 验证矩阵内。
 
 以下 Bash 命令都从源码根目录执行。示例使用 Ninja，需预先安装；也可去掉 `-G Ninja`
 使用平台默认生成器。Ubuntu 构建工具可这样安装：

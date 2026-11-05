@@ -14,7 +14,7 @@ but its test-discovery script needs JSON support, so this project requires CMake
 with tests enabled. Check any separately installed Catch2 version's own requirements too.
 Linux CI uses Ubuntu 24.04: GCC 13 covers native amd64/ARM64 Debug/Release and the 99%
 line-coverage gate; Clang 18 covers libc++, ASan+UBSan and TSan on both architectures.
-Local maintenance validation prioritizes Linux ARM64. Windows uses MSVC x64 as described
+Local maintenance validation prioritizes Linux ARM64. Windows uses MSVC x64/ARM64 as described
 in its guide. macOS is outside the current hardware-support and CI validation matrix.
 
 Run Bash commands from the source root. Examples use Ninja, which must be installed;

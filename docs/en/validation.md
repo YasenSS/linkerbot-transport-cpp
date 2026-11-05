@@ -4,7 +4,7 @@ English · [简体中文](../zh/validation.md)
 
 [Documentation index](../README.md) · [Reproduce builds](build.md)
 
-This guide records implementation capabilities, offline validation, and hardware acceptance separately. CMake identifies the source as 0.3.0. Published packages and checksum instructions are in the [release guide](releases.md); a documentation update or successful CI run alone does not publish a package.
+This guide records implementation capabilities, offline validation, and hardware acceptance separately. Results belong to the commits and releases named below; see the [CI guide](ci.md) for the maintained matrix. Published packages and checksum instructions are in the [release guide](releases.md); a documentation update or successful CI run alone does not publish a package.
 
 <a id="release-030"></a>
 
@@ -85,7 +85,7 @@ The earlier records in this section belong to the `soulteary/linkerbot-transport
 - PCAN's hardware target is Windows x64; Linux dynamic-library tests check only the loader ABI.
 - MiniCANFD requires a `libcanbus.so` matching the process architecture or x64 `HCanbus.dll`. An ARM64 process cannot load an x64 library.
 - SLCAN implements explicit Lawicel Classic/CANable FD profiles but remains experimental. PTY and byte-stream tests do not establish firmware compatibility.
-- The current matrix does not cover macOS hardware, Windows ARM64, USB hotplug acceptance, long-duration load acceptance, or hard real-time guarantees.
+- Current CI includes Windows ARM64 offline SDK validation; this does not establish vendor-driver or hardware support. The matrix does not cover macOS hardware, USB hotplug acceptance, long-duration load acceptance, or hard real-time guarantees.
 
 <a id="historical-hardware-statements"></a>
 <a id="历史实机陈述保留出处不作本仓库验收"></a>

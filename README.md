@@ -91,7 +91,7 @@ matching headers, architecture, compiler and runtime.
 - **Native SLCAN:** Linux / Windows, Classic / CANable FD; experimental, with an explicit port and firmware profile.
 - **FakeTransport:** in-memory transport for offline development and tests.
 
-Linux amd64/ARM64 and Windows x64 have offline CI. Hardware support depends on
+Linux amd64/ARM64 and Windows x64/ARM64 have offline CI. Hardware support depends on
 the adapter, driver and firmware; see [validation evidence and limits](docs/en/validation.md).
 Coverage and Clang quality-check commands are in the [build guide](docs/en/build.md).
 
@@ -119,7 +119,7 @@ before deploying with devices.
 [Third-party notices](NOTICE) · [Support and sensitive reports](SECURITY.md)
 
 Installed documentation lives under `share/linkerbot-transport`. Vendor drivers, DLLs
-and test fixtures are not included in the runtime package.
+and test fixtures are not included in the SDK package.
 
 <a id="简体中文"></a>
 <a id="后端与构建"></a>

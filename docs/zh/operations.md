@@ -81,7 +81,7 @@ MiniCANFD 和 PCAN 的库选择优先级为配置参数 → 各自环境变量 �
 只提供构建和打包能力，不自动发布 GitHub Release。
 
 Linux GCC Release 任务保留 amd64、ARM64 的 CPack TGZ 及相邻 SHA256 文件；Windows
-任务保留 x64 Debug/Release ZIP 及其 SHA256 文件。正式发布应使用签名标签所指精确提交的
+任务保留 x64/ARM64 Debug/Release ZIP 及其 SHA256 文件。正式发布应使用签名标签所指精确提交的
 成功运行，不得将带覆盖率插桩的 Linux Debug 构建作为 Release 包发布。上传前核对每个包的
 `build-info.json`、二进制架构和移动目录后的安装消费者。发布已核验的压缩包、汇总的
 `SHA256SUMS.txt` 和英文 Release Notes，随后重新下载 Release 附件核验。
