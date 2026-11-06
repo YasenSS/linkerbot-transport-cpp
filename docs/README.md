@@ -3,7 +3,7 @@
 This index and the [English](../README.md) and [Chinese](../README.zh-CN.md) READMEs describe the
 current implementation. Each guide has an English and a Chinese edition.
 Historical hardware statements are separated in the validation guide. Source guides
-include the Changelog's Unreleased APIs; published SDKs must be checked against their
+cover the current source APIs; published SDKs must be checked against their
 matching tag, headers and bundled documentation, rather than the version number alone.
 
 ## English guides
@@ -36,7 +36,7 @@ commands or validation scope must update both editions together. Keep identifier
 and fixed-commit evidence unchanged when translating. Historical translations belong
 under `docs/archive/`, with a historical-status notice and a link to this index.
 
-本索引对应当前源码，包含 Changelog 的 Unreleased 接口；已发布 SDK 应核对对应标签、头文件
+本索引对应当前源码，包含当前源码接口；已发布 SDK 应核对对应标签、头文件
 和随包文档，不能只按版本号推定包含所有新能力。先完成 FakeTransport 的离线构建和接入，再选择真实后端。
 文档中的真实设备示例需要按已确认的硬件参数调整，不会由离线 CI 自动执行。
 

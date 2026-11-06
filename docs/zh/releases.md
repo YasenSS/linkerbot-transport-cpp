@@ -7,6 +7,21 @@
 当前源码使用 `linkerbot-transport` 包名。已发布至 v0.3.2 的包仍名为 `linkerbot-comm`；
 下方 0.3.0 下载示例保留真实的旧资产名和安装路径。参见[命名迁移](naming.md)。
 
+## 0.3.4
+
+[版本 0.3.4](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.4)
+新增共享 Runtime 所有权、独立设备 Session，以及复用现有 writer 的可选调度控制。
+新增显式经典 CAN/FD 发送类型、原生接收时间戳元数据和 SocketCAN/PCAN 自身发送帧
+接收选项；vendor 与 SLCAN 拒绝不支持的自身发送帧接收开启配置。
+
+保留现有 C++ 签名和默认行为。公共结构有新增字段，使用方须使用匹配的头文件和库
+重新编译，不承诺与旧 SDK 的二进制 ABI 兼容。Python 接入前探针属于测试夹具，
+并非生产 Python 绑定或 hand/arm 接入；实机验收仍待完成。参见
+[CAN 元数据](can-metadata.md)、[设备 Session](device-sessions.md)及[版本记录](../../CHANGELOG.md)。
+
+发布验证沿用下方十二目标矩阵，归档名前缀为 `linkerbot-transport-0.3.4-`。
+正式发布后再下载附件，并核对签名标签、manifest 和校验值。旧版本附件不变。
+
 ## 0.3.3
 
 [版本 0.3.3](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.3)
