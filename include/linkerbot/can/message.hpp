@@ -3,11 +3,25 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace linkerbot::can {
 
     // Classic CAN uses up to 8 bytes; CAN FD up to 64.
     inline constexpr size_t kMaxDataLen = 64;
+
+    // Unspecified preserves each backend's existing untagged-frame behavior.
+    enum class FrameFormat { kUnspecified, kClassic, kFd };
+    enum class TimestampClock { kDevice, kSystemRealtime, kVendorRaw };
+    enum class TimestampUnit { kNanoseconds, kMicroseconds, kRawTicks };
+    enum class TimestampSource { kHardware, kSoftware, kDriver };
+    struct ReceiveTimestamp {
+        uint64_t value = 0;
+        TimestampUnit unit = TimestampUnit::kRawTicks;
+        TimestampClock clock = TimestampClock::kVendorRaw;
+        TimestampSource source = TimestampSource::kDriver;
+        uint8_t counter_bits = 64;
+    };
 
     // One CAN / CAN FD frame, shaped so a single struct serves both. `dlc` is a
     // payload length in bytes (NOT the 0-15 wire DLC nibble); backends that speak
@@ -22,6 +36,10 @@ namespace linkerbot::can {
         bool is_extended = false;
         bool is_fd = false;
         bool is_brs = false;
+        FrameFormat format = FrameFormat::kUnspecified;
+        // RX metadata only. TX ignores it; device clocks are not wall clocks.
+        std::optional<ReceiveTimestamp> timestamp = std::nullopt;
+        std::optional<bool> is_rx = std::nullopt;
     };
 
 } // namespace linkerbot::can

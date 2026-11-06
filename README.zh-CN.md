@@ -87,7 +87,8 @@ Linux amd64/ARM64 和 Windows x64/ARM64 有离线 CI。硬件能力取决于适�
 等待回执超时不会撤回在途写入。
 
 后端指南：[SocketCAN](docs/zh/socketcan.md)、[MiniCANFD](docs/zh/minicanfd.md)、
-[PCAN](docs/zh/pcan.md)、[SLCAN](docs/zh/slcan.md)。接入真实设备前请阅读
+[PCAN](docs/zh/pcan.md)、[SLCAN](docs/zh/slcan.md)。
+帧格式、时间戳及自身发送帧接收选项见 [CAN 元数据说明](docs/zh/can-metadata.md)。接入真实设备前请阅读
 [排障与诊断](docs/zh/troubleshooting.md) 和 [运行、升级与回滚](docs/zh/operations.md)。
 
 ## 项目信息

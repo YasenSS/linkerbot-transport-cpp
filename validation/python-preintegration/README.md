@@ -54,9 +54,9 @@ ctest --test-dir build/proof-python -C Release --output-on-failure
 
 `backend-contracts.json` 是源码/API 清单，合法值仍以原生配置验证器为准。目前明确存在的差异包括：
 
-- 原生 Message 不保存后端硬件时间戳。
-- FD 链路上的未标记帧会解析为 FD，不能直接等价于 Python 显式 classic-on-FD。
-- Python 的 `receive_own_messages` 没有对应的原生公开配置项。
+- `Message::timestamp` 保存原生值、单位、时钟和来源。SocketCAN 支持请求软件/原始硬件时间戳，PCAN 保存驱动微秒值，vendor 保存原始 32 位计数器；不推定系统纪元，不展开回绕。当前 SLCAN 固件配置不提供时间戳。
+- `Message::format = FrameFormat::kClassic` 显式选择 FD 链路上的经典帧；未指定时保持各后端原有默认值。
+- SocketCAN 和 PCAN 的 `receive_own_messages` 可显式开启；vendor 和 SLCAN 不支持开启，会明确拒绝，不模拟回显。
 - 任意 python-can 插件和额外参数不自动获得支持。
 - vendor `frame_type` 是保留但不应用的旧字段，不能记为已生效的发送配置。
 
@@ -72,3 +72,5 @@ python validation/python-preintegration/check_deployment.py deployment.json \
 
 提供的模板故意不能通过；单元测试中的合成记录只测试门禁。没有对应当前原生版本和配置的实机
 证据时，第 4 项保持待验证，不把 Python 已验收、历史报告或 fake 通过转换成原生实机通过。
+
+原生接口与默认值见 [CAN 元数据说明](../../docs/zh/can-metadata.md)。所需功能还必须有对应的原生实机验收记录；合成测试和源码能力清单不计为实机通过。

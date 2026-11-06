@@ -110,6 +110,7 @@ confirmation. A receipt timeout does not cancel an in-flight write.
 
 Backend guides: [SocketCAN](docs/en/socketcan.md), [MiniCANFD](docs/en/minicanfd.md),
 [PCAN](docs/en/pcan.md), [SLCAN](docs/en/slcan.md).
+See [frame selection, timestamps and receive-own messages](docs/en/can-metadata.md) for opt-in metadata and per-backend limits.
 See [diagnostics](docs/en/troubleshooting.md) and [upgrade/rollback](docs/en/operations.md)
 before deploying with devices.
 

@@ -157,3 +157,31 @@ TEST_CASE("SocketCAN decoding restores classic FD and BRS flags", "[frame][socke
     REQUIRE(fd_message.dlc == 12);
 }
 #endif
+
+TEST_CASE("Explicit frame formats preserve backend defaults and reject conflicts", "[frame]") {
+    using linkerbot::can::FrameFormat;
+    Message message;
+    linkerbot::can::FrameFlags (*legacy_resolver)(LinkKind, const Message &) = &resolve_tx_flags;
+    REQUIRE(legacy_resolver(LinkKind::kCanFd, message).is_fd);
+    REQUIRE(resolve_tx_flags(LinkKind::kCanFd, message).is_fd);
+    REQUIRE_FALSE(
+        linkerbot::can::resolve_tx_flags_with_default(LinkKind::kCanFd, message, false).is_fd);
+    message.format = FrameFormat::kClassic;
+    REQUIRE_FALSE(resolve_tx_flags(LinkKind::kCanFd, message).is_fd);
+    REQUIRE_FALSE(resolve_tx_flags(LinkKind::kClassic, message).is_fd);
+    message.dlc = 9;
+    REQUIRE_THROWS_AS(resolve_tx_flags(LinkKind::kCanFd, message), ValidationError);
+    message.dlc = 8;
+    message.is_fd = true;
+    REQUIRE_THROWS_AS(resolve_tx_flags(LinkKind::kCanFd, message), ValidationError);
+    message.is_brs = true;
+    REQUIRE_THROWS_AS(resolve_tx_flags(LinkKind::kCanFd, message), ValidationError);
+    message.format = FrameFormat::kFd;
+    REQUIRE(linkerbot::can::resolve_tx_flags_with_default(LinkKind::kCanFd, message, false).is_brs);
+    REQUIRE_THROWS_AS(resolve_tx_flags(LinkKind::kClassic, message), ValidationError);
+    message.is_fd = false;
+    message.is_brs = false;
+    REQUIRE(linkerbot::can::resolve_tx_flags_with_default(LinkKind::kCanFd, message, false).is_fd);
+    message.format = static_cast<FrameFormat>(-1);
+    REQUIRE_THROWS_AS(resolve_tx_flags(LinkKind::kCanFd, message), ValidationError);
+}

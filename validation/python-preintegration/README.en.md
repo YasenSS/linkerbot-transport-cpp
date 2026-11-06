@@ -85,16 +85,21 @@ comm revisions and bounded environments, not the current Runtime or this probe.
 `backend-contracts.json` is an API/source inventory. Native configuration validators
 remain authoritative for legal values. In particular:
 
-- native Message has no backend hardware-timestamp field;
-- untagged frames on an FD link resolve to FD, so explicit classic-on-FD is not a
-  compatible conversion currently;
-- the Python `receive_own_messages` option has no equivalent exposed native option;
+- `Message::timestamp` preserves native timestamp value, unit, clock and source.
+  SocketCAN can request software or raw hardware timestamps; PCAN keeps driver
+  microseconds; vendor keeps its raw 32-bit counter. No clock/epoch conversion or
+  counter unwrapping is implied. These SLCAN profiles do not provide timestamps.
+- `Message::format = FrameFormat::kClassic` explicitly sends classic CAN on FD
+  links; `kUnspecified` preserves each backend's existing default.
+- `receive_own_messages` is opt-in on SocketCAN and PCAN. The vendor and SLCAN
+  interfaces reject opt-in rather than synthesize software echo frames.
 - arbitrary python-can plugins/options are not implied by the available native backends;
 - vendor `frame_type` is a retained, ignored legacy field, not an applied TX setting.
 
 Populate `deployment.template.json` from the accepted deployment without guessing
 missing values. Each channel must identify adapter/driver, devices and firmware,
 resolved accepted-Python/native/external settings and timestamp/format dependencies.
+Required features also need matching feature-specific native hardware checks.
 Every `python_options` key needs an `option_mapping` entry with `kind` native/external
 and its target `field`, backend selector equality, or the known false receive-own
 default. Direct mappings must preserve JSON types and values. Unmapped options and
@@ -117,3 +122,6 @@ unverified until matching native evidence is supplied.
 Reference contracts: [thread state and GIL](https://docs.python.org/3/c-api/init.html),
 [capsule ownership](https://docs.python.org/3/c-api/capsule.html),
 [allocator replacement](https://docs.python.org/3/c-api/memory.html).
+
+Native API semantics and defaults are described in [CAN metadata](../../docs/en/can-metadata.md).
+Backend capability declarations and synthetic metadata tests are not hardware acceptance.

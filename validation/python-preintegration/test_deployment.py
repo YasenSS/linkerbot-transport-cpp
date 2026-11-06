@@ -20,7 +20,8 @@ class DeploymentEvidence(unittest.TestCase):
             "native_revision": "4" * 40,
             "platform": {"os": "Linux", "architecture": "aarch64", "python": "3.12"},
             "channels": [{"id": "bus", "backend": "socketcan",
-                          "native_options": {"interface_name": "can0", "fd_mode": False},
+                          "native_options": {"interface_name": "can0", "fd_mode": False,
+                                             "receive_own_messages": False, "timestamp_mode": "disabled"},
                           "external_configuration": {"nominal_bitrate": 1000000,
                                                      "data_bitrate": 0, "interface_up": True},
                           "python_options": {"interface": "socketcan", "channel": "can0",
@@ -94,6 +95,21 @@ class DeploymentEvidence(unittest.TestCase):
         self.manifest["channels"][0]["requires_receive_own_messages"] = True
         self.reseal_configuration()
         self.check_rejected()
+
+    def test_enabled_features_require_matching_hardware_checks(self):
+        channel = self.manifest["channels"][0]
+        channel["native_options"].update(fd_mode=True, receive_own_messages=True,
+                                         timestamp_mode="hardware")
+        channel["python_options"].update(fd=True, receive_own_messages=True)
+        channel["option_mapping"]["receive_own_messages"] = {
+            "kind": "native", "field": "receive_own_messages"}
+        for feature in ("hardware_timestamp", "explicit_classic_on_fd", "receive_own_messages"):
+            channel["requires_" + feature] = True
+        self.reseal_configuration()
+        self.check_rejected()
+        self.record["checks"] += ["hardware_timestamp", "explicit_classic_on_fd", "receive_own_messages"]
+        self.write_record()
+        self.assertTrue(verdict(self.manifest, self.root)["evidence_consistent"])
 
     def test_backend_platform(self):
         self.manifest["platform"]["os"] = "Windows"

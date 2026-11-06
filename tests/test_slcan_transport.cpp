@@ -470,3 +470,21 @@ TEST_CASE("SLCAN rejects malformed device paths and unknown profiles at codec en
     REQUIRE_THROWS_AS(encode_slcan_frame(frame(), unknown), ValidationError);
     REQUIRE_THROWS_AS(decode_slcan_frame("t1230", unknown), ValidationError);
 }
+
+TEST_CASE("SLCAN explicit formats preserve classic defaults and reject unsupported echo",
+          "[slcan]") {
+    Message message;
+    message.id = 0x123;
+    CHECK(encode_slcan_frame(message, SlcanProtocol::kCanableFd) == "t1230\r");
+    message.format = FrameFormat::kClassic;
+    CHECK(encode_slcan_frame(message, SlcanProtocol::kCanableFd) == "t1230\r");
+    message.format = FrameFormat::kFd;
+    CHECK(encode_slcan_frame(message, SlcanProtocol::kCanableFd) == "d1230\r");
+    REQUIRE_THROWS_AS(encode_slcan_frame(message), ValidationError);
+    message.format = static_cast<FrameFormat>(-1);
+    REQUIRE_THROWS_AS(encode_slcan_frame(message, SlcanProtocol::kCanableFd), ValidationError);
+    SlcanConfig config;
+    config.port = "COM1";
+    config.receive_own_messages = true;
+    REQUIRE_THROWS_AS(validate_slcan_config(config), ValidationError);
+}

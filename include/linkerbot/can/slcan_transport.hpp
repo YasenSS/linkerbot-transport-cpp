@@ -26,6 +26,7 @@ namespace linkerbot::can {
         SlcanProtocol protocol = SlcanProtocol::kLawicelClassic;
         uint32_t data_bitrate = 5'000'000;          // CANable FD: 2M or 5M, independent of UART.
         std::chrono::milliseconds startup_delay{0}; // 0..5000 ms; USB reset settling, if needed.
+        bool receive_own_messages = false; // true is unsupported by these firmware profiles.
     };
     auto validate_slcan_config(const SlcanConfig &config) -> void; // No I/O.
     [[nodiscard]] auto slcan_port_name(std::string_view name) -> std::string;

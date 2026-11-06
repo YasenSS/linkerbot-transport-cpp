@@ -16,6 +16,7 @@
 #include <thread>
 
 #include <linux/can.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -353,6 +354,152 @@ TEST_CASE("SocketCAN unwinds an interrupted reservation and contains destructor 
         ::close(short_fds[0]);
     }
     ::close(short_fds[1]);
+}
+
+TEST_CASE("SocketCAN explicit classic frames use classic MTU on an FD channel", "[socketcan]") {
+    using namespace linkerbot::can;
+    std::array<int, 2> fds{-1, -1};
+    REQUIRE(::socketpair(AF_UNIX, SOCK_DGRAM, 0, fds.data()) == 0);
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], true, {}});
+    Message message;
+    message.format = FrameFormat::kClassic;
+    message.id = 0x123;
+    message.dlc = 8;
+    transport.write(message);
+    canfd_frame frame{};
+    CHECK(::read(fds[1], &frame, sizeof(frame)) == CAN_MTU);
+    message.format = FrameFormat::kUnspecified;
+    transport.write(message);
+    CHECK(::read(fds[1], &frame, sizeof(frame)) == CANFD_MTU);
+    ::close(fds[1]);
+}
+
+TEST_CASE("SocketCAN timestamp ancillary data preserves source and rejects truncation",
+          "[socketcan]") {
+    using namespace linkerbot::can;
+    alignas(cmsghdr) std::array<unsigned char, CMSG_SPACE(sizeof(timespec) * 3)> buffer{};
+    msghdr header{};
+    header.msg_control = buffer.data();
+    header.msg_controllen = buffer.size();
+    auto *control = CMSG_FIRSTHDR(&header);
+    REQUIRE(control != nullptr);
+    control->cmsg_level = SOL_SOCKET;
+    control->cmsg_type = SO_TIMESTAMPING;
+    control->cmsg_len = CMSG_LEN(sizeof(timespec) * 3);
+    std::array<timespec, 3> stamps{};
+    stamps[0] = {123, 456};
+    stamps[2] = {7, 8};
+    std::memcpy(CMSG_DATA(control), stamps.data(), sizeof(stamps));
+    auto timestamp = require_value(decode_socketcan_timestamp(header));
+    CHECK(timestamp.value == 7'000'000'008ULL);
+    CHECK(timestamp.source == TimestampSource::kHardware);
+    CHECK(timestamp.clock == TimestampClock::kDevice);
+    stamps[2] = {};
+    std::memcpy(CMSG_DATA(control), stamps.data(), sizeof(stamps));
+    timestamp = require_value(decode_socketcan_timestamp(header));
+    CHECK(timestamp.value == 123'000'000'456ULL);
+    CHECK(timestamp.source == TimestampSource::kSoftware);
+    CHECK(timestamp.clock == TimestampClock::kSystemRealtime);
+    header.msg_flags = MSG_CTRUNC;
+    CHECK_FALSE(decode_socketcan_timestamp(header));
+    header.msg_flags = 0;
+    for (const auto invalid :
+         {timespec{-1, 0}, timespec{0, -1}, timespec{0, 1'000'000'000}, timespec{0, 0}}) {
+        stamps[0] = invalid;
+        std::memcpy(CMSG_DATA(control), stamps.data(), sizeof(stamps));
+        CHECK_FALSE(decode_socketcan_timestamp(header));
+    }
+    stamps[0] = {std::numeric_limits<time_t>::max(), 0};
+    std::memcpy(CMSG_DATA(control), stamps.data(), sizeof(stamps));
+    CHECK_FALSE(decode_socketcan_timestamp(header));
+    control->cmsg_len = CMSG_LEN(1);
+    CHECK_FALSE(decode_socketcan_timestamp(header));
+    control->cmsg_len = buffer.size() + 1;
+    CHECK_FALSE(decode_socketcan_timestamp(header));
+    CHECK_FALSE(decode_socketcan_timestamp(msghdr{}));
+}
+
+TEST_CASE("SocketCAN receive-own configuration reaches a real CAN socket", "[socketcan]") {
+    using namespace linkerbot::can;
+    const int fd = ::socket(PF_CAN, SOCK_RAW, CAN_RAW);
+    REQUIRE(fd >= 0);
+    SocketCANTransport transport(
+        SocketCANTransport::AdoptFd{fd, true, {}, SocketCANTimestampMode::kHardware, true});
+    int echo = 0;
+    socklen_t size = sizeof(echo);
+    REQUIRE(::getsockopt(fd, SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, &echo, &size) == 0);
+    CHECK(echo == 1);
+    int flags = 0;
+    size = sizeof(flags);
+    REQUIRE(::getsockopt(fd, SOL_SOCKET, SO_TIMESTAMPING, &flags, &size) == 0);
+    CHECK((flags & SOF_TIMESTAMPING_RAW_HARDWARE) != 0);
+    CHECK((flags & SOF_TIMESTAMPING_RX_HARDWARE) != 0);
+    SocketCANOptions options;
+    options.timestamp_mode = static_cast<SocketCANTimestampMode>(-1);
+    REQUIRE_THROWS_AS(SocketCANTransport(options, "can0"), ValidationError);
+}
+
+TEST_CASE("SocketCAN discards a truncated datagram without poisoning the next frame",
+          "[socketcan]") {
+    std::array<int, 2> fds{-1, -1};
+    REQUIRE(::socketpair(AF_UNIX, SOCK_DGRAM, 0, fds.data()) == 0);
+    SocketCANTransport transport(SocketCANTransport::AdoptFd{fds[0], true, {}});
+    std::array<unsigned char, CANFD_MTU + 1> oversized{};
+    REQUIRE(::write(fds[1], oversized.data(), oversized.size()) ==
+            static_cast<ssize_t>(oversized.size()));
+    REQUIRE_THROWS_AS(transport.read(), TransportIOError);
+    can_frame valid{};
+    valid.can_id = 0x123;
+    REQUIRE(::write(fds[1], &valid, sizeof(valid)) == static_cast<ssize_t>(sizeof(valid)));
+    const auto received = require_value(transport.read());
+    CHECK(received.id == 0x123);
+    CHECK_FALSE(received.timestamp);
+    ::close(fds[1]);
+}
+
+TEST_CASE("SocketCAN recvmsg retains kernel software time and does not invent hardware time",
+          "[socketcan]") {
+    using namespace linkerbot::can;
+    for (const auto mode : {SocketCANTimestampMode::kSoftware, SocketCANTimestampMode::kHardware}) {
+        const int receiver = ::socket(AF_INET, SOCK_DGRAM, 0);
+        REQUIRE(receiver >= 0);
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        REQUIRE(::bind(receiver, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0);
+        socklen_t size = sizeof(address);
+        REQUIRE(::getsockname(receiver, reinterpret_cast<sockaddr *>(&address), &size) == 0);
+        SocketCANTransport transport(SocketCANTransport::AdoptFd{receiver, false, {}, mode});
+        const int sender = ::socket(AF_INET, SOCK_DGRAM, 0);
+        REQUIRE(sender >= 0);
+        can_frame frame{};
+        frame.can_id = 0x123;
+        const auto send = [&] {
+            REQUIRE(::sendto(sender, &frame, sizeof(frame), 0,
+                             reinterpret_cast<const sockaddr *>(&address),
+                             sizeof(address)) == static_cast<ssize_t>(sizeof(frame)));
+        };
+        send();
+        auto received = require_value(transport.read());
+        // Linux may defer global RX timestamp enablement past the first packet.
+        for (unsigned attempt = 0;
+             mode == SocketCANTimestampMode::kSoftware && !received.timestamp && attempt < 100;
+             ++attempt) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            send();
+            received = require_value(transport.read());
+        }
+        if (mode == SocketCANTimestampMode::kSoftware) {
+            const auto timestamp = require_value(received.timestamp);
+            CHECK(timestamp.source == TimestampSource::kSoftware);
+            CHECK(timestamp.clock == TimestampClock::kSystemRealtime);
+            CHECK(timestamp.value > 0);
+        } else {
+            CHECK_FALSE(received.timestamp);
+        }
+        CHECK(require_value(received.is_rx));
+        (void)::close(sender);
+    }
 }
 
 #endif // defined(__linux__)

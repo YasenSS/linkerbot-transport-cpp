@@ -62,7 +62,12 @@ namespace {
         kPollTimeout,
         kCloseWake,
         kReadCancel,
-        kWriteCancel
+        kWriteCancel,
+        kCanSocket,
+        kCanEchoOption,
+        kCanFdOption,
+        kCanTimestampOption,
+        kCanBindAll
     };
     // Faults are thread-local and armed only around the operation under test.
     // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
@@ -141,7 +146,29 @@ int __wrap___xstat(int version, const char *path, struct stat *info) {
     return take(Fault::kStat) ? -1 : __real___xstat(version, path, info);
 }
 #endif
+int __real_socket(int, int, int);
+int __real_bind(int, const struct sockaddr *, socklen_t);
+int __wrap_socket(int domain, int type, int protocol) {
+    if (domain == PF_CAN && take(Fault::kCanSocket)) {
+        return -1;
+    }
+    return __real_socket(domain, type, protocol);
+}
+int __wrap_bind(int fd, const struct sockaddr *address, socklen_t length) {
+    if (address->sa_family == AF_CAN && take(Fault::kCanBindAll)) {
+        // Exercise constructor success without configuring a physical interface.
+        auto target = *reinterpret_cast<const sockaddr_can *>(address);
+        target.can_ifindex = 0;
+        return __real_bind(fd, reinterpret_cast<const sockaddr *>(&target), sizeof(target));
+    }
+    return __real_bind(fd, address, length);
+}
 int __wrap_setsockopt(int fd, int level, int option, const void *value, socklen_t size) {
+    if ((level == SOL_CAN_RAW && option == CAN_RAW_RECV_OWN_MSGS && take(Fault::kCanEchoOption)) ||
+        (level == SOL_CAN_RAW && option == CAN_RAW_FD_FRAMES && take(Fault::kCanFdOption)) ||
+        (level == SOL_SOCKET && option == SO_TIMESTAMPING && take(Fault::kCanTimestampOption))) {
+        return -1;
+    }
     if (option == SO_SNDTIMEO && take(Fault::kSendTimeout)) {
         return -1;
     }
@@ -189,7 +216,10 @@ int __wrap_ioctl(int fd, unsigned long request, ...) {
     va_list args;
     va_start(args, request);
     int result = -1;
-    if (request == TCFLSH) {
+    if (request == SIOCGIFINDEX) {
+        auto *value = va_arg(args, struct ifreq *);
+        result = __real_ioctl(fd, request, value);
+    } else if (request == TCFLSH) {
         const int value = va_arg(args, int);
         result = take(Fault::kFlush) ? -1 : __real_ioctl(fd, request, value);
     } else if (request == TCGETS2 || request == TCSETS2) {
@@ -507,4 +537,47 @@ TEST_CASE("Linux vendor loader reports unresolved modules and default search fai
         REQUIRE(search_attempt == 3);
     }
 }
+
+TEST_CASE("SocketCAN option failures unwind and defaults retain disabled echo",
+          "[socketcan][syscalls]") {
+    using namespace linkerbot::can;
+    SocketCANOptions options;
+    options.fd_mode = true;
+    options.receive_own_messages = true;
+    options.timestamp_mode = SocketCANTimestampMode::kHardware;
+    for (const auto failure : {Fault::kCanSocket, Fault::kCanEchoOption, Fault::kCanFdOption,
+                               Fault::kCanTimestampOption}) {
+        Arm arm(failure);
+        REQUIRE_THROWS_AS(SocketCANTransport(options, "lo"), TransportIOError);
+    }
+    REQUIRE_THROWS_AS(SocketCANTransport(options, ""), ValidationError);
+    REQUIRE_THROWS_AS(SocketCANTransport(options, "no-can-device"), TransportIOError);
+    REQUIRE_THROWS_AS(SocketCANTransport(options, "lo"), TransportIOError);
+    for (const auto mode : {SocketCANTimestampMode::kSoftware, SocketCANTimestampMode::kHardware}) {
+        options.timestamp_mode = mode;
+        Arm arm(Fault::kCanBindAll);
+        REQUIRE_NOTHROW(SocketCANTransport(options, "lo"));
+    }
+    {
+        Arm arm(Fault::kCanBindAll);
+        REQUIRE_NOTHROW(SocketCANTransport("lo"));
+    }
+    int descriptors[2]{};
+    REQUIRE(::socketpair(AF_UNIX, SOCK_DGRAM, 0, descriptors) == 0);
+    REQUIRE_THROWS_AS(SocketCANTransport(SocketCANTransport::AdoptFd{
+                          descriptors[0], false, {}, SocketCANTimestampMode::kDisabled, true}),
+                      TransportIOError);
+    CHECK(::fcntl(descriptors[0], F_GETFD) == -1);
+    (void)::close(descriptors[1]);
+    REQUIRE(::socketpair(AF_UNIX, SOCK_DGRAM, 0, descriptors) == 0);
+    {
+        Arm arm(Fault::kCanTimestampOption);
+        REQUIRE_THROWS_AS(SocketCANTransport(SocketCANTransport::AdoptFd{
+                              descriptors[0], false, {}, SocketCANTimestampMode::kHardware}),
+                          TransportIOError);
+    }
+    CHECK(::fcntl(descriptors[0], F_GETFD) == -1);
+    (void)::close(descriptors[1]);
+}
+
 #endif

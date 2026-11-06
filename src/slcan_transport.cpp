@@ -95,6 +95,9 @@ namespace linkerbot::can {
         return "COM" + std::to_string(number);
     }
     auto validate_slcan_config(const SlcanConfig &config) -> void {
+        if (config.receive_own_messages) {
+            throw ValidationError("SLCAN firmware profiles do not support receive-own messages");
+        }
         (void)slcan_port_name(config.port);
         const bool canable = config.protocol == SlcanProtocol::kCanableFd;
         if ((!canable && config.protocol != SlcanProtocol::kLawicelClassic) ||
@@ -126,15 +129,12 @@ namespace linkerbot::can {
         if (protocol != SlcanProtocol::kLawicelClassic && protocol != SlcanProtocol::kCanableFd) {
             throw ValidationError("Unknown SLCAN firmware profile");
         }
-        validate_frame_flags(message.is_fd, message.is_brs);
-        validate_arbitration_id(message.id, message.is_extended);
-        validate_payload_length(message.dlc, message.is_fd ? LinkKind::kCanFd : LinkKind::kClassic);
-        if (message.is_fd && protocol != SlcanProtocol::kCanableFd) {
-            throw ValidationError("FD frame requires CANable FD profile");
-        }
+        const auto flags = resolve_tx_flags_with_default(
+            protocol == SlcanProtocol::kCanableFd ? LinkKind::kCanFd : LinkKind::kClassic, message,
+            false);
         char kind = 't';
-        if (message.is_fd) {
-            kind = message.is_brs ? 'b' : 'd';
+        if (flags.is_fd) {
+            kind = flags.is_brs ? 'b' : 'd';
         }
         if (message.is_extended) {
             kind = static_cast<char>(kind - 'a' + 'A');
@@ -144,13 +144,13 @@ namespace linkerbot::can {
         for (int i = digits - 1; i >= 0; --i) {
             result += hex(message.id >> (i * 4));
         }
-        const auto dlc = message.is_fd
+        const auto dlc = flags.is_fd
                              ? static_cast<unsigned>(
                                    std::lower_bound(kLengths.begin(), kLengths.end(), message.dlc) -
                                    kLengths.begin())
                              : message.dlc;
         result += hex(dlc);
-        const auto bytes = message.is_fd ? kLengths[dlc] : message.dlc;
+        const auto bytes = flags.is_fd ? kLengths[dlc] : message.dlc;
         for (size_t i = 0; i < bytes; ++i) {
             const auto value = i < message.dlc ? message.data[i] : uint8_t{0};
             result += hex(value >> 4);
@@ -401,7 +401,7 @@ namespace linkerbot::can {
     }
     auto SlcanTransport::write(const Message &message) -> void {
         auto &s = *state_;
-        if (message.is_fd && !s.config.fd) {
+        if ((message.is_fd || message.format == FrameFormat::kFd) && !s.config.fd) {
             throw ValidationError("FD frame requires fd=true");
         }
         const auto encoded = encode_slcan_frame(message, s.config.protocol);

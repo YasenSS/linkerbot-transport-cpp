@@ -354,6 +354,9 @@ namespace linkerbot::can {
             (!api->initialize_fd || !api->read_fd || !api->write_fd)) {
             throw TransportIOError("PCAN-Basic library is missing CAN_InitializeFD/ReadFD/WriteFD");
         }
+        if (config.receive_own_messages && !api->set_value) {
+            throw ValidationError("PCAN echo reception requires CAN_SetValue");
+        }
         state_->config = config;
         state_->api = api;
         const Key channel_key{api->library_path, config.channel};
@@ -402,6 +405,18 @@ namespace linkerbot::can {
                 }
                 throw PcanTransportError("CAN_Initialize/InitializeFD", status);
             }
+            if (config.receive_own_messages) {
+                uint32_t enable = 1;
+                const auto echo_status =
+                    api->set_value(config.channel, 0x2c, &enable, sizeof(enable));
+                if (echo_status != ok) {
+                    if (api->uninitialize(config.channel) == ok) {
+                        claim->initialized = false;
+                        claims().erase(channel_key);
+                    }
+                    throw PcanTransportError("CAN_SetValue(PCAN_ALLOW_ECHO_FRAMES)", echo_status);
+                }
+            }
             state_->claim = claim;
         } catch (...) {
             if (!claim->initialized) {
@@ -440,16 +455,11 @@ namespace linkerbot::can {
         if (state_->closed.load()) {
             throw ClosedError("PCAN interface is closed");
         }
-        validate_frame_flags(message.is_fd, message.is_brs);
-        validate_arbitration_id(message.id, message.is_extended);
-        validate_payload_length(message.dlc, message.is_fd ? LinkKind::kCanFd : LinkKind::kClassic);
-        if (state_->config.mode == PcanMode::kClassic && message.is_fd) {
-            throw ValidationError("FD frame cannot be sent on PCAN Classic mode");
-        }
-        // PCAN flags are explicit: false/false means a Classic frame even in FD
-        // mode. Hand protocol encoders explicitly tag their FD frames.
+        const auto flags = resolve_tx_flags_with_default(
+            state_->config.mode == PcanMode::kFd ? LinkKind::kCanFd : LinkKind::kClassic, message,
+            false);
         const auto type = static_cast<uint8_t>((message.is_extended ? 2 : 0) |
-                                               (message.is_fd ? 4 : 0) | (message.is_brs ? 8 : 0));
+                                               (flags.is_fd ? 4 : 0) | (flags.is_brs ? 8 : 0));
         if (state_->config.mode == PcanMode::kFd) {
             FdMessage frame{};
             frame.id = message.id;
@@ -484,6 +494,9 @@ namespace linkerbot::can {
                     FdMessage frame{};
                     FdTimestamp timestamp{};
                     status = state_->api->read_fd(state_->config.channel, &frame, &timestamp);
+                    message.timestamp =
+                        ReceiveTimestamp{timestamp, TimestampUnit::kMicroseconds,
+                                         TimestampClock::kDevice, TimestampSource::kDriver, 64};
                     type = frame.type;
                     dlc = frame.dlc;
                     message.id = frame.id;
@@ -492,6 +505,13 @@ namespace linkerbot::can {
                     ClassicMessage frame{};
                     Timestamp timestamp{};
                     status = state_->api->read(state_->config.channel, &frame, &timestamp);
+                    const auto micros =
+                        ((static_cast<uint64_t>(timestamp.overflow) << 32) + timestamp.millis) *
+                            1000 +
+                        timestamp.micros;
+                    message.timestamp =
+                        ReceiveTimestamp{micros, TimestampUnit::kMicroseconds,
+                                         TimestampClock::kDevice, TimestampSource::kDriver, 64};
                     type = frame.type;
                     dlc = frame.length;
                     message.id = frame.id;
@@ -514,7 +534,8 @@ namespace linkerbot::can {
                 throw TransportIOError(
                     "PCAN status/error frame received; inspect driver bus state");
             }
-            if ((type & (1 | 0x20)) == 0) {
+            if ((type & 1) == 0 && ((type & 0x20) == 0 || state_->config.receive_own_messages)) {
+                message.is_rx = (type & 0x20) == 0;
                 message.is_extended = (type & 2) != 0;
                 message.is_fd = (type & 4) != 0;
                 message.is_brs = (type & 8) != 0;

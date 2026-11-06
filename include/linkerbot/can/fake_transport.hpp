@@ -55,19 +55,18 @@ namespace linkerbot::can {
                 throw ValidationError("fake echo reply payload exceeds 64 bytes");
             }
             on_request(id, [id, cmd, n, fill](const Message &req) -> std::vector<Message> {
-                validate_frame_flags(req.is_fd, req.is_brs);
-                validate_payload_length(req.dlc, req.is_fd ? LinkKind::kCanFd : LinkKind::kClassic);
+                const auto flags = resolve_tx_flags_with_default(LinkKind::kCanFd, req, false);
                 if (req.dlc < 1 || req.data[0] != cmd) {
                     return {};
                 }
-                if (!req.is_fd && 1 + n > 8) {
+                if (!flags.is_fd && 1 + n > 8) {
                     throw ValidationError("fake echo reply exceeds classic CAN payload length");
                 }
                 Message reply;
                 reply.id = id;
                 reply.is_extended = req.is_extended;
-                reply.is_fd = req.is_fd;
-                reply.is_brs = req.is_brs;
+                reply.is_fd = flags.is_fd;
+                reply.is_brs = flags.is_brs;
                 reply.data[0] = cmd;
                 if (req.dlc > 1) {
                     const size_t copy_n = std::min<size_t>(req.dlc - 1, n);

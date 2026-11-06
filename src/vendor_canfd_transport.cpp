@@ -413,6 +413,9 @@ namespace linkerbot::can {
             if (config.channel_index != 0)
                 throw ValidationError("Windows MiniCANFD channel_index must be 0");
 #endif
+            if (config.receive_own_messages) {
+                throw ValidationError("Vendor receive-own messages is unsupported by this ABI");
+            }
             return load_vendor_canfd_api(config.library_path);
         }
     } // namespace
@@ -425,6 +428,9 @@ namespace linkerbot::can {
     VendorCanFdTransport::VendorCanFdTransport(Config config, std::shared_ptr<VendorCanFdApi> api)
         : config_(std::move(config)), api_(std::move(api)), tx_batch_(kVendorCanFdMaxTransmitBatch),
           rx_buffer_(kVendorCanFdDefaultMaxReceiveFrames) {
+        if (config_.receive_own_messages) {
+            throw ValidationError("Vendor receive-own messages is unsupported by this ABI");
+        }
         if (config_.send_timeout_ms < 0 || config_.receive_timeout_ms < 0) {
             throw ValidationError("vendor CAN FD timeouts must be non-negative");
         }
@@ -570,6 +576,8 @@ namespace linkerbot::can {
         const auto flags = decode_frame_type(frame.FrameType);
         msg.is_fd = flags.is_fd;
         msg.is_brs = flags.is_brs;
+        msg.timestamp = ReceiveTimestamp{frame.TimeStamp, TimestampUnit::kRawTicks,
+                                         TimestampClock::kVendorRaw, TimestampSource::kDriver, 32};
         validate_arbitration_id(msg.id, msg.is_extended);
         msg.dlc = vendor_dlc_to_length(frame.DLC);
         validate_payload_length(msg.dlc, msg.is_fd ? LinkKind::kCanFd : LinkKind::kClassic);

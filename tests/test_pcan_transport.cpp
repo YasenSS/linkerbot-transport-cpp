@@ -589,3 +589,59 @@ TEST_CASE("PCAN explicit deferred cleanup reports the saved native failure", "[p
     REQUIRE_NOTHROW(retry_pcan_cleanup(fixture.api));
     REQUIRE(pending_pcan_cleanup(fixture.api) == 0);
 }
+
+TEST_CASE("PCAN preserves complete driver timestamps without epoch conversion", "[pcan]") {
+    Fixture fixture;
+    for (auto mode : {PcanMode::kClassic, PcanMode::kFd}) {
+        PcanTransport transport(fixture.config(mode), fixture.api);
+        Message message;
+        message.id = 0x123;
+        transport.write(message);
+        const auto received = require_value(transport.read());
+        const auto timestamp = require_value(received.timestamp);
+        CHECK(timestamp.unit == TimestampUnit::kMicroseconds);
+        CHECK(timestamp.clock == TimestampClock::kDevice);
+        CHECK(timestamp.source == TimestampSource::kDriver);
+        CHECK(timestamp.value == (mode == PcanMode::kFd ? 0x123456789abcdef0ULL
+                                                        : ((uint64_t{2} << 32) + 1) * 1000 + 3));
+        CHECK(require_value(received.is_rx));
+        CHECK(received.format == FrameFormat::kUnspecified);
+    }
+}
+
+TEST_CASE("PCAN echo reception is opt-in and failed setup releases the channel", "[pcan]") {
+    Fixture fixture;
+    auto config = fixture.config(PcanMode::kFd);
+    config.receive_own_messages = true;
+    SECTION("echo frames retain payload and driver timestamp") {
+        PcanTransport transport(config, fixture.api);
+        CHECK(fixture.get(26) == 1);
+        for (auto format : {FrameFormat::kClassic, FrameFormat::kFd}) {
+            Message message;
+            message.id = 0x123;
+            message.format = format;
+            message.data[0] = 0x5a;
+            message.dlc = 1;
+            transport.write(message);
+            const auto received = require_value(transport.read());
+            CHECK_FALSE(require_value(received.is_rx));
+            CHECK(received.is_fd == (format == FrameFormat::kFd));
+            CHECK(received.data[0] == 0x5a);
+            CHECK(require_value(received.timestamp).value == 0x123456789abcdef0ULL);
+        }
+    }
+    SECTION("missing optional API fails before initialization") {
+        fixture.api->set_value = {};
+        REQUIRE_THROWS_AS(PcanTransport(config, fixture.api), ValidationError);
+        CHECK(fixture.get(1) == 0);
+        config.receive_own_messages = false;
+        REQUIRE_NOTHROW(PcanTransport(config, fixture.api));
+    }
+    SECTION("driver rejection is reported and initialization is rolled back") {
+        fixture.set(27, 0x4000);
+        REQUIRE_THROWS_AS(PcanTransport(config, fixture.api), PcanTransportError);
+        CHECK(fixture.get(2) == 1);
+        fixture.set(27, 0);
+        REQUIRE_NOTHROW(PcanTransport(config, fixture.api));
+    }
+}

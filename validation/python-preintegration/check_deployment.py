@@ -118,18 +118,35 @@ def verdict(manifest, root):
                     for field in ("model", "serial", "firmware", "wire_identity")
                 ):
                     errors.append(prefix + "each device needs model/serial/firmware/wire_identity")
-        timestamp = channel.get("requires_hardware_timestamp")
-        if not isinstance(timestamp, bool):
-            errors.append(prefix + "hardware timestamp dependency must be explicit")
-        elif timestamp and not CONTRACTS["hardware_timestamp_supported"]:
-            errors.append(prefix + "native Message does not preserve backend hardware timestamps")
-        for feature, capability in (("requires_explicit_classic_on_fd", "explicit_classic_on_fd_supported"),
-                                    ("requires_receive_own_messages", "receive_own_messages_option_supported")):
-            required = channel.get(feature)
+        feature_checks = set()
+        for dependency, capability in (
+            ("requires_hardware_timestamp", "hardware_timestamp"),
+            ("requires_explicit_classic_on_fd", "explicit_classic_on_fd"),
+            ("requires_receive_own_messages", "receive_own_messages"),
+        ):
+            required = channel.get(dependency)
             if not isinstance(required, bool):
-                errors.append(prefix + feature + " must be explicit")
-            elif required and not CONTRACTS[capability]:
-                errors.append(prefix + feature + " has no native compatibility contract")
+                errors.append(prefix + dependency + " must be explicit")
+            elif required:
+                feature_checks.add(capability)
+                if not contract["capabilities"][capability]:
+                    errors.append(prefix + dependency + " is unsupported by this backend")
+                if capability == "hardware_timestamp" and backend == "socketcan" and (
+                    not isinstance(options, dict) or options.get("timestamp_mode") != "hardware"
+                ):
+                    errors.append(prefix + "hardware timestamp mode must be enabled")
+                if capability == "receive_own_messages" and (
+                    not isinstance(options, dict) or options.get("receive_own_messages") is not True
+                ):
+                    errors.append(prefix + "receive-own messages must be enabled")
+                if capability == "explicit_classic_on_fd" and backend == "socketcan" and (
+                    not isinstance(options, dict) or options.get("fd_mode") is not True
+                ):
+                    errors.append(prefix + "explicit classic-on-FD requires an FD channel")
+        if isinstance(options, dict) and options.get("receive_own_messages") is True and not (
+            contract["capabilities"]["receive_own_messages"]
+        ):
+            errors.append(prefix + "receive-own opt-in is unsupported by this backend")
         evidence = channel.get("evidence", {})
         try:
             relative = pathlib.Path(evidence["path"])
@@ -150,7 +167,7 @@ def verdict(manifest, root):
                 raise ValueError("Python baseline revision mismatch")
             if record.get("configuration_sha256") != configuration_digest(platform, channel):
                 raise ValueError("resolved platform/topology/options differ from the evidence")
-            if not CHECKS.issubset(set(record.get("checks", []))):
+            if not (CHECKS | feature_checks).issubset(set(record.get("checks", []))):
                 raise ValueError("required hardware/lifecycle checks are incomplete")
         except (KeyError, OSError, ValueError, TypeError) as error:
             errors.append(prefix + "hardware evidence: " + str(error))

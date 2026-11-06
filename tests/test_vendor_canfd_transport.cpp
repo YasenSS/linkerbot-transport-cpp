@@ -1182,3 +1182,51 @@ TEST_CASE("vendor legacy module ownership unloads once after the last release", 
     life::release(api->lifecycle_key);
     REQUIRE(unloads == 1);
 }
+
+TEST_CASE("Vendor preserves raw timestamp counters and explicit classic frames", "[vendor]") {
+    LifecycleGuard guard;
+    FakeLib lib;
+    auto api = make_api(lib);
+    VendorCanFdTransport transport({}, api);
+    for (const uint32_t stamp : {uint32_t{0}, uint32_t{0xffffffff}, uint32_t{1}}) {
+        CanFDMsg raw{};
+        raw.ID = 0x123;
+        raw.TimeStamp = stamp;
+        lib.rx_frames = {raw};
+        auto received = require_value(transport.read());
+        const auto timestamp = require_value(received.timestamp);
+        CHECK(timestamp.value == stamp);
+        CHECK(timestamp.counter_bits == 32);
+        CHECK(timestamp.unit == linkerbot::can::TimestampUnit::kRawTicks);
+        CHECK(timestamp.clock == linkerbot::can::TimestampClock::kVendorRaw);
+        CHECK_FALSE(received.is_fd);
+        received.format = linkerbot::can::FrameFormat::kClassic;
+        transport.write(received);
+        CHECK(lib.last_tx.FrameType == 0);
+        CHECK(lib.last_tx.TimeStamp == 0);
+    }
+    Message classic;
+    classic.format = linkerbot::can::FrameFormat::kClassic;
+    Message invalid = classic;
+    invalid.dlc = 9;
+    const auto calls = lib.transmit_calls.load();
+    REQUIRE_THROWS_AS(transport.write_batch({classic, invalid}), linkerbot::can::ValidationError);
+    CHECK(lib.transmit_calls.load() == calls);
+    transport.write_batch({classic, Message{}});
+    REQUIRE(lib.last_batch.size() == 2);
+    CHECK(lib.last_batch[0].FrameType == 0);
+    CHECK(lib.last_batch[1].FrameType == kFrameTypeFd);
+}
+
+TEST_CASE("Vendor echo opt-in is rejected before library loading or device setup", "[vendor]") {
+    LifecycleGuard guard;
+    FakeLib lib;
+    auto api = make_api(lib);
+    VendorCanFdTransport::Config config;
+    config.library_path = "/nonexistent/vendor-library";
+    config.receive_own_messages = true;
+    REQUIRE_THROWS_AS(VendorCanFdTransport(config), linkerbot::can::ValidationError);
+    REQUIRE_THROWS_AS(VendorCanFdTransport(config, api), linkerbot::can::ValidationError);
+    CHECK(lib.init_calls.load() == 0);
+    CHECK(lib.open_calls.load() == 0);
+}

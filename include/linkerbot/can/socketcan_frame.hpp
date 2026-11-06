@@ -7,10 +7,52 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <ctime>
+#include <limits>
+#include <sys/socket.h>
 
 #include <linux/can.h>
 
 namespace linkerbot::can {
+
+    // Decode only kernel-provided metadata. Never substitute a host read time.
+    [[nodiscard]] inline auto
+    decode_socketcan_timestamp(struct msghdr header) -> std::optional<ReceiveTimestamp> {
+        if ((header.msg_flags & MSG_CTRUNC) != 0) {
+            return std::nullopt;
+        }
+        for (auto *control = CMSG_FIRSTHDR(&header); control != nullptr;
+             control = CMSG_NXTHDR(&header, control)) {
+            const auto offset =
+                static_cast<size_t>(reinterpret_cast<const unsigned char *>(control) -
+                                    static_cast<const unsigned char *>(header.msg_control));
+            if (control->cmsg_len > header.msg_controllen - offset) {
+                return std::nullopt;
+            }
+            if (control->cmsg_level != SOL_SOCKET || control->cmsg_type != SO_TIMESTAMPING ||
+                control->cmsg_len < CMSG_LEN(sizeof(timespec) * 3)) {
+                continue;
+            }
+            std::array<timespec, 3> stamps{};
+            std::memcpy(stamps.data(), CMSG_DATA(control), sizeof(stamps));
+            const bool hardware = stamps[2].tv_sec != 0 || stamps[2].tv_nsec != 0;
+            const auto &stamp = stamps[hardware ? 2 : 0];
+            if (stamp.tv_sec < 0 || stamp.tv_nsec < 0 || stamp.tv_nsec >= 1'000'000'000 ||
+                (stamp.tv_sec == 0 && stamp.tv_nsec == 0)) {
+                return std::nullopt;
+            }
+            const auto seconds = static_cast<uint64_t>(stamp.tv_sec);
+            const auto nanos = static_cast<uint64_t>(stamp.tv_nsec);
+            if (seconds > (std::numeric_limits<uint64_t>::max() - nanos) / 1'000'000'000) {
+                return std::nullopt;
+            }
+            return ReceiveTimestamp{
+                seconds * 1'000'000'000 + nanos, TimestampUnit::kNanoseconds,
+                hardware ? TimestampClock::kDevice : TimestampClock::kSystemRealtime,
+                hardware ? TimestampSource::kHardware : TimestampSource::kSoftware, 64};
+        }
+        return std::nullopt;
+    }
 
     struct SocketCANTxFrame {
         bool is_fd = false;

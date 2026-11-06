@@ -143,3 +143,30 @@ TEST_CASE("Session closed without routes still notifies a surviving bridge", "[s
     REQUIRE(signal->wait_until(before, transport::Clock::now()));
     REQUIRE_THROWS_AS(rig.session->configure({}), can::ValidationError);
 }
+
+TEST_CASE("Session rejects invalid explicit formats before replacing a latest task", "[session]") {
+    EdgeRig rig;
+    rig.fake->arm_tx_gate();
+    auto active = rig.session->submit(edge_batch());
+    REQUIRE(rig.fake->wait_until_tx_entered(2s));
+    auto options = edge_endpoint("arm");
+    options.policy = transport::SendPolicy::latest;
+    options.family = "target";
+    auto old = rig.session->submit(edge_batch(2), options);
+    const auto before = rig.session->health();
+    for (const auto format : {can::FrameFormat::kClassic, static_cast<can::FrameFormat>(-1)}) {
+        auto batch = edge_batch(3);
+        batch.frames[0].format = format;
+        batch.frames[0].dlc = 9;
+        REQUIRE_THROWS_AS(rig.session->submit(batch, options), can::ValidationError);
+        CHECK(rig.session->health().accepted == before.accepted);
+        CHECK(rig.session->health().pending_tx == before.pending_tx);
+        CHECK_FALSE(old.completed());
+    }
+    rig.fake->release_tx_gate();
+    active.wait();
+    old.wait();
+    const auto sent = rig.fake->sent();
+    REQUIRE(sent.size() == 2);
+    CHECK(sent[1].id == 2);
+}
