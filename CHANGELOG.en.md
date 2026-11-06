@@ -4,6 +4,8 @@ English · [简体中文](CHANGELOG.md)
 
 ## Unreleased
 
+- Reject unsupported FIFO capacity units, send policies and deadline policies with `ValidationError` before configuration changes or send admission. Preserve valid defaults and existing signatures; add configuration, queued-latest, device/owned-operation and installed-consumer regressions.
+
 - Honor explicit whole-Session pending-age checks on device submissions. Add `PendingAgeScope::kDefault` to retain endpoint-local device defaults and whole-Session legacy defaults without changing existing enum values or signatures. Add scope, owned-operation, replacement, cooldown and installed-consumer regressions.
 
 - Add shared runtime channel ownership, device rebind and coordinated recovery, owned-operation close permits, per-device pacing and failure limits, masked routes and bounded discovery observation. Keep legacy C++ defaults and use the existing Session writer. Add lifecycle, allocation rollback and installed-consumer regression coverage.

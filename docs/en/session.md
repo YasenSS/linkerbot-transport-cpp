@@ -234,6 +234,11 @@ public exception contract.
 
 ## Admission, deadline and endpoint drain
 
+Unsupported `SessionOptions::fifo_unit`, `SendOptions::policy` and
+`SendOptions::deadline_policy` values throw `ValidationError` before configuration assignment
+or send admission. Rejection leaves existing configuration and queued latest work intact.
+Supported enumerators and default behavior are unchanged.
+
 `SendOptions.expected_generation`, when present, is checked under the admission lock. A stale
 value throws `ClosedError` without returning a receipt. This prevents an old device actor from
 submitting into a newly recovered connection. It does not verify device identity.
