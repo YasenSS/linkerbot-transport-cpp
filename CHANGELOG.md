@@ -4,6 +4,8 @@
 
 ## 未发布
 
+- 补齐 Runtime 共享连接、设备 rebind 与协调恢复、已登记操作收尾、设备节拍与错误阈值、掩码路由及有界发现观察；复用 Session writer，保留旧 C++ 默认行为，增加生命周期、分配失败回滚及安装消费者回归。
+
 - 新增逻辑设备句柄，拥有独立 inbox、绑定 generation 的发送入口及可重试排空，复用原 Session writer；新增共享准入额度域及可选 endpoint 局部队龄检查，保留旧默认行为。
 
 - 为 SDK 绑定新增可选 Session 调度：FIFO 容量计量与独立 latest 限制、同 endpoint FIFO 和公平选择、generation/年龄准入、开始前 deadline、原生逐帧周期及连续发送失败阈值。保留原有签名和默认值。

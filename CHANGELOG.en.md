@@ -4,6 +4,8 @@ English · [简体中文](CHANGELOG.md)
 
 ## Unreleased
 
+- Add shared runtime channel ownership, device rebind and coordinated recovery, owned-operation close permits, per-device pacing and failure limits, masked routes and bounded discovery observation. Keep legacy C++ defaults and use the existing Session writer. Add lifecycle, allocation rollback and installed-consumer regression coverage.
+
 - Add logical device handles with owned inboxes, generation-bound submission and retryable endpoint drain on the existing Session writer. Add shared admission domains and opt-in endpoint-local age checks; preserve legacy defaults.
 
 - Add opt-in Session scheduling for SDK bindings: weighted FIFO and separate latest capacity, endpoint FIFO/fair selection, generation/age admission, start-only deadlines, native per-frame pacing and a consecutive-send-failure threshold. Preserve existing signatures and defaults.

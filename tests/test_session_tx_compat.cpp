@@ -62,6 +62,67 @@ namespace {
     }
 } // namespace
 
+TEST_CASE("Device pacing delays only its next batch and cancellation ends final cooldown",
+          "[session]") {
+    TxRig rig;
+    transport::DeviceOptions profile;
+    profile.send_period = 40ms;
+    auto device = rig.session->attach_device("paced", profile);
+    auto first = device->submit(batch(1));
+    auto second = device->submit(batch(1));
+    REQUIRE_THROWS_AS(second.wait_result_until(transport::Clock::now() + 5ms), can::TimeoutError);
+    first.wait();
+    second.wait();
+    REQUIRE(rig.fake->sent().size() == 2);
+}
+
+TEST_CASE("Dispatch-start deadlines record claim and stop applying after dispatch entry",
+          "[session]") {
+    TxRig rig;
+    auto blocker = rig.block_writer();
+    auto options = endpoint("expired");
+    options.deadline_policy = transport::DeadlinePolicy::kDispatchStart;
+    options.deadline = transport::Clock::now() + 5ms;
+    auto expired = rig.session->submit(batch(1), options);
+    std::this_thread::sleep_for(10ms);
+    rig.fake->release_tx_gate();
+    blocker.wait();
+    auto result = expired.wait_result_until(transport::Clock::now() + 2s);
+    REQUIRE(result.outcome == transport::SendOutcome::expired);
+    REQUIRE(result.claimed_order != 0);
+    REQUIRE(result.sent_frames == 0);
+    options.deadline = transport::Clock::now() + 5ms;
+    auto delayed = batch(2);
+    delayed.initial_delay = 10ms;
+    auto accepted = rig.session->submit(delayed, options);
+    accepted.wait();
+    REQUIRE(accepted.result().sent_frames == 2);
+}
+
+TEST_CASE("Owned operation moves retain registration and reject foreign-thread submission",
+          "[session]") {
+    TxRig rig;
+    auto device = rig.session->attach_device("owned");
+    transport::DeviceOperation empty;
+    REQUIRE_THROWS_AS(empty.submit(batch(1)), can::ValidationError);
+    auto operation = device->begin_operation();
+    auto moved = std::move(operation);
+    // A moved-from operation is specified to be empty and reject submission.
+    // NOLINTNEXTLINE(bugprone-use-after-move)
+    REQUIRE_THROWS_AS(operation.submit(batch(1)), can::ValidationError);
+    auto foreign = std::async(std::launch::async, [&] {
+        REQUIRE_THROWS_AS(moved.submit(batch(1)), can::ValidationError);
+    });
+    foreign.get();
+    empty = std::move(moved);
+    empty.submit(batch(1)).wait();
+    REQUIRE(device->health().owned_operations == 1);
+    REQUIRE_THROWS_AS(device->close_until(transport::Clock::now()), can::ValidationError);
+    empty = transport::DeviceOperation{};
+    REQUIRE(device->health().owned_operations == 0);
+    device->close_until(transport::Deadline::max());
+}
+
 TEST_CASE("Session SDK capacity atomically admits frame groups separately from latest slots",
           "[session]") {
     TxRig rig;
@@ -304,12 +365,14 @@ TEST_CASE("Session global capacity still limits independent admission domains", 
 }
 
 TEST_CASE("Admission domains validate immutable limits", "[session]") {
+    // Model an enum received from a runtime configuration boundary.
+    volatile int invalid_enum = 99;
     REQUIRE_THROWS_AS(transport::AdmissionDomain(transport::AdmissionLimits{0, 1}),
                       can::ValidationError);
     REQUIRE_THROWS_AS(transport::AdmissionDomain(transport::AdmissionLimits{1, 0}),
                       can::ValidationError);
     REQUIRE_THROWS_AS(transport::AdmissionDomain(transport::AdmissionLimits{
-                          1, 1, static_cast<transport::CapacityUnit>(99)}),
+                          1, 1, static_cast<transport::CapacityUnit>(invalid_enum)}),
                       can::ValidationError);
     const transport::AdmissionDomain domain({7, 2, transport::CapacityUnit::kFrames});
     REQUIRE(domain.limits().fifo_capacity == 7);
@@ -317,7 +380,7 @@ TEST_CASE("Admission domains validate immutable limits", "[session]") {
     REQUIRE(domain.limits().fifo_unit == transport::CapacityUnit::kFrames);
     TxRig rig;
     auto invalid = endpoint("arm");
-    invalid.pending_age_scope = static_cast<transport::PendingAgeScope>(99);
+    invalid.pending_age_scope = static_cast<transport::PendingAgeScope>(invalid_enum);
     REQUIRE_THROWS_AS(rig.session->submit(batch(1), invalid), can::ValidationError);
 }
 
@@ -436,6 +499,224 @@ TEST_CASE("Concurrent device close observes its own waiting deadline", "[session
     closer.get();
     active.wait();
     REQUIRE(device->closed());
+}
+
+TEST_CASE("Owned device work completes restoration after public close begins", "[session]") {
+    TxRig rig;
+    auto device = rig.session->attach_device("arm");
+    auto peer = rig.session->attach_device("hand");
+    auto operation = device->begin_operation();
+    auto nested = device->begin_operation();
+    REQUIRE(device->health().owned_operations == 2);
+    REQUIRE_THROWS_AS(device->close_until(transport::Clock::now()), can::ValidationError);
+    auto timed = std::async(std::launch::async, [&] {
+        REQUIRE_THROWS_AS(device->close_until(transport::Clock::now()), can::TimeoutError);
+    });
+    timed.get();
+    REQUIRE_FALSE(device->health().accepting);
+    REQUIRE_THROWS_AS(device->begin_operation(), can::ClosedError);
+    REQUIRE_THROWS_AS(device->submit(batch(1)), can::ClosedError);
+    operation.submit(batch(1)).wait();
+    nested.submit(batch(1)).wait();
+    peer->submit(batch(1)).wait();
+    auto foreign = std::async(std::launch::async, [&] {
+        REQUIRE_THROWS_AS(operation.submit(batch(1)), can::ValidationError);
+    });
+    foreign.get();
+    nested = {};
+    operation = {};
+    REQUIRE(device->health().owned_operations == 0);
+    auto signal = device->notification();
+    const auto revision = signal->revision();
+    device->close_until(transport::Deadline::max());
+    REQUIRE(signal->wait_until(revision, transport::Clock::now()));
+    REQUIRE(device->health().closed);
+    transport::DeviceOperation empty;
+    REQUIRE_THROWS_AS(empty.submit(batch(1)), can::ValidationError);
+}
+
+TEST_CASE("Device final cooldown releases the writer and remains drain owned", "[session]") {
+    TxRig rig;
+    transport::DeviceOptions options;
+    options.send_period = 200ms;
+    auto arm = rig.session->attach_device("arm", options);
+    auto hand = rig.session->attach_device("hand");
+    auto sent = arm->submit(batch(1));
+    const auto signal = arm->notification();
+    const auto deadline = transport::Clock::now() + 2s;
+    while (sent.result().sent_frames == 0) {
+        const auto revision = signal->revision();
+        if (sent.result().sent_frames != 0) {
+            break;
+        }
+        REQUIRE(signal->wait_until(revision, deadline));
+    }
+    REQUIRE_FALSE(sent.completed());
+    REQUIRE(sent.result().dispatch_completed_frames == 0);
+    (void)hand->submit(batch(1)).wait_until(transport::Clock::now() + 100ms);
+    REQUIRE(rig.session->health().in_flight_frames == 1);
+    REQUIRE(arm->health().oldest_pending.has_value());
+    REQUIRE(arm->health().in_flight == 1);
+    REQUIRE_FALSE(sent.completed());
+    arm->close_until(transport::Clock::now() + 1s);
+    REQUIRE(sent.completed());
+    REQUIRE(sent.result().outcome == transport::SendOutcome::dispatched);
+    REQUIRE(sent.result().dispatch_completed_frames == 1);
+    REQUIRE(rig.session->health().open);
+}
+
+TEST_CASE("Device pacing applies inside batches without native merge", "[session]") {
+    TxRig rig;
+    rig.fake->set_prefer_batch(true);
+    transport::DeviceOptions options;
+    options.send_period = 5ms;
+    auto arm = rig.session->attach_device("arm", options);
+    auto receipt = arm->submit(batch(3));
+    const auto result = receipt.wait_until(transport::Clock::now() + 2s);
+    REQUIRE(result.completed_at.has_value());
+    REQUIRE(result.claimed_at.has_value());
+    REQUIRE(test_support::require_value(result.completed_at) -
+                test_support::require_value(result.claimed_at) >=
+            15ms);
+    REQUIRE(result.dispatch_completed_frames == 3);
+    REQUIRE(rig.fake->batch_writes().empty());
+    REQUIRE(rig.fake->sent().size() == 3);
+}
+
+TEST_CASE("Device send failure thresholds do not reset or fault peers", "[session]") {
+    TxRig rig;
+    transport::DeviceOptions options;
+    options.max_consecutive_send_errors = 2;
+    auto arm = rig.session->attach_device("arm", options);
+    auto peer = rig.session->attach_device("hand");
+    auto inbox = arm->subscribe_routes({{0x28, false}});
+    auto peer_inbox = peer->subscribe_routes({{0x29, false}});
+    rig.fake->on_request(0x28, [](const can::Message &) -> std::vector<can::Message> {
+        throw can::TransportIOError("scripted arm failure");
+    });
+    REQUIRE_THROWS_AS(arm->submit(batch(1)).wait(), can::TransportIOError);
+    peer->submit(with_id(batch(1), 0x29)).wait();
+    REQUIRE(arm->health().consecutive_send_errors == 1);
+    REQUIRE_THROWS_AS(arm->submit(batch(1)).wait(), can::TransportIOError);
+    REQUIRE(arm->health().faulted);
+    REQUIRE_FALSE(arm->health().accepting);
+    REQUIRE_THROWS_AS(arm->submit(batch(1)), can::FaultedError);
+    REQUIRE_THROWS_AS(arm->begin_operation(), can::FaultedError);
+    REQUIRE_THROWS_AS(arm->subscribe_routes({{0x30, false}}), can::FaultedError);
+    REQUIRE_THROWS_AS(arm->subscribe_rules({{0x30, 0x7ff, false}}), can::FaultedError);
+    REQUIRE_THROWS_AS(inbox->try_receive(), can::FaultedError);
+    REQUIRE_FALSE(peer_inbox->health().closed);
+    peer->submit(with_id(batch(1), 0x29)).wait();
+    REQUIRE(rig.session->health().open);
+}
+
+TEST_CASE("Device failure atomically fails queued work and masked inboxes", "[session]") {
+    TxRig rig;
+    transport::DeviceOptions profile;
+    profile.max_consecutive_send_errors = 1;
+    auto device = rig.session->attach_device("faulted", profile);
+    auto inbox = device->subscribe_rules({{0x28, 0x7ff, false}});
+    auto tap = device->observe_rules({{0x20, 0x7f0, false}}, 1);
+    rig.fake->on_request(0x28, [](const can::Message &) -> std::vector<can::Message> {
+        throw can::TransportIOError("injected write failure");
+    });
+    rig.fake->arm_tx_gate();
+    auto active = device->submit(batch(1));
+    REQUIRE(rig.fake->wait_until_tx_entered(2s));
+    auto queued = device->submit(batch(1));
+    rig.fake->release_tx_gate();
+    REQUIRE_THROWS_AS(active.wait(), can::TransportIOError);
+    REQUIRE_THROWS_AS(queued.wait(), can::FaultedError);
+    REQUIRE_THROWS_AS(inbox->try_receive(), can::FaultedError);
+    REQUIRE_THROWS_AS(tap->try_receive(), can::FaultedError);
+    REQUIRE_THROWS_AS(device->observe_rules({{0, 0, false}}, 1), can::FaultedError);
+    REQUIRE(rig.session->health().pending_tx == 0);
+}
+
+TEST_CASE("Domain age and device diagnostics include native owned work", "[session]") {
+    TxRig rig;
+    auto config = rig.session->options();
+    config.max_batch_frames = 2;
+    rig.session->configure(config);
+    auto domain = std::make_shared<transport::AdmissionDomain>(transport::AdmissionLimits{});
+    transport::DeviceOptions profile;
+    profile.admission_domain = domain;
+    auto first = rig.session->attach_device("first", profile);
+    auto second = rig.session->attach_device("second", profile);
+    REQUIRE_THROWS_AS(first->submit(batch(3)), can::ValidationError);
+    rig.fake->arm_tx_gate();
+    auto active = first->submit(batch(1));
+    REQUIRE(rig.fake->wait_until_tx_entered(2s));
+    auto queued = first->submit(batch(2));
+    auto fresh = latest("ignored");
+    auto replaceable = first->submit(batch(1), fresh);
+    const auto health = first->health();
+    REQUIRE(health.pending_fifo == 2);
+    REQUIRE(health.pending_latest == 1);
+    REQUIRE(health.in_flight == 1);
+    REQUIRE(health.oldest_pending.has_value());
+    std::this_thread::sleep_for(2ms);
+    transport::SendOptions aged;
+    aged.pending_age_scope = transport::PendingAgeScope::kAdmissionDomain;
+    aged.max_pending_age = 1ms;
+    REQUIRE_THROWS_AS(second->submit(batch(1), aged), can::TimeoutError);
+    rig.fake->release_tx_gate();
+    active.wait();
+    queued.wait();
+    replaceable.wait();
+    REQUIRE_FALSE(first->health().oldest_pending.has_value());
+    REQUIRE(first->health().in_flight == 0);
+}
+
+TEST_CASE("Device profile validation preserves the legacy pacing boundary", "[session]") {
+    TxRig rig;
+    transport::DeviceOptions invalid;
+    invalid.send_period = -1us;
+    REQUIRE_THROWS_AS(rig.session->attach_device("bad", invalid), can::ValidationError);
+    auto config = rig.session->options();
+    config.send_period = 1us;
+    rig.session->configure(config);
+    invalid.send_period = 1us;
+    REQUIRE_THROWS_AS(rig.session->attach_device("conflict", invalid), can::ValidationError);
+    transport::SendOptions age;
+    age.pending_age_scope = transport::PendingAgeScope::kAdmissionDomain;
+    REQUIRE_THROWS_AS(rig.session->submit(batch(1), age), can::ValidationError);
+}
+
+TEST_CASE("Admission domains receive turns independently of their priorities", "[session]") {
+    TxRig rig;
+    transport::SessionOptions config;
+    config.domain_round_robin = true;
+    rig.session->configure(config);
+    transport::DeviceOptions left_config;
+    left_config.admission_domain =
+        std::make_shared<transport::AdmissionDomain>(transport::AdmissionLimits{});
+    transport::DeviceOptions right_config;
+    right_config.admission_domain =
+        std::make_shared<transport::AdmissionDomain>(transport::AdmissionLimits{});
+    auto left = rig.session->attach_device("left", left_config);
+    auto right = rig.session->attach_device("right", right_config);
+    rig.fake->arm_tx_gate();
+    auto blocked = left->submit(with_id(batch(1), 1));
+    REQUIRE(rig.fake->wait_until_tx_entered(2s));
+    auto high = endpoint("ignored");
+    high.priority = 100;
+    auto a = left->submit(batch(1), high);
+    auto b = left->submit(batch(1), high);
+    auto c = right->submit(with_id(batch(1), 0x29));
+    auto d = right->submit(with_id(batch(1), 0x29));
+    rig.fake->release_tx_gate();
+    blocked.wait();
+    a.wait();
+    b.wait();
+    c.wait();
+    d.wait();
+    const auto frames = rig.fake->sent();
+    REQUIRE(frames.size() == 5);
+    REQUIRE(frames[1].id == 0x29);
+    REQUIRE(frames[2].id == 0x28);
+    REQUIRE(frames[3].id == 0x29);
+    REQUIRE(frames[4].id == 0x28);
 }
 
 TEST_CASE("Session optional endpoint FIFO prevents priority from overtaking an earlier request",

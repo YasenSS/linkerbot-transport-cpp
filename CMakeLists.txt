@@ -68,6 +68,7 @@ add_library(linkerbot-can STATIC
     src/vendor_canfd_transport.cpp
     src/vendor_canfd_loader.cpp
     src/session.cpp
+    src/runtime.cpp
     src/pcan_transport.cpp
     src/pcan_loader.cpp
     src/slcan_transport.cpp
@@ -153,6 +154,7 @@ if(LINKERBOT_TRANSPORT_BUILD_TESTS)
         tests/test_session.cpp
         tests/test_session_receive_compat.cpp
         tests/test_session_tx_compat.cpp
+        tests/test_transport_runtime.cpp
         tests/test_session_tx_edges.cpp
         tests/test_session_physical_compat.cpp
         tests/test_session_review.cpp

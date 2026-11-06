@@ -19,11 +19,40 @@ namespace linkerbot::transport {
         std::shared_ptr<Session> session;
         std::string endpoint;
         uint64_t generation = 0;
+        uint64_t channel_instance = 0;
         mutable std::mutex gate;
-        std::timed_mutex closer;
+        std::mutex closer;
+        std::condition_variable close_changed;
+        bool close_active = false;
         bool closing = false;
         std::atomic<bool> closed{true};
         std::vector<std::shared_ptr<RouteInbox>> inboxes;
+        std::condition_variable work_changed;
+        std::map<std::thread::id, size_t> operations;
+        std::shared_ptr<ChangeSignal> signal;
+        DeviceOptions options;
+        std::atomic<bool> faulted{false};
+        std::atomic<uint32_t> consecutive_send_errors{0};
+        Deadline next_eligible{};
+        std::function<void()> channel_release;
+    };
+
+    struct DeviceOperation::State {
+        std::shared_ptr<DeviceSession> device;
+        std::thread::id thread;
+        bool active = false;
+        ~State() {
+            if (active) {
+                auto &registration = *device->state_;
+                std::lock_guard<std::mutex> lock(registration.gate);
+                auto &count = registration.operations.at(thread);
+                if (--count == 0) {
+                    registration.operations.erase(thread);
+                }
+                registration.work_changed.notify_all();
+                registration.signal->notify();
+            }
+        }
     };
     AdmissionDomain::AdmissionDomain(AdmissionLimits limits) : limits_(limits) {
         if (limits.fifo_capacity == 0 || limits.latest_capacity == 0 ||
@@ -33,6 +62,10 @@ namespace linkerbot::transport {
         }
     }
     namespace {
+        uint64_t next_channel_instance() {
+            static std::atomic<uint64_t> next{0};
+            return ++next;
+        }
         auto current_writer() -> const void *& {
             static thread_local const void *writer = nullptr;
             return writer;
@@ -88,6 +121,17 @@ namespace linkerbot::transport {
         ++state_->revision;
         state_->cv.notify_all();
     }
+    struct ReceiveCounters {
+        std::atomic<size_t> pending{0};
+        std::atomic<size_t> high_water{0};
+        std::atomic<uint64_t> dropped{0};
+        void enqueue() {
+            const auto depth = pending.fetch_add(1) + 1;
+            auto high = high_water.load();
+            while (high < depth && !high_water.compare_exchange_weak(high, depth)) {
+            }
+        }
+    };
     struct RouteInbox::State {
         mutable std::mutex mutex;
         std::condition_variable cv;
@@ -95,7 +139,24 @@ namespace linkerbot::transport {
         RouteHealth health;
         size_t capacity = 512;
         const void *owner = nullptr;
+        const void *device = nullptr;
+        std::exception_ptr terminal_reason;
+        std::shared_ptr<ReceiveCounters> counters;
+        bool masked = false;
+        std::vector<RouteRule> observed_rules;
         std::shared_ptr<ChangeSignal> signal;
+        void close_locked(std::exception_ptr reason = {}) {
+            if (!health.closed && reason) {
+                terminal_reason = std::move(reason);
+            }
+            health.closed = true;
+            health.dropped_on_close += queue.size();
+            counters->pending.fetch_sub(queue.size());
+            counters->dropped.fetch_add(queue.size());
+            queue.clear();
+            cv.notify_all();
+            signal->notify();
+        }
     };
     RouteInbox::RouteInbox(std::shared_ptr<State> state) : state_(std::move(state)) {}
     RouteInbox::~RouteInbox() {
@@ -103,11 +164,7 @@ namespace linkerbot::transport {
     }
     void RouteInbox::close() noexcept {
         std::lock_guard<std::mutex> lock(state_->mutex);
-        state_->health.closed = true;
-        state_->health.dropped_on_close += state_->queue.size();
-        state_->queue.clear();
-        state_->cv.notify_all();
-        state_->signal->notify();
+        state_->close_locked();
     }
     RouteHealth RouteInbox::health() const {
         std::lock_guard<std::mutex> lock(state_->mutex);
@@ -126,6 +183,9 @@ namespace linkerbot::transport {
         state_->cv.wait_until(lock, deadline,
                               [&] { return state_->health.closed || !state_->queue.empty(); });
         if (state_->health.closed) {
+            if (state_->terminal_reason) {
+                std::rethrow_exception(state_->terminal_reason);
+            }
             throw can::ClosedError("route generation is closed");
         }
         if (state_->queue.empty()) {
@@ -133,6 +193,7 @@ namespace linkerbot::transport {
         }
         auto message = std::move(state_->queue.front());
         state_->queue.pop_front();
+        state_->counters->pending.fetch_sub(1);
         return message;
     }
 
@@ -141,6 +202,7 @@ namespace linkerbot::transport {
         std::condition_variable cv;
         SendResult result;
         std::atomic<size_t> progress{0};
+        std::atomic<size_t> dispatch_progress{0};
         std::shared_ptr<ChangeSignal> signal;
     };
     SendReceipt::SendReceipt(std::shared_ptr<State> state) : state_(std::move(state)) {}
@@ -152,6 +214,8 @@ namespace linkerbot::transport {
         auto result = state_->result;
         if (result.outcome == SendOutcome::pending) {
             result.sent_frames = state_->progress.load(std::memory_order_relaxed);
+            result.dispatch_completed_frames =
+                state_->dispatch_progress.load(std::memory_order_relaxed);
         }
         return result;
     }
@@ -204,6 +268,7 @@ namespace linkerbot::transport {
             SendOptions options;
             CancellationSource abort;
             std::shared_ptr<SendReceipt::State> receipt;
+            Deadline complete_at{};
         };
         std::shared_ptr<can::ManagedCANBus> bus;
         std::unique_ptr<can::CANDispatcher> owned_dispatcher;
@@ -215,11 +280,16 @@ namespace linkerbot::transport {
         std::mutex lifecycle;
         std::condition_variable cv;
         std::map<RouteKey, std::weak_ptr<RouteInbox::State>> routes;
+        std::map<RouteRule, std::weak_ptr<RouteInbox::State>> patterns;
+        std::vector<std::weak_ptr<RouteInbox::State>> observers;
+        std::shared_ptr<ReceiveCounters> receive_counters = std::make_shared<ReceiveCounters>();
+        uint64_t compatibility_sequence = 0;
         std::map<std::string, std::weak_ptr<DeviceSession::State>> devices;
         uint64_t next_device = 0;
         bool device_mode = false;
         std::deque<std::shared_ptr<Job>> jobs;
         std::shared_ptr<Job> claimed;
+        std::vector<std::shared_ptr<Job>> cooling;
         std::thread writer;
         bool stopping = false;
         bool recovering = false;
@@ -232,10 +302,42 @@ namespace linkerbot::transport {
         uint64_t lifecycle_revision = 0;
         uint64_t service_order = 0;
         std::map<std::string, uint64_t> last_served;
+        std::map<std::shared_ptr<const AdmissionDomain>, uint64_t,
+                 std::owner_less<std::shared_ptr<const AdmissionDomain>>>
+            last_domain;
         uint64_t sequence = 0;
         std::shared_ptr<ChangeSignal> signal = std::make_shared<ChangeSignal>();
         std::function<RouteKey(const can::Message &)> route_key_of;
         SessionHealth health;
+        uint64_t instance = next_channel_instance();
+
+        static bool overlaps(const RouteRule &a, const RouteRule &b) {
+            return a.extended == b.extended && ((a.value ^ b.value) & a.mask & b.mask) == 0;
+        }
+        size_t route_count(const RouteInbox::State *exclude = nullptr) const {
+            size_t count = 0;
+            const auto add = [&](const auto &entries) {
+                for (const auto &entry : entries) {
+                    if (auto route = entry.second.lock(); route && route.get() != exclude) {
+                        std::lock_guard<std::mutex> lock(route->mutex);
+                        if (!route->health.closed) {
+                            ++count;
+                        }
+                    }
+                }
+            };
+            add(routes);
+            add(patterns);
+            for (const auto &entry : observers) {
+                if (auto route = entry.lock(); route && route.get() != exclude) {
+                    std::lock_guard<std::mutex> lock(route->mutex);
+                    if (!route->health.closed) {
+                        count += route->observed_rules.size();
+                    }
+                }
+            }
+            return count;
+        }
 
         void finish(const std::shared_ptr<Job> &job, SendOutcome outcome,
                     std::exception_ptr error = {}, size_t sent = 0, bool uncertain = false) {
@@ -247,6 +349,12 @@ namespace linkerbot::transport {
             r.outcome = outcome;
             r.error = std::move(error);
             r.sent_frames = sent;
+            const auto *device = static_cast<DeviceSession::State *>(job->owner.get());
+            r.dispatch_completed_frames =
+                device != nullptr && device->options.send_period.count() != 0 &&
+                        outcome != SendOutcome::dispatched
+                    ? job->receipt->dispatch_progress.load(std::memory_order_relaxed)
+                    : sent;
             r.current_frame_uncertain = uncertain;
             r.completed_at = Clock::now();
             switch (outcome) {
@@ -286,31 +394,62 @@ namespace linkerbot::transport {
             }
             return {fifo, latest};
         }
-        Deadline oldest_accepted(const std::string *endpoint = nullptr) const {
-            auto oldest = claimed && (endpoint == nullptr || claimed->options.endpoint == *endpoint)
-                              ? claimed->receipt->result.accepted_at
-                              : Deadline::max();
+        Deadline oldest_accepted(const std::string *endpoint = nullptr,
+                                 const AdmissionDomain *domain = nullptr) const {
+            const auto matches = [&](const auto &job) {
+                return (endpoint == nullptr || job->options.endpoint == *endpoint) &&
+                       (domain == nullptr || job->options.admission_domain.get() == domain);
+            };
+            auto oldest = claimed && matches(claimed) ? claimed->receipt->result.accepted_at
+                                                      : Deadline::max();
             for (const auto &job : jobs) {
-                if (endpoint == nullptr || job->options.endpoint == *endpoint) {
+                if (matches(job)) {
+                    oldest = std::min(oldest, job->receipt->result.accepted_at);
+                }
+            }
+            for (const auto &job : cooling) {
+                if (matches(job)) {
                     oldest = std::min(oldest, job->receipt->result.accepted_at);
                 }
             }
             return oldest;
         }
-        void invalidate_locked(std::exception_ptr reason) {
-            ++lifecycle_revision;
-            for (auto &[key, weak] : routes) {
-                (void)key;
-                if (auto route = weak.lock()) {
-                    std::lock_guard<std::mutex> lock(route->mutex);
-                    route->health.closed = true;
-                    route->health.dropped_on_close += route->queue.size();
-                    route->queue.clear();
-                    route->cv.notify_all();
-                    route->signal->notify();
+        void complete_cooling(bool all = false) {
+            for (auto it = cooling.begin(); it != cooling.end();) {
+                auto &job = *it;
+                if (all || Clock::now() >= job->complete_at || job->abort.token().cancelled() ||
+                    job->options.cancellation.cancelled()) {
+                    finish(job, SendOutcome::dispatched, {}, job->batch.frames.size());
+                    it = cooling.erase(it);
+                    cv.notify_all();
+                } else {
+                    ++it;
                 }
             }
-            routes.clear();
+        }
+        void invalidate_locked(std::exception_ptr reason) {
+            ++lifecycle_revision;
+            compatibility_sequence = 0;
+            complete_cooling(true);
+            const auto close_routes = [&](auto &entries) {
+                for (auto &entry : entries) {
+                    if (auto route = entry.second.lock()) {
+                        std::lock_guard<std::mutex> lock(route->mutex);
+                        route->close_locked(route->device != nullptr ? reason
+                                                                     : std::exception_ptr{});
+                    }
+                }
+                entries.clear();
+            };
+            close_routes(routes);
+            close_routes(patterns);
+            for (const auto &entry : observers) {
+                if (auto route = entry.lock()) {
+                    std::lock_guard<std::mutex> lock(route->mutex);
+                    route->close_locked(reason);
+                }
+            }
+            observers.clear();
             for (auto &job : jobs) {
                 job->abort.cancel();
                 finish(job, SendOutcome::cancelled, reason);
@@ -355,6 +494,7 @@ namespace linkerbot::transport {
                 refresh();
                 std::lock_guard<std::mutex> lock(mutex);
                 if (stopping || !health.open) {
+                    ++health.stale_rx_frames;
                     return;
                 }
                 try {
@@ -383,28 +523,85 @@ namespace linkerbot::transport {
                 }
                 const auto it = routes.find(key);
                 auto route = it == routes.end() ? nullptr : it->second.lock();
+                if (route) {
+                    bool closed = false;
+                    {
+                        std::lock_guard<std::mutex> route_lock(route->mutex);
+                        closed = route->health.closed;
+                    }
+                    if (closed) {
+                        route.reset();
+                    }
+                }
                 if (!route) {
+                    for (const auto &entry : patterns) {
+                        if (entry.first.extended == message.is_extended &&
+                            (message.id & entry.first.mask) == entry.first.value) {
+                            auto candidate = entry.second.lock();
+                            if (candidate) {
+                                std::lock_guard<std::mutex> route_lock(candidate->mutex);
+                                if (!candidate->health.closed) {
+                                    route = std::move(candidate);
+                                    key = {entry.first.value, entry.first.extended};
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                bool matched = false;
+                uint64_t compat_sequence = 0;
+                uint64_t order = 0;
+                const auto received = Clock::now();
+                const auto offer = [&](const std::shared_ptr<RouteInbox::State> &target,
+                                       RouteKey logical_key, bool observer) {
+                    std::lock_guard<std::mutex> route_lock(target->mutex);
+                    if (target->health.closed || target->health.generation != health.generation) {
+                        return;
+                    }
+                    if (!matched) {
+                        compat_sequence = ++compatibility_sequence;
+                        order = ++event_order;
+                        matched = true;
+                    }
+                    if (target->queue.size() >= target->capacity ||
+                        (!observer && options.max_pending_rx != 0 &&
+                         receive_counters->pending.load() >= options.max_pending_rx)) {
+                        ++target->health.overflow;
+                        ++health.overflows;
+                        target->cv.notify_all();
+                        target->signal->notify();
+                        return;
+                    }
+                    target->queue.push_back({message, health.generation, ++sequence, received,
+                                             logical_key, order, compat_sequence, instance});
+                    target->counters->enqueue();
+                    if (!observer) {
+                        ++health.routed_rx_frames;
+                    }
+                    ++target->health.delivered;
+                    target->health.high_water =
+                        std::max(target->health.high_water, target->queue.size());
+                    target->cv.notify_one();
+                    target->signal->notify();
+                };
+                if (route) {
+                    offer(route, key, false);
+                }
+                for (const auto &entry : observers) {
+                    if (auto observer = entry.lock()) {
+                        for (const auto &rule : observer->observed_rules) {
+                            if (rule.extended == message.is_extended &&
+                                (message.id & rule.mask) == rule.value) {
+                                offer(observer, {rule.value, rule.extended}, true);
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!matched) {
                     ++health.route_misses;
-                    return;
                 }
-                std::lock_guard<std::mutex> route_lock(route->mutex);
-                if (route->health.closed || route->health.generation != health.generation) {
-                    ++health.route_misses;
-                    return;
-                }
-                if (route->queue.size() >= route->capacity) {
-                    ++route->health.overflow;
-                    ++health.overflows;
-                    route->cv.notify_all();
-                    route->signal->notify();
-                    return;
-                }
-                route->queue.push_back(
-                    {message, health.generation, ++sequence, Clock::now(), key, ++event_order});
-                ++route->health.delivered;
-                route->health.high_water = std::max(route->health.high_water, route->queue.size());
-                route->cv.notify_one();
-                route->signal->notify();
             } catch (const std::exception &error) {
                 std::lock_guard<std::mutex> lock(mutex);
                 health.last_error = error.what();
@@ -432,12 +629,22 @@ namespace linkerbot::transport {
                     std::shared_ptr<Job> job;
                     {
                         std::unique_lock<std::mutex> lock(mutex);
-                        cv.wait_for(lock, std::chrono::milliseconds(2),
-                                    [&] { return stopping || !jobs.empty(); });
+                        complete_cooling();
+                        if (jobs.empty() && cooling.empty()) {
+                            cv.wait_for(lock, std::chrono::milliseconds(2),
+                                        [&] { return stopping || !jobs.empty(); });
+                        }
                         if (stopping && jobs.empty()) {
                             break;
                         }
                         if (jobs.empty()) {
+                            if (!cooling.empty()) {
+                                auto wake = cooling.front()->complete_at;
+                                for (const auto &pending : cooling) {
+                                    wake = std::min(wake, pending->complete_at);
+                                }
+                                cv.wait_until(lock, wake);
+                            }
                             continue;
                         }
                         // Priority includes bounded aging; equal ranks retain FIFO.
@@ -449,14 +656,35 @@ namespace linkerbot::transport {
                                            .count() /
                                        options.aging_quantum.count();
                         };
-                        auto best = jobs.begin();
+                        auto best = jobs.end();
+                        auto wake = now + std::chrono::milliseconds(2);
                         for (auto it = jobs.begin(); it != jobs.end(); ++it) {
-                            if (options.endpoint_fifo &&
+                            auto *device = static_cast<DeviceSession::State *>((*it)->owner.get());
+                            if (device != nullptr && device->next_eligible > now &&
+                                (*it)->options.deadline > now) {
+                                wake = std::min(wake, device->next_eligible);
+                                wake = std::min(wake, (*it)->options.deadline);
+                                continue;
+                            }
+                            if ((options.endpoint_fifo || device != nullptr) &&
                                 (*it)->options.policy == SendPolicy::fifo &&
                                 std::any_of(jobs.begin(), it, [&](const auto &prior) {
                                     return prior->options.policy == SendPolicy::fifo &&
                                            prior->options.endpoint == (*it)->options.endpoint;
                                 })) {
+                                continue;
+                            }
+                            if (best == jobs.end()) {
+                                best = it;
+                                continue;
+                            }
+                            if (options.domain_round_robin &&
+                                (*it)->options.admission_domain !=
+                                    (*best)->options.admission_domain) {
+                                if (last_domain.at((*it)->options.admission_domain) <
+                                    last_domain.at((*best)->options.admission_domain)) {
+                                    best = it;
+                                }
                                 continue;
                             }
                             const auto served = [&](const auto &candidate) {
@@ -473,6 +701,10 @@ namespace linkerbot::transport {
                                 best = it;
                             }
                         }
+                        if (best == jobs.end()) {
+                            cv.wait_until(lock, wake);
+                            continue;
+                        }
                         job = *best;
                         jobs.erase(best);
                         if (job->options.cancellation.cancelled() ||
@@ -482,7 +714,8 @@ namespace linkerbot::transport {
                                 std::make_exception_ptr(CancelledError("queued send cancelled")));
                             continue;
                         }
-                        if (Clock::now() >= job->options.deadline) {
+                        if (job->options.deadline_policy != DeadlinePolicy::kDispatchStart &&
+                            Clock::now() >= job->options.deadline) {
                             finish(job, SendOutcome::expired,
                                    std::make_exception_ptr(can::TimeoutError(
                                        "queued send expired before backend I/O")));
@@ -495,7 +728,14 @@ namespace linkerbot::transport {
                             continue;
                         }
                         claimed = job;
+                        if (auto *owner = static_cast<DeviceSession::State *>(job->owner.get());
+                            owner != nullptr && owner->options.send_period.count() != 0) {
+                            cooling.reserve(cooling.size() + 1);
+                        }
                         last_served.at(job->options.endpoint) = ++service_order;
+                        if (options.domain_round_robin) {
+                            last_domain.at(job->options.admission_domain) = service_order;
+                        }
                         std::lock_guard<std::mutex> receipt_lock(job->receipt->mutex);
                         job->receipt->result.claimed_at = Clock::now();
                         job->receipt->result.claimed_order = ++event_order;
@@ -505,7 +745,25 @@ namespace linkerbot::transport {
                     bool uncertain = false;
                     auto outcome = SendOutcome::dispatched;
                     std::exception_ptr error;
+                    auto *device = static_cast<DeviceSession::State *>(job->owner.get());
+                    can::LocalBatchPacing local;
+                    local.dispatch_progress = &job->receipt->dispatch_progress;
+                    auto period = options.send_period;
+                    if (device != nullptr && device->options.send_period.count() != 0) {
+                        period = device->options.send_period;
+                        local.enabled = true;
+                        local.defer_final_cooldown = true;
+                        local.attempt_started = Clock::now();
+                        local.cooldown_until = &job->complete_at;
+                    }
                     try {
+                        const bool dispatch_start =
+                            job->options.deadline_policy == DeadlinePolicy::kDispatchStart;
+                        if (dispatch_start && Clock::now() >= job->options.deadline) {
+                            throw can::TimeoutError("send expired at dispatch entry");
+                        }
+                        const auto backend_deadline =
+                            dispatch_start ? Deadline::max() : job->options.deadline;
                         auto cancelled = [&] {
                             return job->abort.token().cancelled() ||
                                    job->options.cancellation.cancelled();
@@ -514,16 +772,16 @@ namespace linkerbot::transport {
                         // legacy synchronous and queued sends across all pacing.
                         if (bus) {
                             bus->send_batch_until(
-                                job->batch.frames, job->options.deadline, job->batch.gap,
+                                job->batch.frames, backend_deadline, job->batch.gap,
                                 job->batch.initial_delay, cancelled, sent, uncertain,
-                                job->options.deadline_policy == DeadlinePolicy::kStartOnly,
-                                options.send_period, &job->receipt->progress);
+                                job->options.deadline_policy == DeadlinePolicy::kStartOnly, period,
+                                &job->receipt->progress, local);
                         } else {
                             borrowed->send_batch_until(
-                                job->batch.frames, job->options.deadline, job->batch.gap,
+                                job->batch.frames, backend_deadline, job->batch.gap,
                                 job->batch.initial_delay, cancelled, sent, uncertain,
-                                job->options.deadline_policy == DeadlinePolicy::kStartOnly,
-                                options.send_period, &job->receipt->progress);
+                                job->options.deadline_policy == DeadlinePolicy::kStartOnly, period,
+                                &job->receipt->progress, local);
                         }
                         // A normal return means the backend accepted every frame.
                         // A cancel seen only now lost the race, and reporting it
@@ -580,8 +838,57 @@ namespace linkerbot::transport {
                             // backend failure; queue/pacing expiry is not.
                             ++health.consecutive_send_errors;
                         }
-                        finish(job, outcome, std::move(error), sent, uncertain);
+                        if (device != nullptr) {
+                            if (sent != 0u || outcome == SendOutcome::dispatched) {
+                                device->consecutive_send_errors.store(0);
+                            }
+                            if (uncertain) {
+                                ++device->consecutive_send_errors;
+                            }
+                        }
+                        if (outcome == SendOutcome::dispatched && local.enabled &&
+                            job->complete_at > Clock::now() && !stopping && health.open &&
+                            stopped_endpoints.count(job->options.endpoint) == 0u) {
+                            cooling.push_back(job);
+                            device->next_eligible = job->complete_at;
+                            signal->notify();
+                        } else {
+                            finish(job, outcome, std::move(error), sent, uncertain);
+                        }
                         claimed.reset();
+                        if (device != nullptr && device->options.max_consecutive_send_errors != 0 &&
+                            device->consecutive_send_errors.load() >=
+                                device->options.max_consecutive_send_errors) {
+                            device->faulted.store(true);
+                            const auto failure = std::make_exception_ptr(
+                                can::FaultedError("consecutive device send failures"));
+                            for (auto it = jobs.begin(); it != jobs.end();) {
+                                if ((*it)->owner.get() == device) {
+                                    finish(*it, SendOutcome::failed, failure);
+                                    it = jobs.erase(it);
+                                } else {
+                                    ++it;
+                                }
+                            }
+                            const auto close_routes = [&](const auto &entries) {
+                                for (const auto &entry : entries) {
+                                    if (auto route = entry.second.lock();
+                                        route && route->device == device) {
+                                        std::lock_guard<std::mutex> route_lock(route->mutex);
+                                        route->close_locked(failure);
+                                    }
+                                }
+                            };
+                            close_routes(routes);
+                            close_routes(patterns);
+                            for (const auto &entry : observers) {
+                                if (auto route = entry.lock(); route && route->device == device) {
+                                    std::lock_guard<std::mutex> route_lock(route->mutex);
+                                    route->close_locked(failure);
+                                }
+                            }
+                            signal->notify();
+                        }
                         if (options.max_consecutive_send_errors != 0 &&
                             health.consecutive_send_errors >= options.max_consecutive_send_errors) {
                             health.open = false;
@@ -1035,16 +1342,136 @@ namespace linkerbot::transport {
     }
     std::shared_ptr<RouteInbox> Session::subscribe_routes(const std::vector<RouteKey> &keys,
                                                           size_t capacity) {
+        return subscribe_routes_impl(keys, capacity, nullptr);
+    }
+    std::shared_ptr<RouteInbox> Session::subscribe_routes_impl(const std::vector<RouteKey> &keys,
+                                                               size_t capacity,
+                                                               const void *device) {
         if (capacity == 0u) {
             throw can::ValidationError("route capacity must be positive");
         }
         auto state = std::make_shared<RouteInbox::State>();
         state->capacity = capacity;
         state->owner = impl_.get();
+        state->device = device;
+        state->counters = impl_->receive_counters;
         state->signal = impl_->signal;
         state->health.capacity = capacity;
         auto inbox = std::shared_ptr<RouteInbox>(new RouteInbox(state));
         update_routes(inbox, keys);
+        return inbox;
+    }
+    std::shared_ptr<RouteInbox> Session::subscribe_rules_impl(const std::vector<RouteRule> &rules,
+                                                              size_t capacity, const void *device,
+                                                              bool observation) {
+        if (capacity == 0 || rules.empty()) {
+            throw can::ValidationError("masked routes require positive capacity and rules");
+        }
+        std::set<RouteRule> unique;
+        for (const auto &rule : rules) {
+            const auto maximum = rule.extended ? can::kExtendedIdMask : can::kStandardIdMask;
+            if ((rule.mask & ~maximum) != 0 || (rule.value & ~rule.mask) != 0) {
+                throw can::ValidationError("invalid route mask or value");
+            }
+            for (const auto &other : unique) {
+                if (Impl::overlaps(rule, other)) {
+                    throw can::ValidationError("overlapping rules within a route group");
+                }
+            }
+            unique.insert(rule);
+        }
+        auto state = std::make_shared<RouteInbox::State>();
+        state->capacity = capacity;
+        state->owner = impl_.get();
+        state->device = device;
+        state->masked = true;
+        state->signal = impl_->signal;
+        state->counters =
+            observation ? std::make_shared<ReceiveCounters>() : impl_->receive_counters;
+        state->health.capacity = capacity;
+        if (observation) {
+            state->observed_rules = rules;
+        }
+        auto inbox = std::shared_ptr<RouteInbox>(new RouteInbox(state));
+        auto &p = *impl_;
+        p.refresh();
+        std::lock_guard<std::mutex> lock(p.mutex);
+        if (!p.health.open || p.stopping) {
+            throw can::ClosedError("session is closed");
+        }
+        if (p.route_key_of) {
+            throw can::ValidationError("masked routes cannot use a global route extractor");
+        }
+        const auto occupied = p.route_count();
+        if (p.options.max_route_keys != 0 &&
+            (occupied > p.options.max_route_keys ||
+             unique.size() > p.options.max_route_keys - occupied)) {
+            ++p.health.route_registration_rejections;
+            throw can::QueueFullError("route registry is full");
+        }
+        if (observation) {
+            p.observers.erase(std::remove_if(p.observers.begin(), p.observers.end(),
+                                             [](const auto &entry) {
+                                                 const auto route = entry.lock();
+                                                 if (!route) {
+                                                     return true;
+                                                 }
+                                                 std::lock_guard<std::mutex> lock(route->mutex);
+                                                 return route->health.closed;
+                                             }),
+                              p.observers.end());
+            p.observers.push_back(state);
+            state->health.generation = p.health.generation;
+            p.routing_started = true;
+            return inbox;
+        }
+        for (const auto &rule : unique) {
+            for (const auto &entry : p.routes) {
+                const auto &key = entry.first;
+                const RouteRule exact{key.id,
+                                      key.extended ? can::kExtendedIdMask : can::kStandardIdMask,
+                                      key.extended};
+                if (Impl::overlaps(rule, exact)) {
+                    if (auto existing = entry.second.lock()) {
+                        std::lock_guard<std::mutex> route_lock(existing->mutex);
+                        if (!existing->health.closed) {
+                            throw can::ValidationError(
+                                "masked route overlaps an exact registration");
+                        }
+                    }
+                }
+            }
+            for (const auto &entry : p.patterns) {
+                if (Impl::overlaps(rule, entry.first)) {
+                    if (auto existing = entry.second.lock()) {
+                        std::lock_guard<std::mutex> route_lock(existing->mutex);
+                        if (!existing->health.closed) {
+                            throw can::ValidationError("masked route already owned");
+                        }
+                    }
+                }
+            }
+        }
+        std::vector<RouteRule> inserted;
+        inserted.reserve(unique.size());
+        try {
+            for (const auto &rule : unique) {
+                const auto result = p.patterns.emplace(rule, state);
+                if (result.second) {
+                    inserted.push_back(rule);
+                }
+            }
+        } catch (...) {
+            for (const auto &rule : inserted) {
+                p.patterns.erase(rule);
+            }
+            throw;
+        }
+        for (const auto &rule : unique) {
+            p.patterns.at(rule) = state;
+        }
+        state->health.generation = p.health.generation;
+        p.routing_started = true;
         return inbox;
     }
     void Session::set_route_key_extractor(std::function<RouteKey(const can::Message &)> extractor) {
@@ -1063,7 +1490,8 @@ namespace linkerbot::transport {
     }
     void Session::update_routes(const std::shared_ptr<RouteInbox> &inbox,
                                 const std::vector<RouteKey> &keys) {
-        if (!inbox || inbox->state_->owner != impl_.get() || keys.empty()) {
+        if (!inbox || inbox->state_->owner != impl_.get() || keys.empty() ||
+            inbox->state_->masked) {
             throw can::ValidationError("route group must belong to this session and contain keys");
         }
         std::set<RouteKey> unique;
@@ -1082,6 +1510,27 @@ namespace linkerbot::transport {
         std::lock_guard<std::mutex> inbox_lock(inbox->state_->mutex);
         if (inbox->state_->health.closed) {
             throw can::ClosedError("route is closed");
+        }
+        const auto occupied = p.route_count(inbox->state_.get());
+        if (p.options.max_route_keys != 0 &&
+            (occupied > p.options.max_route_keys ||
+             unique.size() > p.options.max_route_keys - occupied)) {
+            ++p.health.route_registration_rejections;
+            throw can::QueueFullError("route registry is full");
+        }
+        for (const auto &key : unique) {
+            const RouteRule exact{
+                key.id, key.extended ? can::kExtendedIdMask : can::kStandardIdMask, key.extended};
+            for (const auto &entry : p.patterns) {
+                if (Impl::overlaps(exact, entry.first)) {
+                    if (auto route = entry.second.lock()) {
+                        std::lock_guard<std::mutex> route_lock(route->mutex);
+                        if (!route->health.closed) {
+                            throw can::ValidationError("CAN route overlaps a masked registration");
+                        }
+                    }
+                }
+            }
         }
         for (const auto &key : unique) {
             auto it = p.routes.find(key);
@@ -1157,8 +1606,13 @@ namespace linkerbot::transport {
             throw can::ValidationError("pending age must be positive");
         }
         if (options.pending_age_scope != PendingAgeScope::kSession &&
-            options.pending_age_scope != PendingAgeScope::kEndpoint) {
+            options.pending_age_scope != PendingAgeScope::kEndpoint &&
+            options.pending_age_scope != PendingAgeScope::kAdmissionDomain) {
             throw can::ValidationError("invalid pending age scope");
+        }
+        if (options.pending_age_scope == PendingAgeScope::kAdmissionDomain &&
+            !options.admission_domain) {
+            throw can::ValidationError("domain pending age requires an admission domain");
         }
         if (options.policy == SendPolicy::latest &&
             (options.endpoint.empty() || options.family.empty())) {
@@ -1179,6 +1633,14 @@ namespace linkerbot::transport {
         if (p.device_mode && !job->owner) {
             throw can::ValidationError("use DeviceSession for managed device submission");
         }
+        if (p.options.max_batch_frames != 0 &&
+            job->batch.frames.size() > p.options.max_batch_frames) {
+            throw can::ValidationError("batch exceeds the configured frame limit");
+        }
+        if (auto *device = static_cast<DeviceSession::State *>(job->owner.get());
+            device != nullptr && device->faulted.load()) {
+            throw can::FaultedError("device send policy is faulted");
+        }
         if (p.stopped_endpoints.count(job->options.endpoint) != 0u) {
             throw can::ClosedError("endpoint admission is stopped");
         }
@@ -1196,6 +1658,10 @@ namespace linkerbot::transport {
             max_pending_age
                 ? p.oldest_accepted(job->options.pending_age_scope == PendingAgeScope::kEndpoint
                                         ? &job->options.endpoint
+                                        : nullptr,
+                                    job->options.pending_age_scope ==
+                                            PendingAgeScope::kAdmissionDomain
+                                        ? job->options.admission_domain.get()
                                         : nullptr)
                 : Deadline::max();
         if (max_pending_age.has_value() && oldest != Deadline::max() &&
@@ -1256,12 +1722,16 @@ namespace linkerbot::transport {
         }
         auto &result = job->receipt->result;
         result.generation = p.health.generation;
+        result.channel_instance = p.instance;
         result.accepted_at = Clock::now();
         result.total_frames = job->batch.frames.size();
         // Allocate before changing an old receipt: failed admission must not
         // supersede accepted work. deque insertion may invalidate iterators.
         auto old = previous == p.jobs.end() ? nullptr : *previous;
         p.last_served.try_emplace(job->options.endpoint, 0);
+        if (p.options.domain_round_robin) {
+            p.last_domain.try_emplace(job->options.admission_domain, 0);
+        }
         auto replacement_error =
             old ? std::make_exception_ptr(CancelledError("pending latest send superseded"))
                 : std::exception_ptr{};
@@ -1281,16 +1751,28 @@ namespace linkerbot::transport {
         (void)receipt.wait_until(deadline);
     }
     std::shared_ptr<DeviceSession> Session::attach_device(std::string identity) {
+        return attach_device(std::move(identity), DeviceOptions{});
+    }
+    std::shared_ptr<DeviceSession> Session::attach_device(std::string identity,
+                                                          DeviceOptions options) {
         if (identity.empty()) {
             throw can::ValidationError("device identity must not be empty");
         }
+        if (options.send_period.count() < 0) {
+            throw can::ValidationError("negative device send period");
+        }
         auto state = std::make_shared<DeviceSession::State>();
         state->session = shared_from_this();
+        state->signal = impl_->signal;
+        state->options = std::move(options);
         auto device = std::shared_ptr<DeviceSession>(new DeviceSession(state));
         impl_->refresh();
         std::lock_guard<std::mutex> lock(impl_->mutex);
         if (impl_->stopping || !impl_->health.open) {
             throw can::ClosedError("session is closed");
+        }
+        if (state->options.send_period.count() != 0 && impl_->options.send_period.count() != 0) {
+            throw can::ValidationError("device and legacy dispatcher periods cannot be combined");
         }
         if (!impl_->device_mode && (impl_->health.accepted != 0 || !impl_->routes.empty())) {
             throw can::ValidationError("attach devices before legacy Session use");
@@ -1300,6 +1782,7 @@ namespace linkerbot::transport {
             throw can::ValidationError("device identity is still registered");
         }
         state->generation = impl_->health.generation;
+        state->channel_instance = impl_->instance;
         state->endpoint = "device/" + std::to_string(++impl_->next_device);
         impl_->devices[std::move(identity)] = state;
         state->closed.store(false);
@@ -1313,17 +1796,24 @@ namespace linkerbot::transport {
             close_until(Deadline::max());
         } catch (...) {
             // A claimed Job retains State until backend I/O has left the writer.
+            std::lock_guard<std::mutex> gate(state_->gate);
+            state_->closing = true;
         }
     }
     std::optional<SendReceipt> DeviceSession::submit_impl(MessageBatch batch, SendOptions options,
-                                                          bool replace_only) {
+                                                          bool replace_only, bool owned) {
         std::lock_guard<std::mutex> lock(state_->gate);
-        if (state_->closing || state_->closed) {
+        if ((!owned && state_->closing) || state_->closed) {
             throw can::ClosedError("device admission is closed");
         }
         options.endpoint = state_->endpoint;
         options.expected_generation = state_->generation;
-        options.pending_age_scope = PendingAgeScope::kEndpoint;
+        if (options.pending_age_scope == PendingAgeScope::kSession) {
+            options.pending_age_scope = PendingAgeScope::kEndpoint;
+        }
+        if (state_->options.admission_domain) {
+            options.admission_domain = state_->options.admission_domain;
+        }
         return state_->session->submit_impl(std::move(batch), std::move(options), replace_only,
                                             state_);
     }
@@ -1347,7 +1837,44 @@ namespace linkerbot::transport {
         if (state_->closing || state_->closed) {
             throw can::ClosedError("device admission is closed");
         }
-        auto inbox = state_->session->subscribe_routes(keys, capacity);
+        if (state_->faulted.load()) {
+            throw can::FaultedError("device send policy is faulted");
+        }
+        auto inbox = state_->session->subscribe_routes_impl(keys, capacity, state_.get());
+        if (inbox->health().generation != state_->generation) {
+            inbox->close();
+            throw can::ClosedError("device generation is stale");
+        }
+        state_->inboxes.push_back(inbox);
+        return inbox;
+    }
+    std::shared_ptr<RouteInbox> DeviceSession::subscribe_rules(const std::vector<RouteRule> &rules,
+                                                               size_t capacity) {
+        std::lock_guard<std::mutex> gate(state_->gate);
+        if (state_->closed || state_->closing) {
+            throw can::ClosedError("device admission is closed");
+        }
+        if (state_->faulted.load()) {
+            throw can::FaultedError("device send policy is faulted");
+        }
+        auto inbox = state_->session->subscribe_rules_impl(rules, capacity, state_.get());
+        if (inbox->health().generation != state_->generation) {
+            inbox->close();
+            throw can::ClosedError("device generation is stale");
+        }
+        state_->inboxes.push_back(inbox);
+        return inbox;
+    }
+    std::shared_ptr<RouteInbox> DeviceSession::observe_rules(const std::vector<RouteRule> &rules,
+                                                             size_t capacity) {
+        std::lock_guard<std::mutex> gate(state_->gate);
+        if (state_->closed || state_->closing) {
+            throw can::ClosedError("device admission is closed");
+        }
+        if (state_->faulted.load()) {
+            throw can::FaultedError("device send policy is faulted");
+        }
+        auto inbox = state_->session->subscribe_rules_impl(rules, capacity, state_.get(), true);
         if (inbox->health().generation != state_->generation) {
             inbox->close();
             throw can::ClosedError("device generation is stale");
@@ -1359,30 +1886,65 @@ namespace linkerbot::transport {
         if (current_writer() != nullptr || can::CANDispatcher::is_any_receive_thread()) {
             throw can::ValidationError("device close requires an external caller");
         }
-        std::unique_lock<std::timed_mutex> closer(state_->closer, std::defer_lock);
-        if (deadline == Deadline::max()) {
-            closer.lock();
-        } else if (!closer.try_lock_until(deadline)) {
-            throw can::TimeoutError("another device close is still running");
-        }
-        std::shared_ptr<Session> session;
         {
             std::lock_guard<std::mutex> gate(state_->gate);
+            if (state_->operations.count(std::this_thread::get_id()) != 0) {
+                throw can::ValidationError("cannot close from an owned device operation");
+            }
+        }
+        std::unique_lock<std::mutex> closer(state_->closer);
+        const auto available = [&] { return !state_->close_active; };
+        if (deadline == Deadline::max()) {
+            state_->close_changed.wait(closer, available);
+        } else if (!state_->close_changed.wait_until(closer, deadline, available)) {
+            throw can::TimeoutError("another device close is still running");
+        }
+        state_->close_active = true;
+        closer.unlock();
+        struct ReleaseClose {
+            State *state;
+            ~ReleaseClose() {
+                std::lock_guard<std::mutex> lock(state->closer);
+                state->close_active = false;
+                state->close_changed.notify_all();
+            }
+        } release{state_.get()};
+        std::shared_ptr<Session> session;
+        {
+            std::unique_lock<std::mutex> gate(state_->gate);
             if (state_->closed) {
                 return;
             }
             state_->closing = true;
+            state_->signal->notify();
+            const auto finished = [&] { return state_->operations.empty(); };
+            if (deadline == Deadline::max()) {
+                state_->work_changed.wait(gate, finished);
+            } else if (!state_->work_changed.wait_until(gate, deadline, finished)) {
+                throw can::TimeoutError("owned device operations did not finish");
+            }
             session = state_->session;
         }
         // No device gate is held across driver drain or route destruction.
         session->stop_endpoint(state_->endpoint, deadline);
-        std::lock_guard<std::mutex> gate(state_->gate);
-        for (const auto &inbox : state_->inboxes) {
-            inbox->close();
+        {
+            std::lock_guard<std::mutex> gate(state_->gate);
+            for (const auto &inbox : state_->inboxes) {
+                inbox->close();
+            }
+            state_->inboxes.clear();
         }
-        state_->inboxes.clear();
+        if (state_->channel_release) {
+            state_->channel_release();
+        }
+        std::lock_guard<std::mutex> gate(state_->gate);
         state_->closed = true;
         state_->session.reset();
+        state_->channel_release = {};
+    }
+    void DeviceSession::set_channel_release(std::function<void()> release) {
+        std::lock_guard<std::mutex> gate(state_->gate);
+        state_->channel_release = std::move(release);
     }
     bool DeviceSession::closed() const {
         std::lock_guard<std::mutex> lock(state_->gate);
@@ -1390,6 +1952,87 @@ namespace linkerbot::transport {
     }
     uint64_t DeviceSession::generation() const {
         return state_->generation;
+    }
+    DeviceHealth DeviceSession::health() const {
+        std::lock_guard<std::mutex> gate(state_->gate);
+        std::unique_lock<std::mutex> native;
+        if (state_->session) {
+            native = std::unique_lock<std::mutex>(state_->session->impl_->mutex);
+        }
+        DeviceHealth result;
+        result.closed = state_->closed.load();
+        result.accepting = !state_->closing && !result.closed;
+        result.generation = state_->generation;
+        result.channel_instance = state_->channel_instance;
+        result.faulted = state_->faulted.load();
+        result.accepting = result.accepting && !result.faulted;
+        if (state_->session && (!state_->session->impl_->health.open ||
+                                state_->session->impl_->health.generation != state_->generation)) {
+            result.accepting = false;
+        }
+        result.consecutive_send_errors = state_->consecutive_send_errors.load();
+        if (state_->session) {
+            const auto &p = *state_->session->impl_;
+            for (const auto &job : p.jobs) {
+                if (job->owner.get() == state_.get()) {
+                    if (job->options.policy == SendPolicy::fifo) {
+                        result.pending_fifo += job->batch.frames.size();
+                    } else {
+                        ++result.pending_latest;
+                    }
+                }
+            }
+            result.in_flight = p.claimed && p.claimed->owner.get() == state_.get() ? 1 : 0;
+            for (const auto &job : p.cooling) {
+                result.in_flight += job->owner.get() == state_.get() ? 1 : 0;
+            }
+            const auto oldest = p.oldest_accepted(&state_->endpoint);
+            if (oldest != Deadline::max()) {
+                result.oldest_pending = oldest;
+            }
+        }
+        for (const auto &entry : state_->operations) {
+            result.owned_operations += entry.second;
+        }
+        return result;
+    }
+    std::shared_ptr<ChangeSignal> DeviceSession::notification() const {
+        return state_->signal;
+    }
+    DeviceOperation DeviceSession::begin_operation() {
+        auto operation = std::make_unique<DeviceOperation::State>();
+        operation->device = shared_from_this();
+        operation->thread = std::this_thread::get_id();
+        std::lock_guard<std::mutex> gate(state_->gate);
+        if (state_->closing || state_->closed) {
+            throw can::ClosedError("device admission is closed");
+        }
+        if (state_->faulted.load()) {
+            throw can::FaultedError("device send policy is faulted");
+        }
+        const auto channel = state_->session->health();
+        if (!channel.open || channel.generation != state_->generation) {
+            throw can::ClosedError("device generation is stale");
+        }
+        ++state_->operations[operation->thread];
+        operation->active = true;
+        return DeviceOperation(std::move(operation));
+    }
+    DeviceOperation::DeviceOperation() = default;
+    DeviceOperation::DeviceOperation(std::unique_ptr<State> state) : state_(std::move(state)) {}
+    DeviceOperation::~DeviceOperation() = default;
+    DeviceOperation::DeviceOperation(DeviceOperation &&) noexcept = default;
+    DeviceOperation &DeviceOperation::operator=(DeviceOperation &&) noexcept = default;
+    SendReceipt DeviceOperation::submit(MessageBatch batch, SendOptions options) {
+        if (!state_ || state_->thread != std::this_thread::get_id()) {
+            throw can::ValidationError("device operation is empty or belongs to another thread");
+        }
+        auto receipt =
+            state_->device->submit_impl(std::move(batch), std::move(options), false, true);
+        if (!receipt.has_value()) {
+            throw can::InternalError("owned submission returned no receipt");
+        }
+        return receipt.value();
     }
 
     void Session::cancel_endpoint(const std::string &endpoint) {
@@ -1407,6 +2050,11 @@ namespace linkerbot::transport {
         }
         if (p.claimed && p.claimed->options.endpoint == endpoint) {
             p.claimed->abort.cancel();
+        }
+        for (const auto &job : p.cooling) {
+            if (job->options.endpoint == endpoint) {
+                job->abort.cancel();
+            }
         }
         p.cv.notify_all();
     }
@@ -1446,7 +2094,17 @@ namespace linkerbot::transport {
             }
         }
         p.cv.notify_all();
-        const auto drained = [&] { return !p.claimed || p.claimed->options.endpoint != endpoint; };
+        for (const auto &job : p.cooling) {
+            if (job->options.endpoint == endpoint) {
+                job->abort.cancel();
+            }
+        }
+        p.complete_cooling();
+        const auto drained = [&] {
+            return (!p.claimed || p.claimed->options.endpoint != endpoint) &&
+                   std::none_of(p.cooling.begin(), p.cooling.end(),
+                                [&](const auto &job) { return job->options.endpoint == endpoint; });
+        };
         if (deadline == Deadline::max()) {
             p.cv.wait(lock, drained);
         } else if (!p.cv.wait_until(lock, deadline, drained)) {
@@ -1459,7 +2117,9 @@ namespace linkerbot::transport {
         if (impl_->stopping || !impl_->health.open) {
             throw can::ClosedError("session closed");
         }
-        if (impl_->claimed && impl_->claimed->options.endpoint == endpoint) {
+        if ((impl_->claimed && impl_->claimed->options.endpoint == endpoint) ||
+            std::any_of(impl_->cooling.begin(), impl_->cooling.end(),
+                        [&](const auto &job) { return job->options.endpoint == endpoint; })) {
             throw can::ValidationError("endpoint still has a claimed send");
         }
         impl_->stopped_endpoints.erase(endpoint);
@@ -1468,12 +2128,20 @@ namespace linkerbot::transport {
         impl_->refresh();
         std::lock_guard<std::mutex> lock(impl_->mutex);
         auto h = impl_->health;
-        h.pending_tx = impl_->jobs.size() + (impl_->claimed ? 1 : 0);
+        h.channel_instance = impl_->instance;
+        h.route_count = impl_->route_count();
+        h.pending_rx = impl_->receive_counters->pending.load();
+        h.max_pending_rx = impl_->receive_counters->high_water.load();
+        h.dropped_rx_on_close = impl_->receive_counters->dropped.load();
+        h.pending_tx = impl_->jobs.size() + impl_->cooling.size() + (impl_->claimed ? 1 : 0);
         const auto units = impl_->pending_units();
         h.pending_fifo = units.first;
         h.pending_latest = units.second;
-        h.in_flight = bool(impl_->claimed);
+        h.in_flight = bool(impl_->claimed) || !impl_->cooling.empty();
         h.in_flight_frames = impl_->claimed ? impl_->claimed->batch.frames.size() : 0;
+        for (const auto &job : impl_->cooling) {
+            h.in_flight_frames += job->batch.frames.size();
+        }
         const auto oldest = impl_->oldest_accepted();
         if (oldest != Deadline::max()) {
             h.oldest_pending_age =

@@ -178,6 +178,19 @@ namespace linkerbot::can {
                                          uncertain, start_only, send_period, progress);
         }
 
+        auto send_batch_until(const std::vector<Message> &frames,
+                              std::chrono::steady_clock::time_point deadline,
+                              std::chrono::microseconds gap,
+                              std::chrono::microseconds initial_delay,
+                              const std::function<bool()> &cancelled, size_t &sent, bool &uncertain,
+                              bool start_only, std::chrono::microseconds send_period,
+                              std::atomic<size_t> *progress,
+                              const LocalBatchPacing &local) -> void {
+            const auto dispatcher = require_dispatcher();
+            dispatcher->send_batch_until(frames, deadline, gap, initial_delay, cancelled, sent,
+                                         uncertain, start_only, send_period, progress, local);
+        }
+
         auto queue_send(const Message &message) -> SendReceipt {
             auto state = std::make_shared<SendReceiptState>();
             {

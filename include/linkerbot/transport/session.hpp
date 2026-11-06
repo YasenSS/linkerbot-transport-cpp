@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace linkerbot::can {
@@ -23,6 +24,8 @@ namespace linkerbot::can {
 
 namespace linkerbot::transport {
     class DeviceSession;
+    class DeviceOperation;
+    class TransportRuntime;
 
     // Coalesced state-change notification for a language/runtime bridge. Read the
     // revision before inspecting state, then wait on that revision. No application
@@ -53,6 +56,15 @@ namespace linkerbot::transport {
         }
     };
 
+    struct RouteRule {
+        uint32_t value = 0;
+        uint32_t mask = 0x7ff;
+        bool extended = false;
+        friend bool operator<(const RouteRule &a, const RouteRule &b) noexcept {
+            return std::tie(a.extended, a.mask, a.value) < std::tie(b.extended, b.mask, b.value);
+        }
+    };
+
     struct RoutedMessage {
         can::Message message;
         uint64_t generation = 0;
@@ -60,6 +72,8 @@ namespace linkerbot::transport {
         Deadline received_at{};
         RouteKey route_key{};
         uint64_t received_order = 0; // Same Session event domain as SendResult::claimed_order.
+        uint64_t compatibility_sequence = 0;
+        uint64_t channel_instance = 0;
     };
 
     struct RouteHealth {
@@ -107,8 +121,8 @@ namespace linkerbot::transport {
     };
 
     enum class CapacityUnit { kBatches, kFrames };
-    enum class DeadlinePolicy { kExecution, kStartOnly };
-    enum class PendingAgeScope { kSession, kEndpoint };
+    enum class DeadlinePolicy { kExecution, kStartOnly, kDispatchStart };
+    enum class PendingAgeScope { kSession, kEndpoint, kAdmissionDomain };
 
     struct AdmissionLimits {
         size_t fifo_capacity = 2000;
@@ -120,12 +134,20 @@ namespace linkerbot::transport {
     class AdmissionDomain {
       public:
         explicit AdmissionDomain(AdmissionLimits limits);
+        AdmissionDomain(const AdmissionDomain &) = delete;
+        AdmissionDomain &operator=(const AdmissionDomain &) = delete;
         [[nodiscard]] AdmissionLimits limits() const noexcept {
             return limits_;
         }
 
       private:
-        const AdmissionLimits limits_;
+        AdmissionLimits limits_;
+    };
+
+    struct DeviceOptions {
+        std::shared_ptr<const AdmissionDomain> admission_domain = nullptr;
+        std::chrono::microseconds send_period{0};
+        uint32_t max_consecutive_send_errors = 0;
     };
 
     // Opt-in SDK scheduling. Defaults retain the existing Session behavior.
@@ -139,6 +161,10 @@ namespace linkerbot::transport {
         std::chrono::milliseconds aging_quantum{10};
         std::chrono::microseconds send_period{0};
         uint32_t max_consecutive_send_errors = 0; // zero disables terminal TX faulting
+        bool domain_round_robin = false;
+        size_t max_route_keys = 0; // zero preserves the legacy unlimited registry
+        size_t max_pending_rx = 0;
+        size_t max_batch_frames = 0; // zero preserves legacy unbounded batch size
     };
 
     struct SendOptions {
@@ -168,6 +194,8 @@ namespace linkerbot::transport {
         bool current_frame_uncertain = false;
         std::exception_ptr error;
         std::optional<uint64_t> claimed_order = std::nullopt;
+        size_t dispatch_completed_frames = 0;
+        uint64_t channel_instance = 0;
     };
 
     class SendReceipt {
@@ -229,6 +257,14 @@ namespace linkerbot::transport {
         uint64_t rejected_stale = 0;
         uint32_t consecutive_send_errors = 0;
         uint64_t route_key_errors = 0;
+        size_t route_count = 0;
+        size_t pending_rx = 0;
+        size_t max_pending_rx = 0;
+        uint64_t routed_rx_frames = 0;
+        uint64_t stale_rx_frames = 0;
+        uint64_t route_registration_rejections = 0;
+        uint64_t dropped_rx_on_close = 0;
+        uint64_t channel_instance = 0;
     };
 
     // One Session per physical ManagedCANBus/borrowed Dispatcher. All Session
@@ -246,6 +282,7 @@ namespace linkerbot::transport {
         static std::shared_ptr<Session> borrow(can::CANDispatcher &dispatcher);
         // Logical device ownership; all devices still submit to this Session's writer.
         std::shared_ptr<DeviceSession> attach_device(std::string identity);
+        std::shared_ptr<DeviceSession> attach_device(std::string identity, DeviceOptions options);
         ~Session();
         // Final release inside RX/backend callbacks defers destruction to an
         // external cleanup worker. A borrowed dispatcher must outlive this drain.
@@ -303,12 +340,31 @@ namespace linkerbot::transport {
         std::optional<SendReceipt> submit_impl(MessageBatch batch, SendOptions options,
                                                bool replace_only,
                                                std::shared_ptr<void> owner = nullptr);
+        std::shared_ptr<RouteInbox> subscribe_routes_impl(const std::vector<RouteKey> &keys,
+                                                          size_t capacity, const void *device);
+        std::shared_ptr<RouteInbox> subscribe_rules_impl(const std::vector<RouteRule> &rules,
+                                                         size_t capacity, const void *device,
+                                                         bool observation = false);
         std::unique_ptr<Impl> impl_;
     };
 
     // A device owns its admission gate and inboxes, not the physical connection.
     // Explicit close is retryable after a drain timeout. Destruction attempts close.
-    class DeviceSession {
+    struct DeviceHealth {
+        bool accepting = false;
+        bool closed = false;
+        uint64_t generation = 0;
+        size_t owned_operations = 0;
+        bool faulted = false;
+        uint32_t consecutive_send_errors = 0;
+        uint64_t channel_instance = 0;
+        size_t pending_fifo = 0;
+        size_t pending_latest = 0;
+        size_t in_flight = 0;
+        std::optional<Deadline> oldest_pending = std::nullopt;
+    };
+
+    class DeviceSession : public std::enable_shared_from_this<DeviceSession> {
       public:
         ~DeviceSession();
         DeviceSession(const DeviceSession &) = delete;
@@ -318,16 +374,46 @@ namespace linkerbot::transport {
                                                              SendOptions options);
         std::shared_ptr<RouteInbox> subscribe_routes(const std::vector<RouteKey> &keys,
                                                      size_t capacity = 256);
+        std::shared_ptr<RouteInbox> subscribe_rules(const std::vector<RouteRule> &rules,
+                                                    size_t capacity = 256);
+        // Bounded read-only discovery observation; never takes route ownership.
+        std::shared_ptr<RouteInbox> observe_rules(const std::vector<RouteRule> &rules,
+                                                  size_t capacity);
         void close_until(Deadline deadline);
+        // Register before close begins. Already-owned work may finish while closing.
+        DeviceOperation begin_operation();
+        [[nodiscard]] DeviceHealth health() const;
+        [[nodiscard]] std::shared_ptr<ChangeSignal> notification() const;
         [[nodiscard]] bool closed() const;
         [[nodiscard]] uint64_t generation() const;
 
       private:
         friend class Session;
+        friend class DeviceOperation;
+        friend class TransportRuntime;
         struct State;
         explicit DeviceSession(std::shared_ptr<State> state);
         std::optional<SendReceipt> submit_impl(MessageBatch batch, SendOptions options,
-                                               bool replace_only);
+                                               bool replace_only, bool owned = false);
         std::shared_ptr<State> state_;
+        void set_channel_release(std::function<void()> release);
+    };
+
+    // Thread-bound SDK work lease. No worker, payload queue or physical ownership.
+    class DeviceOperation {
+      public:
+        DeviceOperation();
+        ~DeviceOperation();
+        DeviceOperation(DeviceOperation &&) noexcept;
+        DeviceOperation &operator=(DeviceOperation &&) noexcept;
+        DeviceOperation(const DeviceOperation &) = delete;
+        DeviceOperation &operator=(const DeviceOperation &) = delete;
+        SendReceipt submit(MessageBatch batch, SendOptions options = {});
+
+      private:
+        friend class DeviceSession;
+        struct State;
+        explicit DeviceOperation(std::unique_ptr<State> state);
+        std::unique_ptr<State> state_;
     };
 } // namespace linkerbot::transport

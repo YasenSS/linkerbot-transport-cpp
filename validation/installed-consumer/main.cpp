@@ -29,6 +29,7 @@
 #include <linkerbot/can/vendor_canfd_abi.hpp>
 #include <linkerbot/can/vendor_canfd_transport.hpp>
 #include <linkerbot/transport/cancellation.hpp>
+#include <linkerbot/transport/runtime.hpp>
 #include <linkerbot/transport/session.hpp>
 #include <memory>
 #include <utility>
@@ -58,6 +59,25 @@ namespace {
         if (!reply || reply->message.id != message.id || reply->message.dlc != 2 ||
             reply->message.data[1] != 7 || !inbox->health().closed) {
             return 6;
+        }
+        // Exercise installed SLCAN symbols without opening any COM port.
+        linkerbot::transport::TransportRuntime runtime;
+        linkerbot::transport::ChannelSpec channel;
+        channel.key.backend = "fake";
+        channel.key.endpoint = "installed-consumer";
+        channel.configuration_fingerprint = "fake/default";
+        auto device = runtime.open_device(channel, {"hand", {}}, [] {
+            return std::make_unique<linkerbot::can::FakeTransport>();
+        });
+        auto observed = device->subscribe_rules({{message.id, 0x7ff, false}});
+        auto operation = device->begin_operation();
+        operation.submit({{message}}).wait();
+        operation = linkerbot::transport::DeviceOperation{};
+        auto rebound = runtime.rebind_device(channel.key, device, {"hand", {}},
+                                             linkerbot::transport::Deadline::max());
+        rebound->close_until(linkerbot::transport::Deadline::max());
+        if (!observed->health().closed || runtime.active_devices(channel.key) != 0) {
+            return 7;
         }
         // Exercise installed SLCAN symbols without opening any COM port.
         linkerbot::can::SlcanConfig serial;
