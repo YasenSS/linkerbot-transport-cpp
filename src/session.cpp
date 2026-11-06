@@ -2065,8 +2065,9 @@ namespace linkerbot::transport {
             throw can::ValidationError("invalid Session scheduling options");
         }
         std::lock_guard<std::mutex> lock(impl_->mutex);
-        if (impl_->stopping || impl_->health.accepted != 0) {
-            throw can::ValidationError("configure requires a session with no accepted sends");
+        if (impl_->stopping || impl_->health.accepted != 0 || impl_->device_mode) {
+            throw can::ValidationError(
+                "configure requires a session with no accepted sends or devices");
         }
         impl_->options = options;
         impl_->tx_capacity = options.tx_capacity;

@@ -89,7 +89,8 @@ TEST_CASE("Dispatch-start deadlines record claim and stop applying after dispatc
     blocker.wait();
     auto result = expired.wait_result_until(transport::Clock::now() + 2s);
     REQUIRE(result.outcome == transport::SendOutcome::expired);
-    REQUIRE(result.claimed_order != 0);
+    REQUIRE(result.claimed_order.has_value());
+    REQUIRE(test_support::require_value(result.claimed_order) > 0);
     REQUIRE(result.sent_frames == 0);
     options.deadline = transport::Clock::now() + 5ms;
     auto delayed = batch(2);
@@ -108,7 +109,7 @@ TEST_CASE("Owned operation moves retain registration and reject foreign-thread s
     auto operation = device->begin_operation();
     auto moved = std::move(operation);
     // A moved-from operation is specified to be empty and reject submission.
-    // NOLINTNEXTLINE(bugprone-use-after-move)
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     REQUIRE_THROWS_AS(operation.submit(batch(1)), can::ValidationError);
     auto foreign = std::async(std::launch::async, [&] {
         REQUIRE_THROWS_AS(moved.submit(batch(1)), can::ValidationError);
@@ -367,12 +368,14 @@ TEST_CASE("Session global capacity still limits independent admission domains", 
 TEST_CASE("Admission domains validate immutable limits", "[session]") {
     // Model an enum received from a runtime configuration boundary.
     volatile int invalid_enum = 99;
+    // Intentionally exercise validation of an unrecognized configuration value.
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+    const auto invalid_unit = static_cast<transport::CapacityUnit>(invalid_enum);
     REQUIRE_THROWS_AS(transport::AdmissionDomain(transport::AdmissionLimits{0, 1}),
                       can::ValidationError);
     REQUIRE_THROWS_AS(transport::AdmissionDomain(transport::AdmissionLimits{1, 0}),
                       can::ValidationError);
-    REQUIRE_THROWS_AS(transport::AdmissionDomain(transport::AdmissionLimits{
-                          1, 1, static_cast<transport::CapacityUnit>(invalid_enum)}),
+    REQUIRE_THROWS_AS(transport::AdmissionDomain(transport::AdmissionLimits{1, 1, invalid_unit}),
                       can::ValidationError);
     const transport::AdmissionDomain domain({7, 2, transport::CapacityUnit::kFrames});
     REQUIRE(domain.limits().fifo_capacity == 7);
@@ -380,6 +383,7 @@ TEST_CASE("Admission domains validate immutable limits", "[session]") {
     REQUIRE(domain.limits().fifo_unit == transport::CapacityUnit::kFrames);
     TxRig rig;
     auto invalid = endpoint("arm");
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     invalid.pending_age_scope = static_cast<transport::PendingAgeScope>(invalid_enum);
     REQUIRE_THROWS_AS(rig.session->submit(batch(1), invalid), can::ValidationError);
 }
@@ -557,6 +561,9 @@ TEST_CASE("Device final cooldown releases the writer and remains drain owned", "
     REQUIRE(rig.session->health().in_flight_frames == 1);
     REQUIRE(arm->health().oldest_pending.has_value());
     REQUIRE(arm->health().in_flight == 1);
+    rig.session->resume_endpoint("unrelated");
+    rig.session->cancel_endpoint("unrelated");
+    REQUIRE_FALSE(sent.completed());
     REQUIRE_FALSE(sent.completed());
     arm->close_until(transport::Clock::now() + 1s);
     REQUIRE(sent.completed());
@@ -643,6 +650,7 @@ TEST_CASE("Domain age and device diagnostics include native owned work", "[sessi
     profile.admission_domain = domain;
     auto first = rig.session->attach_device("first", profile);
     auto second = rig.session->attach_device("second", profile);
+    REQUIRE_THROWS_AS(rig.session->configure(config), can::ValidationError);
     REQUIRE_THROWS_AS(first->submit(batch(3)), can::ValidationError);
     rig.fake->arm_tx_gate();
     auto active = first->submit(batch(1));

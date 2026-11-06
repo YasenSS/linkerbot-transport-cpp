@@ -73,6 +73,8 @@ TEST_CASE("Discovery observation cannot consume an owner's route or receive budg
     REQUIRE(observed.received_order == normal.received_order);
     REQUIRE(second.received_order > normal.received_order);
     tap->close();
+    rig.fake->inject(received_frame(0x28));
+    REQUIRE(require_value(owner->receive_until(transport::Clock::now() + 2s)).message.id == 0x28);
     auto replacement = discovery->observe_rules({{0x20, 0x7f0, false}}, 1);
     rig.fake->inject(received_frame(0x21));
     REQUIRE(require_value(replacement->receive_until(transport::Clock::now() + 2s)).message.id ==

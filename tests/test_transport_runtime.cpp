@@ -68,6 +68,14 @@ TEST_CASE("Device rebind keeps the physical connection and invalidates the old h
         return std::make_unique<can::FakeTransport>();
     });
     const auto initial = device->health();
+    transport::DeviceSpec invalid_reset{"hand", {}};
+    volatile int invalid_policy = 99;
+    // Deliberately pass an unrecognized external configuration value.
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+    invalid_reset.channel_reset = static_cast<transport::ChannelResetPolicy>(invalid_policy);
+    REQUIRE_THROWS_AS(
+        runtime.rebind_device(spec.key, device, invalid_reset, transport::Deadline::max()),
+        can::ValidationError);
     REQUIRE_THROWS_AS(runtime.rebind_device(spec.key, {}, {"hand", {}}, transport::Deadline::max()),
                       can::ValidationError);
     REQUIRE_THROWS_AS(runtime.rebind_device(spec.key, device, {"", {}}, transport::Deadline::max()),

@@ -138,10 +138,11 @@ namespace linkerbot::transport {
             return it->second->channel.lock();
         }
     };
-    TransportRuntime::TransportRuntime() {
-        static const auto core = std::make_shared<Impl>();
-        impl_ = core;
-    }
+    TransportRuntime::TransportRuntime()
+        : impl_([] {
+              static const auto core = std::make_shared<Impl>();
+              return core;
+          }()) {}
     std::shared_ptr<DeviceSession> TransportRuntime::open_device(ChannelSpec channel,
                                                                  DeviceSpec device,
                                                                  Session::Factory factory) {
