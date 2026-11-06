@@ -81,6 +81,30 @@ def verdict(manifest, root):
             for field in contract["external_configuration"]
         ):
             errors.append(prefix + "backend external configuration is incomplete")
+        python_options = channel.get("python_options")
+        mapping = channel.get("option_mapping")
+        if not isinstance(python_options, dict) or not python_options:
+            errors.append(prefix + "resolved accepted-Python options are required")
+        elif not isinstance(mapping, dict) or set(mapping) != set(python_options):
+            errors.append(prefix + "each accepted-Python option requires an explicit mapping")
+        else:
+            for key, source_value in python_options.items():
+                rule = mapping[key]
+                try:
+                    if rule["kind"] == "native":
+                        target_value = options[rule["field"]]
+                    elif rule["kind"] == "external":
+                        target_value = external[rule["field"]]
+                    elif rule["kind"] == "backend" and key in {"interface", "backend"}:
+                        target_value = channel["backend"]
+                    elif rule["kind"] == "default" and key == "receive_own_messages":
+                        target_value = False
+                    else:
+                        raise ValueError("unknown mapping or unsupported transform")
+                    if json.dumps(source_value, sort_keys=True) != json.dumps(target_value, sort_keys=True):
+                        raise ValueError("source and resolved values differ; conversion is unproved")
+                except (KeyError, TypeError, ValueError) as error:
+                    errors.append(prefix + "option " + key + ": " + str(error))
         for field in ("adapter", "driver", "devices"):
             if not channel.get(field):
                 errors.append(prefix + field + " provenance is required")

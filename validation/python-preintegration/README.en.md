@@ -94,7 +94,11 @@ remain authoritative for legal values. In particular:
 
 Populate `deployment.template.json` from the accepted deployment without guessing
 missing values. Each channel must identify adapter/driver, devices and firmware,
-resolved native/external settings and timestamp/format dependencies. Evidence files
+resolved accepted-Python/native/external settings and timestamp/format dependencies.
+Every `python_options` key needs an `option_mapping` entry with `kind` native/external
+and its target `field`, backend selector equality, or the known false receive-own
+default. Direct mappings must preserve JSON types and values. Unmapped options and
+nontrivial conversions fail until a tested conversion contract exists. Evidence files
 must be relative to the manifest and SHA-256 checked. Each record must identify
 `kind: native-hardware`, `result: passed`, the exact native and Python revisions,
 `configuration_sha256` from `configuration_digest(platform, channel)`, and checks

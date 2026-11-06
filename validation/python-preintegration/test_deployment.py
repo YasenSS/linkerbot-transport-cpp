@@ -23,6 +23,14 @@ class DeploymentEvidence(unittest.TestCase):
                           "native_options": {"interface_name": "can0", "fd_mode": False},
                           "external_configuration": {"nominal_bitrate": 1000000,
                                                      "data_bitrate": 0, "interface_up": True},
+                          "python_options": {"interface": "socketcan", "channel": "can0",
+                                             "fd": False, "bitrate": 1000000,
+                                             "receive_own_messages": False},
+                          "option_mapping": {"interface": {"kind": "backend"},
+                                             "channel": {"kind": "native", "field": "interface_name"},
+                                             "fd": {"kind": "native", "field": "fd_mode"},
+                                             "bitrate": {"kind": "external", "field": "nominal_bitrate"},
+                                             "receive_own_messages": {"kind": "default"}},
                           "adapter": "synthetic", "driver": "synthetic",
                           "devices": [{"model": "synthetic", "serial": "test",
                                        "firmware": "test", "wire_identity": "0x27"}],
@@ -114,6 +122,23 @@ class DeploymentEvidence(unittest.TestCase):
 
     def test_unspecified_feature_dependencies(self):
         del self.manifest["channels"][0]["requires_hardware_timestamp"]
+        self.reseal_configuration()
+        self.check_rejected()
+
+    def test_dropped_python_option(self):
+        self.manifest["channels"][0]["python_options"]["driver_specific"] = "unmapped"
+        self.reseal_configuration()
+        self.check_rejected()
+
+    def test_incorrect_parameter_mapping(self):
+        self.manifest["channels"][0]["python_options"]["bitrate"] = 500000
+        self.reseal_configuration()
+        self.check_rejected()
+
+    def test_unsupported_default_mapping(self):
+        channel = self.manifest["channels"][0]
+        channel["python_options"]["driver_specific"] = False
+        channel["option_mapping"]["driver_specific"] = {"kind": "default"}
         self.reseal_configuration()
         self.check_rejected()
 

@@ -2181,7 +2181,7 @@ namespace linkerbot::transport {
         if ((current_writer() != nullptr) || can::CANDispatcher::is_any_receive_thread()) {
             throw can::ValidationError("session lifecycle requires an external caller");
         }
-        std::lock_guard<std::mutex> lifecycle(p.lifecycle);
+        std::lock_guard<std::mutex> lifecycle_lock(p.lifecycle);
         {
             std::lock_guard<std::mutex> lock(p.mutex);
             p.stopping = true;

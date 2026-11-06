@@ -90,7 +90,7 @@ jobs:
       - name: Build and install native CAN library
         run: |
           cmake -S . -B build/proof-native -A ${{ matrix.arch }} `
-            '-DCMAKE_CXX_FLAGS=/W4 /WX' `
+            '-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /W4 /GR /EHsc /WX' `
             -DLINKERBOT_TRANSPORT_BUILD_TESTS=OFF `
             -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=OFF `
             -DLINKERBOT_TRANSPORT_ENABLE_SERIAL=OFF `
@@ -103,7 +103,7 @@ jobs:
       - name: Build isolated CPython probe and run subprocess proofs
         run: |
           cmake -S validation/python-preintegration -B build/proof-python -A ${{ matrix.arch }} `
-            '-DCMAKE_CXX_FLAGS=/W4 /WX' `
+            '-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /W4 /GR /EHsc /WX' `
             -DCMAKE_PREFIX_PATH="$PWD/build/proof-install" `
             -DPython3_EXECUTABLE='${{ steps.python.outputs.python-path }}'
           if ($LASTEXITCODE) { exit $LASTEXITCODE }

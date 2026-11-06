@@ -61,7 +61,8 @@ ctest --test-dir build/proof-python -C Release --output-on-failure
 - vendor `frame_type` 是保留但不应用的旧字段，不能记为已生效的发送配置。
 
 按已经验收的 Python 部署填写 `deployment.template.json`，不猜测缺失值。记录精确修订号、平台、
-通道、适配器/驱动、型号/序列号/固件、wire identity、展开后的参数和元数据依赖。原生实机记录
+通道、适配器/驱动、型号/序列号/固件、wire identity、展开后的 Python/原生/外部参数和元数据依赖。`python_options` 的每个字段均需
+`option_mapping`，直接映射必须保持 JSON 类型及值；未映射参数或未验证的转换不能通过。原生实机记录
 需绑定完全一致的版本、配置摘要和身份/收发/共享生命周期/恢复/关闭结果。格式见英文说明。
 
 ```sh
