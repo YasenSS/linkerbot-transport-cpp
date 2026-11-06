@@ -182,6 +182,8 @@ TEST_CASE("Explicit frame formats preserve backend defaults and reject conflicts
     message.is_fd = false;
     message.is_brs = false;
     REQUIRE(linkerbot::can::resolve_tx_flags_with_default(LinkKind::kCanFd, message, false).is_fd);
+    // Deliberately invalid input for the rejection test.
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     message.format = static_cast<FrameFormat>(-1);
     REQUIRE_THROWS_AS(resolve_tx_flags(LinkKind::kCanFd, message), ValidationError);
 }

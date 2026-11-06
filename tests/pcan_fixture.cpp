@@ -135,6 +135,8 @@ API CAN_SetValue(uint16_t ch, uint8_t parameter, void *buffer, uint32_t size) {
     values[25] = *static_cast<uint32_t *>(buffer);
     return 0;
 }
+// The handle/parameter widths and order are prescribed by the PCAN-Basic C ABI.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 API CAN_GetValue(uint16_t ch, uint8_t parameter, void *buffer, uint32_t size) {
     std::unique_lock<std::mutex> lock(mutex);
     ++values[7];

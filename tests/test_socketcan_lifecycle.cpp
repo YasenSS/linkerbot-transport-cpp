@@ -435,6 +435,8 @@ TEST_CASE("SocketCAN receive-own configuration reaches a real CAN socket", "[soc
     CHECK((flags & SOF_TIMESTAMPING_RAW_HARDWARE) != 0);
     CHECK((flags & SOF_TIMESTAMPING_RX_HARDWARE) != 0);
     SocketCANOptions options;
+    // Deliberately invalid input for the rejection test.
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     options.timestamp_mode = static_cast<SocketCANTimestampMode>(-1);
     REQUIRE_THROWS_AS(SocketCANTransport(options, "can0"), ValidationError);
 }

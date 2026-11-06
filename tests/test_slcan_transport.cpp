@@ -481,6 +481,8 @@ TEST_CASE("SLCAN explicit formats preserve classic defaults and reject unsupport
     message.format = FrameFormat::kFd;
     CHECK(encode_slcan_frame(message, SlcanProtocol::kCanableFd) == "d1230\r");
     REQUIRE_THROWS_AS(encode_slcan_frame(message), ValidationError);
+    // Deliberately invalid input for the rejection test.
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     message.format = static_cast<FrameFormat>(-1);
     REQUIRE_THROWS_AS(encode_slcan_frame(message, SlcanProtocol::kCanableFd), ValidationError);
     SlcanConfig config;

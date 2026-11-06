@@ -154,7 +154,10 @@ TEST_CASE("Session rejects invalid explicit formats before replacing a latest ta
     options.family = "target";
     auto old = rig.session->submit(edge_batch(2), options);
     const auto before = rig.session->health();
-    for (const auto format : {can::FrameFormat::kClassic, static_cast<can::FrameFormat>(-1)}) {
+    // Deliberately invalid input for the admission rollback test.
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+    const auto invalid = static_cast<can::FrameFormat>(-1);
+    for (const auto format : {can::FrameFormat::kClassic, invalid}) {
         auto batch = edge_batch(3);
         batch.frames[0].format = format;
         batch.frames[0].dlc = 9;

@@ -34,7 +34,7 @@ namespace linkerbot::can {
     // driver completion or imply that a failed write sent no frame.
     inline constexpr long kSocketCANSendTimeoutUs = 50000;
 
-    enum class SocketCANTimestampMode { kDisabled, kSoftware, kHardware };
+    enum class SocketCANTimestampMode : int { kDisabled, kSoftware, kHardware };
     struct SocketCANOptions {
         bool fd_mode = false;
         bool receive_own_messages = false;

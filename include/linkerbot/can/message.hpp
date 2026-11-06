@@ -11,7 +11,7 @@ namespace linkerbot::can {
     inline constexpr size_t kMaxDataLen = 64;
 
     // Unspecified preserves each backend's existing untagged-frame behavior.
-    enum class FrameFormat { kUnspecified, kClassic, kFd };
+    enum class FrameFormat : int { kUnspecified, kClassic, kFd };
     enum class TimestampClock { kDevice, kSystemRealtime, kVendorRaw };
     enum class TimestampUnit { kNanoseconds, kMicroseconds, kRawTicks };
     enum class TimestampSource { kHardware, kSoftware, kDriver };
