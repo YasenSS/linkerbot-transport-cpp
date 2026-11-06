@@ -225,6 +225,72 @@ namespace {
             session->close();
             return success;
         });
+        sweep("device receipt ownership", [&](int index) {
+            auto backend = std::make_unique<can::FakeTransport>();
+            auto *raw = backend.get();
+            auto session = transport::Session::own(std::move(backend));
+            auto device = session->attach_device("receipt-proof");
+            struct ReleaseGate {
+                can::FakeTransport *backend;
+                ~ReleaseGate() {
+                    backend->release_tx_gate();
+                }
+            } release{raw};
+            const transport::MessageBatch request{{can::Message{}}};
+            raw->arm_tx_gate();
+            auto active = device->submit(request);
+            require(raw->wait_until_tx_entered(std::chrono::seconds(2)));
+            transport::SendOptions latest;
+            latest.policy = transport::SendPolicy::latest;
+            latest.family = "target";
+            auto old = device->submit(request, latest);
+            transport::SendReceipt durable;
+            bool accepted = false;
+            countdown = index;
+            try {
+                durable = device->submit(request, latest);
+                accepted = true;
+            } catch (const std::bad_alloc &) {
+                require(countdown == -1);
+            }
+            countdown = -1;
+            require(session->health().accepted == (accepted ? 3u : 2u));
+            require(session->health().pending_tx == 2);
+            if (accepted) {
+                require(old.result().outcome == transport::SendOutcome::superseded);
+                // A later wrapper allocation fails, but the pre-existing owner keeps
+                // the accepted receipt. No payload is re-enqueued or replayed.
+                struct ReceiptWrapper {
+                    transport::SendReceipt receipt;
+                    std::shared_ptr<transport::DeviceSession> device;
+                };
+                // Include the device owner, as a bridge wrapper does. A receipt-only
+                // allocation shares MSVC Debug's excluded iterator-proxy size class.
+                countdown = 0;
+                try {
+                    auto wrapper =
+                        std::make_unique<ReceiptWrapper>(ReceiptWrapper{durable, device});
+                    (void)wrapper->receipt.completed();
+                    require(false);
+                } catch (const std::bad_alloc &) {
+                    require(countdown == -1);
+                }
+                countdown = -1;
+            } else {
+                require(old.result().outcome == transport::SendOutcome::pending);
+            }
+            raw->release_tx_gate();
+            active.wait();
+            if (accepted) {
+                durable.wait();
+            } else {
+                old.wait();
+            }
+            require(raw->sent().size() == 2);
+            device->close_until(transport::Deadline::max());
+            session->close();
+            return accepted;
+        });
         sweep("latest replacement admission", [&](int index) {
             auto backend = std::make_unique<can::FakeTransport>();
             auto *raw = backend.get();

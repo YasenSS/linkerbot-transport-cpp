@@ -1,0 +1,94 @@
+{
+  "scope": "Source/API inventory, not hardware acceptance or a Python adapter",
+  "hardware_timestamp_supported": false,
+  "backends": {
+    "socketcan": {
+      "platforms": [
+        "Linux"
+      ],
+      "source": "include/linkerbot/can/socketcan_transport.hpp",
+      "native_options": [
+        "interface_name",
+        "fd_mode"
+      ],
+      "external_configuration": [
+        "nominal_bitrate",
+        "data_bitrate",
+        "interface_up"
+      ]
+    },
+    "pcan": {
+      "platforms": [
+        "Linux",
+        "Windows"
+      ],
+      "source": "include/linkerbot/can/pcan_transport.hpp",
+      "native_options": [
+        "channel",
+        "mode",
+        "nominal_bitrate",
+        "data_bitrate",
+        "fd_timing",
+        "library_path",
+        "receive_timeout_ms"
+      ],
+      "external_configuration": [
+        "driver_version",
+        "library_sha256"
+      ]
+    },
+    "slcan": {
+      "platforms": [
+        "Linux",
+        "Windows"
+      ],
+      "source": "include/linkerbot/can/slcan_transport.hpp",
+      "native_options": [
+        "port",
+        "serial_baud",
+        "nominal_bitrate",
+        "fd",
+        "brs",
+        "receive_timeout_ms",
+        "command_timeout_ms",
+        "protocol",
+        "data_bitrate",
+        "startup_delay_ms"
+      ],
+      "external_configuration": [
+        "adapter_firmware",
+        "serial_driver"
+      ]
+    },
+    "vendor_canfd": {
+      "platforms": [
+        "Linux",
+        "Windows"
+      ],
+      "source": "include/linkerbot/can/vendor_canfd_transport.hpp",
+      "native_options": [
+        "device_index",
+        "channel_index",
+        "library_path",
+        "nom_baud",
+        "dat_baud",
+        "config_flags",
+        "model",
+        "cantype",
+        "send_timeout_ms",
+        "receive_timeout_ms"
+      ],
+      "external_configuration": [
+        "driver_version",
+        "library_sha256",
+        "adapter_firmware"
+      ],
+      "ignored_legacy_fields": {
+        "frame_type": "Kept for aggregate compatibility; not applied to TX or CANFD_Init. Per-frame flags need an explicit conversion."
+      }
+    }
+  },
+  "explicit_classic_on_fd_supported": false,
+  "receive_own_messages_option_supported": false,
+  "frame_flags_source": "include/linkerbot/can/frame.hpp: resolve_tx_flags treats untagged false/false on an FD link as FD without BRS"
+}
