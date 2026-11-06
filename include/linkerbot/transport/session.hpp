@@ -122,7 +122,9 @@ namespace linkerbot::transport {
 
     enum class CapacityUnit { kBatches, kFrames };
     enum class DeadlinePolicy { kExecution, kStartOnly, kDispatchStart };
-    enum class PendingAgeScope { kSession, kEndpoint, kAdmissionDomain };
+    // Keep existing numeric values. Resolve kDefault at the submission boundary:
+    // whole Session for legacy callers, device endpoint for DeviceSession callers.
+    enum class PendingAgeScope { kSession, kEndpoint, kAdmissionDomain, kDefault };
 
     struct AdmissionLimits {
         size_t fifo_capacity = 2000;
@@ -177,7 +179,7 @@ namespace linkerbot::transport {
         std::optional<uint64_t> expected_generation = std::nullopt;
         std::optional<std::chrono::microseconds> max_pending_age = std::nullopt;
         DeadlinePolicy deadline_policy = DeadlinePolicy::kExecution;
-        PendingAgeScope pending_age_scope = PendingAgeScope::kSession;
+        PendingAgeScope pending_age_scope = PendingAgeScope::kDefault;
         std::shared_ptr<const AdmissionDomain> admission_domain = nullptr;
     };
 

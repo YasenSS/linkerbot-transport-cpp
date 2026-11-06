@@ -200,6 +200,8 @@ priority 加等待老化、较早 deadline、较久未服务的 endpoint 和队�
 `max_pending_age` 是可选的正时长。等待或已领取任务中最早接受的任务达到该年龄时，准入抛
 `TimeoutError`。这与新任务自身的 deadline 不同。按需要用于运动目标，不应自动套用到所有
 生命周期或配置写入。`health().oldest_pending_age` 包括已领取任务；FIFO/latest 等待量不包括它。
+`PendingAgeScope::kDefault` 在这些入口解析为整个 Session，在 DeviceSession 解析为设备 endpoint。
+显式作用域按指定范围执行；共享额度域行为见[设备会话](device-sessions.md)。
 
 `deadline_policy=DeadlinePolicy::kExecution` 保留物理发送锁等待和帧间等待期间的检查。
 `DeadlinePolicy::kStartOnly` 保留排队、锁等待和首帧延迟检查，在第一次进入后端写入后不再

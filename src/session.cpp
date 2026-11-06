@@ -1605,6 +1605,9 @@ namespace linkerbot::transport {
         if (options.max_pending_age && options.max_pending_age->count() <= 0) {
             throw can::ValidationError("pending age must be positive");
         }
+        if (options.pending_age_scope == PendingAgeScope::kDefault) {
+            options.pending_age_scope = PendingAgeScope::kSession;
+        }
         if (options.pending_age_scope != PendingAgeScope::kSession &&
             options.pending_age_scope != PendingAgeScope::kEndpoint &&
             options.pending_age_scope != PendingAgeScope::kAdmissionDomain) {
@@ -1808,7 +1811,7 @@ namespace linkerbot::transport {
         }
         options.endpoint = state_->endpoint;
         options.expected_generation = state_->generation;
-        if (options.pending_age_scope == PendingAgeScope::kSession) {
+        if (options.pending_age_scope == PendingAgeScope::kDefault) {
             options.pending_age_scope = PendingAgeScope::kEndpoint;
         }
         if (state_->options.admission_domain) {

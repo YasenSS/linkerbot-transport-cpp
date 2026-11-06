@@ -242,7 +242,9 @@ submitting into a newly recovered connection. It does not verify device identity
 the oldest accepted waiting or claimed task has reached that age. This is distinct from a
 new task's deadline. Apply it to motion targets when required, rather than automatically to
 lifecycle/configuration writes. `health().oldest_pending_age` includes claimed work; the
-FIFO/latest pending gauges exclude it.
+FIFO/latest pending gauges exclude it. `PendingAgeScope::kDefault` selects the whole Session
+for these entry points and the local endpoint for DeviceSession. Explicit scope selections
+are preserved; see [device sessions](device-sessions.md) for shared-domain behavior.
 
 `deadline_policy=DeadlinePolicy::kExecution` retains checks while waiting for the physical lock
 and between frames. `DeadlinePolicy::kStartOnly` retains queue, lock and initial-delay checks,

@@ -4,6 +4,8 @@
 
 ## 未发布
 
+- 修正设备提交中显式全 Session 队龄检查被改写的问题；新增 `PendingAgeScope::kDefault`，保留设备局部与旧 Session 全局默认行为、既有枚举值和签名，增加作用域、已登记操作、替换、cooldown 及安装消费者回归。
+
 - 补齐 Runtime 共享连接、设备 rebind 与协调恢复、已登记操作收尾、设备节拍与错误阈值、掩码路由及有界发现观察；复用 Session writer，保留旧 C++ 默认行为，增加生命周期、分配失败回滚及安装消费者回归。
 
 - 新增逻辑设备句柄，拥有独立 inbox、绑定 generation 的发送入口及可重试排空，复用原 Session writer；新增共享准入额度域及可选 endpoint 局部队龄检查，保留旧默认行为。

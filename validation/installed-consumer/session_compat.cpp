@@ -5,6 +5,7 @@
 #include <linkerbot/transport/session.hpp>
 #include <memory>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 namespace {
@@ -23,6 +24,35 @@ namespace {
             backend->release_tx_gate();
         }
     };
+
+    void run_device_age_consumer() {
+        auto backend = std::make_unique<can::FakeTransport>();
+        auto *fake = backend.get();
+        auto session = transport::Session::own(std::move(backend));
+        auto peer = session->attach_device("peer");
+        auto device = session->attach_device("device");
+        const ReleaseGate release{fake};
+        fake->arm_tx_gate();
+        const transport::MessageBatch single{{can::Message{}}};
+        auto active = peer->submit(single);
+        check(fake->wait_until_tx_entered(2s), "installed device writer did not enter gate");
+        std::this_thread::sleep_for(2ms);
+        transport::SendOptions options;
+        options.max_pending_age = 1us;
+        options.pending_age_scope = transport::PendingAgeScope::kSession;
+        bool rejected = false;
+        try {
+            (void)device->submit(single, options);
+        } catch (const can::TimeoutError &) {
+            rejected = true;
+        }
+        check(rejected, "installed device ignored explicit Session age scope");
+        options.pending_age_scope = transport::PendingAgeScope::kDefault;
+        auto accepted = device->submit(single, options);
+        fake->release_tx_gate();
+        active.wait();
+        accepted.wait();
+    }
 
     void run_consumer() {
         auto backend = std::make_unique<can::FakeTransport>();
@@ -100,6 +130,7 @@ namespace {
 int main() {
     try {
         run_consumer();
+        run_device_age_consumer();
         std::cout << "Installed Session compatibility APIs passed\n";
         return 0;
     } catch (const std::exception &error) {

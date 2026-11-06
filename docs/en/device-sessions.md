@@ -22,7 +22,7 @@ An `AdmissionDomain` is immutable accounting identity, not another queue. Share 
 
 `SessionOptions::domain_round_robin` selects an eligible domain by least recent service before ranking its jobs. It is opt-in for mixed deployments. FIFO work retains device ordering. `max_batch_frames` bounds a claimed atomic batch; zero retains the legacy unlimited batch size. Deployment configuration must choose aggregate budgets and batch limits explicitly.
 
-Device pending-age checks default to the device endpoint and include queued, writing and final-cooldown work. `PendingAgeScope::kAdmissionDomain` explicitly checks the shared domain. Legacy Session submissions retain the whole-Session default.
+`SendOptions::pending_age_scope` defaults to `PendingAgeScope::kDefault`: it resolves to the device endpoint through DeviceSession and to the whole Session through legacy Session entry points. Explicit `kSession`, `kEndpoint` and `kAdmissionDomain` selections are honored; domain scope requires an admission domain. Checks include queued, writing and final-cooldown work in the selected scope. Existing enum values and default admission behavior are unchanged; the default field value is now the added `kDefault` enumerator. Code that explicitly set `kSession` on a device now checks the whole Session rather than being rewritten to endpoint scope.
 
 Device `send_period` measures each successful frame from dispatch attempt entry. It disables native batch merging, retains the atomic boundary within a batch, and releases the writer during the final cooldown so another device can send. The same Job remains owned until completion; drain and pending-age accounting include it. Device and legacy Session periods cannot be combined.
 

@@ -22,7 +22,7 @@
 
 `domain_round_robin` 为混合通道提供显式跨 domain 轮转，再执行域内排序。设备 FIFO 保持顺序。`max_batch_frames` 限制单个原子批次，零保留旧式不限制行为。部署必须明确给出总容量、批次上限和拓扑。
 
-设备默认队龄检查只包含自身 queued、writing 和最终 cooldown；显式 `kAdmissionDomain` 检查共享额度域。旧 Session 提交保留全 Session 默认作用域。
+`SendOptions::pending_age_scope` 默认值为新增的 `PendingAgeScope::kDefault`：通过 DeviceSession 提交时解析为本设备 endpoint，通过旧 Session 入口提交时解析为整个 Session。显式 `kSession`、`kEndpoint` 和 `kAdmissionDomain` 按指定范围检查，domain 作用域要求提供额度域。检查包含相应范围的 queued、writing 和最终 cooldown。既有枚举数值与默认准入行为不变；字段默认枚举值改为 `kDefault`。设备调用方显式设置的 `kSession` 现在检查整个 Session，不再被改写为 endpoint。
 
 设备 `send_period` 从每帧 dispatch attempt 入口计时，禁用原生批次合并，批次内部保持原子边界。最终帧 cooldown 释放 writer，使其他设备可发送；同一个 Job 仍由原生层保留，排空和队龄统计继续计入。设备周期不能与旧 Session 周期同时配置。
 
