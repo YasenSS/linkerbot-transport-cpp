@@ -297,7 +297,7 @@ namespace linkerbot::transport {
                                                      size_t capacity = 512);
         // Configure before the first route registration or accepted send. Unmatched RX is allowed.
         // Must be fast, non-blocking and non-reentrant; runs under the state lock.
-        // Empty restores exact ID/format routing. Failures drop only that frame.
+        // Empty restores exact ID/extended-flag routing. Failures drop only that frame.
         void set_route_key_extractor(std::function<RouteKey(const can::Message &)> extractor);
         [[nodiscard]] std::shared_ptr<ChangeSignal> notification() const;
         void update_routes(const std::shared_ptr<RouteInbox> &inbox,

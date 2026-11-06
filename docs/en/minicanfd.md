@@ -94,6 +94,7 @@ confirm indices, bitrates and vendor fields against enumeration and vendor docum
 | `frame_type` | `0x04`; retained for aggregate-initialization source compatibility only; unused by TX or `CANFD_Init` |
 | `send_timeout_ms` | 10 ms, accepts 0–100 ms |
 | `receive_timeout_ms` | 10 ms, accepts 0–10 ms |
+| `receive_own_messages` | `false`; `true` is rejected before library loading or channel initialization |
 | Native receive buffer per call | Requests at most 64 frames |
 | Native send batch per call | At most 100 frames |
 
@@ -101,7 +102,11 @@ Default arbitration/data rates are 1 Mbit/s / 5 Mbit/s. Standard/extended IDs, F
 handled per message. Untagged messages on an FD Transport retain the existing FD-without-BRS
 behavior. The upper-layer device protocol selects IDs and BRS; the Transport does not infer flags
 from model names. `Message.dlc` counts 0–64 bytes and is converted to the vendor's 0–15 DLC code.
-Unrepresentable lengths round up and are zero-padded. `Config::frame_type` does not override send flags.
+Unrepresentable lengths round up and are zero-padded. `Config::frame_type` does not override send flags. Set `Message::format` to
+`FrameFormat::kClassic` for an explicit classic frame on the FD channel, with at most
+eight bytes and no FD/BRS flags. Receive timestamps preserve the raw 32-bit vendor
+counter; units, epoch and wrap extension are not inferred. Direction remains unknown,
+and receive-own opt-in is unsupported by this ABI. See [CAN metadata](can-metadata.md).
 
 A direct `write_batch()` call with more than 100 frames synchronously throws `ValidationError`.
 When Session selects a native batch with `gap=0`, it passes the entire `MessageBatch` to that

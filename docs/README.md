@@ -2,7 +2,9 @@
 
 This index and the [English](../README.md) and [Chinese](../README.zh-CN.md) READMEs describe the
 current implementation. Each guide has an English and a Chinese edition.
-Historical hardware statements are separated in the validation guide.
+Historical hardware statements are separated in the validation guide. Source guides
+include the Changelog's Unreleased APIs; published SDKs must be checked against their
+matching tag, headers and bundled documentation, rather than the version number alone.
 
 ## English guides
 
@@ -17,6 +19,8 @@ require parameters confirmed for the actual hardware; offline CI does not run th
 - [Windows builds and standalone packages](en/windows-build.md)
 - [Public API, threading and ownership](en/api.md)
 - [Session, routing and lifecycle](en/session.md)
+- [Per-device sessions and shared Runtime](en/device-sessions.md)
+- [CAN frame selection, timestamps and receive-own messages](en/can-metadata.md)
 - [Serial byte streams and Modbus RTU](en/modbus-rtu.md)
 - Backends: [SocketCAN](en/socketcan.md), [MiniCANFD](en/minicanfd.md),
   [PCAN](en/pcan.md), [SLCAN](en/slcan.md)
@@ -32,7 +36,8 @@ commands or validation scope must update both editions together. Keep identifier
 and fixed-commit evidence unchanged when translating. Historical translations belong
 under `docs/archive/`, with a historical-status notice and a link to this index.
 
-本索引对应当前源码。先完成 FakeTransport 的离线构建和接入，再选择真实后端。
+本索引对应当前源码，包含 Changelog 的 Unreleased 接口；已发布 SDK 应核对对应标签、头文件
+和随包文档，不能只按版本号推定包含所有新能力。先完成 FakeTransport 的离线构建和接入，再选择真实后端。
 文档中的真实设备示例需要按已确认的硬件参数调整，不会由离线 CI 自动执行。
 
 ## 维护状态
@@ -57,6 +62,8 @@ under `docs/archive/`, with a historical-status notice and a link to this index.
 
 - [公共 API 与线程/所有权契约](zh/api.md)：帧、传输层、Dispatcher、共享总线、Pool、取消和测试替身。
 - [Session、路由与生命周期](zh/session.md)：所有权、回执、共享、取消和恢复。
+- [每设备会话与共享 Runtime](zh/device-sessions.md)：独立生命周期与单发送器。
+- [CAN 帧格式与接收元数据](zh/can-metadata.md)：显式经典/FD、时间戳及回显限制。
 - [通用串口与 Modbus RTU](zh/modbus-rtu.md)：独立模块、寄存器事务、方向控制及恢复边界。
 - [SocketCAN](zh/socketcan.md)：Linux 网络接口、Classic/FD、超时及权限。
 - [MiniCANFD](zh/minicanfd.md)：平台 ABI、厂商库、枚举及资源重试。

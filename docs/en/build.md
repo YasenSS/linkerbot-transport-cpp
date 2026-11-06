@@ -267,8 +267,9 @@ The separate `C++ Report Card` workflow runs
 [cppreportcard-action](https://github.com/soulteary/cppreportcard-action) v1.0.2,
 pinned to a full commit SHA, on Linux ARM64. It runs clang-format 18, clang-tidy 18
 and Cppcheck in `full` mode after building the project, quickstart, installed
-consumer and shared-library consumer. Their four compilation databases are combined
-so the standalone consumers are analyzed with the main project's sources and tests.
+consumer, shared-library consumer and installed-library Python validation probe.
+Their five compilation databases are combined so all standalone consumers and the
+probe are analyzed with the main project's sources and tests.
 
 The configuration is `.cppreportcard.json`. Platform-dependent exclusions are
 `tests/vendor_fixture_dependency.cpp` (Windows-only), `validation/pcan_header_abi.cpp`
@@ -281,7 +282,10 @@ The report uses `clang-analyzer-*` and `bugprone-*`; it does not replace the
 existing style workflow's different rule set or platform checks.
 
 `validation/prepare-report-db.py` merges the databases and exposes project
-`-isystem` directories as `-I` directories for Cppcheck. Through
+`-isystem` directories as `-I` directories for Cppcheck. The workflow also records
+the compiler's actual target macros. Cppcheck preincludes the installed multiarch
+Python configuration to traverse CPython's same-name forwarding header; no probe
+source or preprocessor error is excluded. Through
 `validation/cppcheck-report.sh`, Cppcheck uses its `std` library model and
 `validation/catch2-cppcheck.cfg` for the Catch2 macros used by the project.
 The wrapper suppresses only

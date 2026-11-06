@@ -42,7 +42,7 @@ SDK 在关闭前用 `begin_operation()` 登记已有工作。可移动的 `Devic
 
 ## 路由、发现与诊断
 
-`subscribe_routes()` 注册精确 ID 和帧格式，`subscribe_rules()` 注册掩码范围，支持 A7 Lite 扩展 ID。始终交付原始帧，逻辑 key 单独记录。按实际 wire 范围拒绝精确与掩码的重叠，整组注册在分配失败后回滚。掩码规则不能与旧全局 extractor 混用。
+`subscribe_routes()` 注册精确 ID 和标准/扩展 ID 标志，`subscribe_rules()` 注册掩码范围，支持 A7 Lite 扩展 ID。始终交付原始帧，逻辑 key 单独记录。按实际 wire 范围拒绝精确与掩码的重叠，整组注册在分配失败后回滚。掩码规则不能与旧全局 extractor 混用。
 
 `observe_rules(rules, capacity)` 提供显式、有界、只读的发现观察。它不占用普通路由所有权或普通接收总容量，原始 owner 优先收到自己的帧；观察流满时仅丢弃其观察副本。发现请求发送仍使用设备的同一 writer。观察 inbox 的容量与丢弃情况通过自身 health 查看。
 
@@ -50,4 +50,4 @@ SDK 在关闭前用 `begin_operation()` 登记已有工作。可移动的 `Devic
 
 通道 health 包含路由数、普通接收积压与高水位、已路由帧、过期帧、额度拒绝和关闭丢弃。设备 health 包含准入、generation、instance、已登记操作、错误连续计数、等待 FIFO 帧/latest 槽、in-flight Job 和最老工作。设备故障原因由 inbox 保留，旧式 inbox 的关闭异常约定不变。
 
-本次不交付 Python 绑定、Future 执行、协议事务、hand/arm SDK 接入或电机安全政策。硬件时间戳和任意 Python 插件后端仍需各自兼容实现。软件 fake 测试不代表实机、固件与驱动已验收；部署继续遵循迁移方案的型号、驱动和拓扑验收要求。
+本次不交付 Python 绑定、Future 执行、协议事务、hand/arm SDK 接入或电机安全政策。原生接收时间戳和后端回显选项见 [CAN 元数据说明](can-metadata.md)；任意 Python 插件后端不自动获得原生支持。软件 fake 测试不代表实机、固件与驱动已验收；部署继续遵循迁移方案的型号、驱动和拓扑验收要求。

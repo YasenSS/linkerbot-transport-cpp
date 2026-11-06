@@ -95,6 +95,10 @@ The parser supports fragmented and concatenated serial input. Incomplete lines a
 requests at most 256 bytes. Invalid ASCII, BEL, overlong lines, queue overflow, send failure and
 serial ACK timeout enter the faulted state. Close and reconstruct the transport to avoid using
 a late ACK. RTR, timestamp suffixes and command echo are unsupported.
+`SlcanConfig::receive_own_messages` defaults to false; true is rejected before serial
+initialization. No receive timestamp or direction is synthesized. `Message::format`
+can select classic/FD explicitly within the configured profile and link capability;
+see [CAN metadata](can-metadata.md).
 
 Windows uses exclusive `CreateFileW`, 8N1, no software/hardware flow control, disabled DTR/RTS,
 and overlapped I/O / CancelIoEx. After cancellation it waits for OS completion before freeing

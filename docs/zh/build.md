@@ -237,8 +237,9 @@ env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_pa
 
 独立的 `C++ Report Card` 工作流在 Linux ARM64 上运行固定完整提交 SHA 的
 [cppreportcard-action](https://github.com/soulteary/cppreportcard-action) v1.0.2。
-构建项目、quickstart、安装后消费者和共享库消费者后，合并四份编译数据库，以 `full`
-模式运行 clang-format 18、clang-tidy 18 和 Cppcheck，覆盖主工程源码、测试及独立消费者。
+构建项目、quickstart、安装后消费者、共享库消费者和使用安装库的 Python 验证模块后，
+合并五份编译数据库，以 `full` 模式运行 clang-format 18、clang-tidy 18 和 Cppcheck，
+覆盖主工程源码、测试、独立消费者和验证模块。
 
 配置位于 `.cppreportcard.json`。平台依赖排除项包括 Windows 专用文件
 `tests/vendor_fixture_dependency.cpp`、需要厂商头文件的 `validation/pcan_header_abi.cpp`，
@@ -249,7 +250,9 @@ env TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:external_symbolizer_pa
 或平台验证。
 
 `validation/prepare-report-db.py` 合并编译数据库，并将项目的 `-isystem` 目录显式表示为
-`-I`，供 Cppcheck 使用。`validation/cppcheck-report.sh` 让 Cppcheck 使用 `std` 标准库模型，
+`-I`，供 Cppcheck 使用。工作流同时记录编译器的实际目标宏，并让 Cppcheck 预包含已安装的
+多架构 Python 配置头，以解析 CPython 同名转发头；不排除验证模块源码或预处理错误。
+`validation/cppcheck-report.sh` 让 Cppcheck 使用 `std` 标准库模型，
 并通过 `validation/catch2-cppcheck.cfg` 为项目使用的 Catch2 宏建模。
 包装脚本仅抑制 `missingIncludeSystem`：编译器标准库头文件不是 Cppcheck 的分析输入。
 完整模式中的 clang-tidy 仍检查每个编译单元的缺失头文件，包括尖括号形式的项目头文件；

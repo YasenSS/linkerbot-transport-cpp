@@ -50,7 +50,9 @@ namespace linkerbot::can {
         // and in-flight I/O coordination without a physical CAN interface.
         // Takes ownership of fd; SO_RCVTIMEO/SO_SNDTIMEO are applied same as
         // the production constructor (both are generic socket options, not
-        // CAN-specific, so they also apply to a socketpair fd).
+        // CAN-specific, so they also apply to a socketpair fd). Optional timestamp
+        // mode is applied; receive-own opt-in requires an actual CAN socket.
+        // The existing false/disabled defaults leave those options unchanged.
         struct AdoptFd {
             int fd = -1;
             bool fd_mode = false;
@@ -281,7 +283,7 @@ namespace linkerbot::can {
                 // number, so it can never be reused by unrelated code while a
                 // syscall might still reference it (R18). The mutex is only
                 // held for this bookkeeping, never across the blocking
-                // read()/write() syscalls themselves, so a slow write cannot
+                // recvmsg()/write() syscalls themselves, so a slow write cannot
                 // starve RX (or vice versa).
                 io_cv_.wait(lock, [this] { return in_flight_ == 0; });
                 const int fd = fd_;
@@ -320,7 +322,7 @@ namespace linkerbot::can {
 
       private:
         // Bookkeeping-only RAII guard: reserves the fd for the duration of
-        // one read()/write() syscall so close() cannot free (and let
+        // one recvmsg()/write() syscall so close() cannot free (and let
         // something else reuse) the fd number while that syscall is still
         // outstanding. Never held across the blocking syscall itself.
         class IoInFlightGuard {

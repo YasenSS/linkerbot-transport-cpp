@@ -94,9 +94,11 @@ preserves the original registration on conflict.
 `submit(batch, options)` enqueues and immediately returns `transport::SendReceipt`; a full
 queue throws `QueueFullError`. By default, capacity counts waiting batches, not the executing batch;
 SDK options below can instead count FIFO frames and separate latest slots.
-There is no global bound on frames per batch or total route groups, so a bounded queue
-does not bound total memory. Applications must also limit batch sizes, submission rate
-and total routes. `send(batch, options)` submits then waits through the same scheduler.
+By default there is no global bound on batch frames or registered route keys.
+Configure `SessionOptions::max_batch_frames`, `max_route_keys` and `max_pending_rx`
+to add those limits; zero retains the unbounded legacy behavior. Queue capacity
+alone does not bound total memory. Applications must also bound submission rate
+and inbox capacities. `send(batch, options)` submits then waits through the same scheduler.
 
 Submission validates the batch before enqueueing. An already-cancelled token, an already-expired
 deadline or closed session throws synchronously, without returning a receipt. Backend-specific
@@ -113,7 +115,7 @@ Use explicit endpoints: `cancel_endpoint("")` matches unnamed tasks and does not
 one particular device. Backends supporting native batching may combine sends with no gap.
 MiniCANFD accepts at most 100 frames in one native batch; exceeding this with `gap=0`
 completes the receipt as failed. See [MiniCANFD](minicanfd.md). Other backends may impose
-driver-specific limits; Session's lack of a global frame limit does not imply unlimited backend capacity.
+driver-specific limits; a zero `max_batch_frames` limit does not imply unlimited backend capacity.
 
 `SendOptions.deadline` is an absolute monotonic-clock time. The default execution policy covers queueing, transmit-lock
 waiting and inter-frame waits. `cancellation` cancels unfinished tasks; `cancel_endpoint(name)`
@@ -293,7 +295,7 @@ count as backend write failures.
 `set_route_key_extractor()` accepts a native function that maps a received `can::Message` to
 a `RouteKey`. Configure it before the first successful route registration or accepted send. Unmatched
 unsolicited RX before registration does not freeze it; recovery does not unfreeze it. An empty
-function restores exact ID/format routing. The function runs under the Session state lock:
+function restores exact ID/standard-versus-extended-ID routing. The function runs under the Session state lock:
 it must be fast, nonblocking and must not reenter the Session. It should not invoke Python
 or perform I/O. Exceptions or invalid returned keys increment `route_key_errors` and drop
 only that frame. The delivered `message` retains its original ID, flags and payload;

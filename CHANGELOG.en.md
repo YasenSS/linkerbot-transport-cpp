@@ -4,6 +4,8 @@ English · [简体中文](CHANGELOG.md)
 
 ## Unreleased
 
+- Synchronize source guides, backend contracts, API comments and validation inventory with native receive metadata, explicit frame formats and per-device Runtime ownership. Retain fixed-version evidence and distinguish Unreleased APIs from published SDKs.
+
 - Add explicit per-message classic/FD selection while preserving backend defaults, native receive timestamp metadata and opt-in SocketCAN/PCAN receive-own configuration. Reject unsupported vendor/SLCAN echo opt-in, preserve driver counters without epoch conversion, and add encoding, rollback, metadata routing and deployment-evidence regressions. No hand/arm integration or physical hardware acceptance is included; consumers must rebuild with matching headers and library.
 
 - Reject unsupported FIFO capacity units, send policies and deadline policies with `ValidationError` before configuration changes or send admission. Preserve valid defaults and existing signatures; add configuration, queued-latest, device/owned-operation and installed-consumer regressions.

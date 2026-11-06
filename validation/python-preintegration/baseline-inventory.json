@@ -9,7 +9,7 @@
     },
     "deployed_revisions": "not provided; inspected source revisions are not asserted to be deployed revisions"
   },
-  "hardware_timestamp": "Python CANFDMessage exposes timestamp; native can::Message has no corresponding backend timestamp field. Dependency in actual deployment is not yet specified.",
+  "hardware_timestamp": "Native Message preserves optional timestamp value, unit, clock, source and counter width. SocketCAN can request raw hardware timestamps; PCAN preserves driver microseconds and vendor preserves raw 32-bit ticks. Deployment-specific provenance, clock correlation and hardware acceptance remain unverified.",
   "historical_evidence": [
     {
       "path": "../hand_cpp/docs/hardware-acceptance/l6/report.md",
@@ -20,7 +20,9 @@
   "status": "deployment-specific native hardware acceptance remains unverified",
   "inspected_native_base_revision": "e1d65e5961754a22c9575863d63337931d6dbeae",
   "additional_source_gaps": [
-    "Explicit classic TX on an FD link is not representable by the current untagged native Message defaults.",
-    "Python receive_own_messages has no equivalent exposed native configuration option."
-  ]
+    "Arbitrary python-can plugins and options are not implied by the native backend set.",
+    "Vendor and SLCAN interfaces reject receive_own_messages=true; these SLCAN profiles do not expose receive timestamps.",
+    "The isolated Python probe is not a production binding, exception/clock compatibility layer or actual hand/arm integration."
+  ],
+  "capability_reference": "backend-contracts.json and ../../docs/en/can-metadata.md describe current source capabilities; inspected_native_base_revision records the starting revision, not the current feature set."
 }

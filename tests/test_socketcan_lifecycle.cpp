@@ -71,7 +71,7 @@ TEST_CASE("close() waits for an in-flight blocking read before releasing the fd"
     auto fds = make_socketpair();
 
     // test_on_io_in_flight fires after in_flight_ is already incremented but
-    // before the real ::read() syscall runs, and we hold it there until the
+    // before the real ::recvmsg() syscall runs, and we hold it there until the
     // test releases it. That makes "a read is genuinely in flight" — and
     // "close() must not be able to finish while that is true" — a
     // deterministic fact instead of something inferred from elapsed wall-

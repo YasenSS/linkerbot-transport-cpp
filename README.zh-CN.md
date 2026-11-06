@@ -15,6 +15,7 @@ RTU 模块处理寄存器事务，设备寄存器映射和运动控制仍由上�
 
 当前源码版本：**0.3.3**，包含可选串口和 Modbus RTU 模块。已发布的 v0.3.2 包不包含这两项。下载[最新已发布的稳定版](https://github.com/linker-bot/linkerbot-transport-cpp/releases/latest)。
 下载、校验及版本文档见[发行说明](docs/zh/releases.md)。
+源码指南也涵盖[未发布变更](CHANGELOG.md)；已发布 SDK 的实际接口以对应标签、头文件和随包文档为准。
 
 规范包名为 `linkerbot-transport`；原 `linkerbot-comm` 查找入口和库文件继续兼容。
 参见[命名迁移](docs/zh/naming.md)。

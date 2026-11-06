@@ -18,6 +18,8 @@ frames stay classic). Existing `is_fd`/`is_brs` callers need no changes. Receive
 frames keep the existing flags and leave the new TX override unspecified. A
 forwarder that needs classic-on-FD must explicitly choose the classic override.
 `Session::submit` validates the override before admission or latest replacement.
+Receive route keys use the arbitration ID and standard/extended-ID flag, not this
+TX classic/FD override.
 
 ## Receive timestamps
 

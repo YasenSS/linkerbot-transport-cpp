@@ -76,8 +76,9 @@ factory 可以在同一线程重入不同的注册表 key（例如不同 `Manage
 `MessageBatch` 包含 frames、帧间 `gap` 和首帧前 `initial_delay`。
 `submit(batch, options)` 入队并立即返回 `transport::SendReceipt`；队列满抛 `QueueFullError`。
 默认容量按等待中的批次计，不含正在执行的批次；下方 SDK 选项可改为按 FIFO 帧数计并独立限制 latest 槽位。
-单个批次的帧数、所有路由组数量没有全局上限，
-因此有界队列不等于总内存有界；应用还需限制单批次帧数、提交速率和总路由量。
+默认不限制单批次帧数和全局注册路由 key 数量。可配置 `SessionOptions::max_batch_frames`、
+`max_route_keys` 和 `max_pending_rx` 增加相应限制，零保留原有不设上限的行为。
+因此有界发送队列不等于总内存有界，应用还需限制提交速率和 inbox 容量。
 `send(batch, options)` 提交后等待，使用相同调度路径。
 
 提交会在入队前校验批次；token 已取消、deadline 已过期或 Session 已关闭时同步抛异常，
@@ -240,7 +241,7 @@ priority 加等待老化、较早 deadline、较久未服务的 endpoint 和队�
 
 `set_route_key_extractor()` 接受将收到的 `can::Message` 映射为 `RouteKey` 的原生函数，
 须在第一次成功注册路由或接受发送前配置。此前未匹配路由的主动 RX 不会冻结配置；恢复后
-也不会解除冻结。空函数恢复精确 ID/帧格式路由。提取器在 Session 状态锁
+也不会解除冻结。空函数恢复精确 ID/标准或扩展标志路由。提取器在 Session 状态锁
 内执行，必须快速、不阻塞、不重入 Session，不应调用 Python 或执行 I/O。异常或非法返回 key
 累计 `route_key_errors`，只丢弃该帧。交付的 `message` 保留原 ID、标志和载荷，
 `RoutedMessage::route_key` 记录提取后的 key。

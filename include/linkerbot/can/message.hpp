@@ -27,8 +27,8 @@ namespace linkerbot::can {
     // payload length in bytes (NOT the 0-15 wire DLC nibble); backends that speak
     // wire DLC convert at their boundary.
     //
-    // `is_fd` / `is_brs` are the per-frame FD/BRS flags. Encoding, illegal-combo
-    // rejection, and untagged defaults are in frame.hpp.
+    // `format` selects an explicit TX format; kUnspecified retains the backend
+    // interpretation of is_fd/is_brs. Validation and defaults are in frame.hpp.
     struct Message {
         uint32_t id = 0;
         std::array<uint8_t, kMaxDataLen> data = {};
@@ -37,7 +37,7 @@ namespace linkerbot::can {
         bool is_fd = false;
         bool is_brs = false;
         FrameFormat format = FrameFormat::kUnspecified;
-        // RX metadata only. TX ignores it; device clocks are not wall clocks.
+        // RX metadata only. TX ignores it; interpret the recorded clock and unit.
         std::optional<ReceiveTimestamp> timestamp = std::nullopt;
         std::optional<bool> is_rx = std::nullopt;
     };

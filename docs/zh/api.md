@@ -18,10 +18,12 @@ CAN 请求/回复关联及业务幂等由上层 SDK 实现。串口和 RTU 见[�
 | 接收与物理批次边界 | `can::CANDispatcher` | 单独接收线程、订阅广播，并串行化物理发送批次 |
 | 可恢复共享总线 | `can::ManagedCANBus` | 保存 factory，显式 `start/stop/recover`，兼容旧发送队列 |
 | 进程内连接池 | `can::SharedCANBusPool`、`CANBusLease` | 相同 key 共享总线；lease 明确持有和重试最后一次关闭 |
-| 设备 SDK 会话 | `transport::Session`、`RouteInbox`、`SendReceipt` | 精确路由、单发送调度器、deadline、取消和 generation 恢复 |
+| 多设备共享运行时 | `transport::TransportRuntime`、`DeviceSession`、`DeviceOperation` | 独立设备注册与生命周期，共用物理 Session/发送器 |
+| 直接 Session 与兼容共享 | `transport::Session`、`RouteInbox`、`SendReceipt` | 精确路由、单发送调度器、deadline、取消和 generation 恢复 |
 | 离线测试 | `can::FakeTransport` | 内存收发、错误注入和并发门，不代表真实适配器 |
 
-通常由设备 SDK 使用 Session；只有实现新后端或兼容旧代码时才直接使用更低层接口。
+新多设备接入使用 `TransportRuntime`，每个逻辑设备独立持有 `DeviceSession`，共用现有 Session
+发送器，见[设备会话](device-sessions.md)。直接使用 Session 的接口继续保留；实现新后端或兼容旧代码时可使用更低层接口。
 
 ## 帧与后端解释
 
@@ -29,11 +31,15 @@ CAN 请求/回复关联及业务幂等由上层 SDK 实现。串口和 RTU 见[�
 最大 `0x1fffffff`；扩展帧必须显式设置 `is_extended=true`。Classic 最多 8 字节，FD 最多
 64 字节；`is_brs=true` 必须同时设置 `is_fd=true`。
 
-| 后端 / 模式 | `is_fd=false,is_brs=false` 的发送解释 |
+| 后端 / 模式 | `format` 未指定且 `is_fd=false,is_brs=false` 的发送解释 |
 | --- | --- |
 | SocketCAN Classic、PCAN Classic、Lawicel Classic | Classic |
 | SocketCAN FD、MiniCANFD | 兼容行为：FD、无 BRS |
 | PCAN FD、CANable FD | Classic；FD 帧必须显式设置 `is_fd=true` |
+
+`Message::format` 可显式选择经典/FD 编码，不改变上述默认值。可选 `timestamp` 和 `is_rx`
+保存后端接收元数据，发送忽略这两项；时钟及后端限制见 [CAN 元数据说明](can-metadata.md)。
+公共结构新增字段后须用匹配的头文件和库重新编译。
 
 后端可能把 9、10、11 等 FD 字节长度向上补零到可表示的线长。上层解析必须使用返回的实际
 长度并校验业务格式，不能假定后端接受等于 CAN 对端 ACK 或设备已执行。
@@ -83,7 +89,9 @@ Session 默认发送队列容量为 2000 个**等待批次**，路由 inbox 默�
 批次不占等待队列容量，但计入 `pending_tx`。默认策略为 FIFO、priority 0、deadline 无上限。
 完整的共享、路由、回执、恢复和退出契约见 [Session 指南](session.md)。
 
-`transport::Clock` 是 `std::chrono::steady_clock`，所有 deadline 和时间戳都不是 UTC/Unix 时间。
+`transport::Clock` 是 `std::chrono::steady_clock`，Session deadline、回执时间和
+`RoutedMessage::received_at` 不是 UTC/Unix 时间。`Message::timestamp` 是独立的后端元数据，
+须按其时钟和单位解释。
 `CancellationSource` 与其 token 共享一个原子、单向状态；取消可重复调用但不可撤销。取消、deadline
 或等待超时都不能证明已经进入驱动的帧未送达，业务层仍须核对 `sent_frames`、
 `current_frame_uncertain` 和设备状态。

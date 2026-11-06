@@ -27,16 +27,17 @@ namespace linkerbot::can {
         bool is_brs = false;
     };
 
-    // P0.1 public FD/BRS rules:
+    // Per-frame format and FD/BRS rules:
     //
     // - Message::format explicitly overrides the legacy per-backend FD default.
     //   Unspecified keeps the existing is_fd / is_brs behavior.
     // - BRS is opt-in: only is_brs=true enables it. Backends never upgrade.
     // - is_brs && !is_fd is illegal on every backend (rejected, not normalized).
-    // - bool cannot express "unspecified". Untagged (false, false) is resolved by
-    //   link kind: CanFd => FD without BRS (FrameType 0x04); Classic => classic CAN.
+    // - Unspecified format with false/false flags uses the backend default:
+    //   SocketCAN FD/vendor => FD without BRS; PCAN/SLCAN => classic CAN.
+    //   Explicit kClassic/kFd selects the format subject to link capability.
     // - Config::frame_type is not applied to TX frames and is not a CANFD_Init
-    //   field. Session-wide BRS belongs on Message (or a later SDK stamp).
+    //   field. The device protocol must select BRS on each Message.
     // - SocketCAN and vendor encode the same resolved flags: is_fd => FD frame /
     //   FrameType bit 0x04; is_brs => CANFD_BRS / FrameType bit 0x08.
 
@@ -113,7 +114,7 @@ namespace linkerbot::can {
             return FrameFlags{};
         }
 
-        // CanFd link: untagged (false, false) means FD without BRS.
+        // FD-capable link: retain explicit flags, otherwise use the backend default.
         if (message.is_fd || message.is_brs) {
             return FrameFlags{true, message.is_brs};
         }
