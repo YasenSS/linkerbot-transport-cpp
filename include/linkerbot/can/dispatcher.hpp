@@ -24,6 +24,14 @@
 #include <vector>
 
 namespace linkerbot::can {
+    // Native endpoint pacing. Output pointers must outlive the synchronous call.
+    struct LocalBatchPacing {
+        bool enabled = false;
+        bool defer_final_cooldown = false;
+        std::chrono::steady_clock::time_point attempt_started{};
+        std::chrono::steady_clock::time_point *cooldown_until = nullptr;
+        std::atomic<size_t> *dispatch_progress = nullptr;
+    };
 
     using SubscriptionId = uint64_t;
 
@@ -478,7 +486,22 @@ namespace linkerbot::can {
                               bool &uncertain, bool start_only,
                               std::chrono::microseconds send_period,
                               std::atomic<size_t> *progress = nullptr) -> void {
+            send_batch_until(frames, deadline, gap, initial_delay, cancelled, sent, uncertain,
+                             start_only, send_period, progress, LocalBatchPacing{});
+        }
+
+        auto send_batch_until(const std::vector<Message> &frames,
+                              std::chrono::steady_clock::time_point deadline,
+                              std::chrono::microseconds gap,
+                              std::chrono::microseconds initial_delay,
+                              const std::function<bool()> &cancelled,
+                              size_t &sent, // NOLINT(bugprone-easily-swappable-parameters)
+                              bool &uncertain, bool start_only,
+                              std::chrono::microseconds send_period, std::atomic<size_t> *progress,
+                              const LocalBatchPacing &local) -> void {
             sent = 0;
+            auto local_next = std::chrono::steady_clock::time_point{};
+            auto &next_write = local.enabled ? local_next : next_write_at_;
             if (progress != nullptr) {
                 progress->store(0, std::memory_order_relaxed);
             }
@@ -521,9 +544,9 @@ namespace linkerbot::can {
                 pace(initial_delay);
                 if (gap.count() == 0 && send_period.count() == 0 &&
                     transport_->prefers_write_batch() && !frames.empty()) {
-                    while (std::chrono::steady_clock::now() < next_write_at_) {
+                    while (std::chrono::steady_clock::now() < next_write) {
                         pace(std::chrono::duration_cast<std::chrono::microseconds>(
-                            next_write_at_ - std::chrono::steady_clock::now()));
+                            next_write - std::chrono::steady_clock::now()));
                     }
                     begun = true;
                     uncertain = true;
@@ -538,12 +561,14 @@ namespace linkerbot::can {
                         if (sent != 0u) {
                             pace(gap);
                         }
-                        while (std::chrono::steady_clock::now() < next_write_at_) {
+                        while (std::chrono::steady_clock::now() < next_write) {
                             pace(std::chrono::duration_cast<std::chrono::microseconds>(
-                                next_write_at_ - std::chrono::steady_clock::now()));
+                                next_write - std::chrono::steady_clock::now()));
                         }
                         check();
-                        const auto write_started = std::chrono::steady_clock::now();
+                        const auto write_started = local.enabled && sent == 0u
+                                                       ? local.attempt_started
+                                                       : std::chrono::steady_clock::now();
                         begun = true;
                         uncertain = true;
                         transport_->write(frame);
@@ -556,12 +581,18 @@ namespace linkerbot::can {
                             const auto remaining =
                                 std::chrono::duration_cast<std::chrono::microseconds>(
                                     std::chrono::steady_clock::time_point::max() - write_started);
-                            next_write_at_ = send_period >= remaining
-                                                 ? std::chrono::steady_clock::time_point::max()
-                                                 : write_started + send_period;
+                            next_write = send_period >= remaining
+                                             ? std::chrono::steady_clock::time_point::max()
+                                             : write_started + send_period;
                             // Once every frame was accepted, cancellation or expiry
                             // may shorten cooldown but cannot deny known delivery.
-                            while (std::chrono::steady_clock::now() < next_write_at_) {
+                            if (local.cooldown_until != nullptr) {
+                                *local.cooldown_until = next_write;
+                            }
+                            if (local.defer_final_cooldown && sent == frames.size()) {
+                                break;
+                            }
+                            while (std::chrono::steady_clock::now() < next_write) {
                                 if (sent == frames.size()) {
                                     if (!running_.load(std::memory_order_acquire) ||
                                         (cancelled && cancelled()) ||
@@ -572,10 +603,13 @@ namespace linkerbot::can {
                                     check();
                                 }
                                 std::this_thread::sleep_until(
-                                    std::min({next_write_at_, effective_deadline(),
+                                    std::min({next_write, effective_deadline(),
                                               std::chrono::steady_clock::now() +
                                                   std::chrono::microseconds(250)}));
                             }
+                        }
+                        if (local.dispatch_progress != nullptr) {
+                            local.dispatch_progress->store(sent, std::memory_order_relaxed);
                         }
                     }
                 }

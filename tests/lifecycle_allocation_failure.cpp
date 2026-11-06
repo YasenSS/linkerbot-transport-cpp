@@ -174,6 +174,32 @@ namespace {
         auto factory = [] { return std::make_unique<can::FakeTransport>(); };
         // Initialize singleton cleanup before arming allocation faults.
         transport::Session::drain_deferred_cleanup();
+        for (const bool observation : {false, true}) {
+            sweep("masked route registration", [&](int index) {
+                auto session = transport::Session::create(factory);
+                auto device = session->attach_device("masked");
+                const std::vector<transport::RouteRule> rules{
+                    {0x100, 0x700, false}, {0x200, 0x700, false}, {0x300, 0x700, false}};
+                std::shared_ptr<transport::RouteInbox> inbox;
+                countdown = index;
+                try {
+                    inbox = observation ? device->observe_rules(rules, 256)
+                                        : device->subscribe_rules(rules);
+                } catch (const std::bad_alloc &) {
+                    require(countdown == -1);
+                }
+                countdown = -1;
+                const bool success = inbox != nullptr;
+                if (!success) {
+                    require(session->health().route_count == 0);
+                    inbox = observation ? device->observe_rules(rules, 256)
+                                        : device->subscribe_rules(rules);
+                }
+                require(session->health().route_count == rules.size());
+                device->close_until(transport::Deadline::max());
+                return success;
+            });
+        }
         sweep("route update", [&](int index) {
             auto session = transport::Session::create(factory);
             const std::vector<transport::RouteKey> old_keys{{0x20, false}};

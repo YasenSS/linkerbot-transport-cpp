@@ -50,6 +50,117 @@ namespace {
     }
 } // namespace
 
+TEST_CASE("Discovery observation cannot consume an owner's route or receive budget", "[session]") {
+    ReceiveRig rig;
+    auto config = rig.session->options();
+    config.max_route_keys = 4;
+    config.max_pending_rx = 1;
+    rig.session->configure(config);
+    auto device = rig.session->attach_device("hand");
+    auto discovery = rig.session->attach_device("discovery");
+    auto owner = device->subscribe_routes({{0x28, false}}, 2);
+    auto tap = discovery->observe_rules({{0x20, 0x7f0, false}}, 1);
+    REQUIRE(rig.session->health().route_count == 2);
+    rig.fake->inject(received_frame(0x28));
+    const auto normal = require_value(owner->receive_until(transport::Clock::now() + 2s));
+    REQUIRE(await_state(tap->notification(), [&] { return tap->health().pending == 1; }));
+    REQUIRE(rig.session->health().pending_rx == 0);
+    rig.fake->inject(received_frame(0x28));
+    const auto second = require_value(owner->receive_until(transport::Clock::now() + 2s));
+    REQUIRE(await_state(tap->notification(), [&] { return tap->health().overflow == 1; }));
+    const auto observed = require_value(tap->try_receive());
+    REQUIRE(observed.compatibility_sequence == normal.compatibility_sequence);
+    REQUIRE(observed.received_order == normal.received_order);
+    REQUIRE(second.received_order > normal.received_order);
+    tap->close();
+    rig.fake->inject(received_frame(0x28));
+    REQUIRE(require_value(owner->receive_until(transport::Clock::now() + 2s)).message.id == 0x28);
+    auto replacement = discovery->observe_rules({{0x20, 0x7f0, false}}, 1);
+    rig.fake->inject(received_frame(0x21));
+    REQUIRE(require_value(replacement->receive_until(transport::Clock::now() + 2s)).message.id ==
+            0x21);
+    discovery->close_until(transport::Deadline::max());
+    REQUIRE_FALSE(owner->health().closed);
+    REQUIRE_THROWS_AS(discovery->observe_rules({{0, 0, false}}, 1), can::ClosedError);
+    auto terminal = device->observe_rules({{0, 0, false}}, 1);
+    rig.session->close();
+    REQUIRE_THROWS_AS(terminal->try_receive(), can::ClosedError);
+}
+
+TEST_CASE("Masked device routes reject legacy extractors and physical closure", "[session]") {
+    ReceiveRig rig;
+    rig.session->set_route_key_extractor([](const can::Message &message) {
+        return transport::RouteKey{message.id, message.is_extended};
+    });
+    auto device = rig.session->attach_device("masked");
+    REQUIRE_THROWS_AS(device->subscribe_rules({{0, 0x7ff, false}}), can::ValidationError);
+    rig.session->close();
+    REQUIRE_THROWS_AS(device->subscribe_rules({{0, 0x7ff, false}}), can::ClosedError);
+}
+
+TEST_CASE("Device masked routes compose with exact routes and reject wire overlap", "[session]") {
+    ReceiveRig rig;
+    auto arm = rig.session->attach_device("arm");
+    auto hand = rig.session->attach_device("hand");
+    auto masked = arm->subscribe_rules({{0x3d00, 0xff00, true}}, 2);
+    auto exact = hand->subscribe_routes({{0x28, false}}, 2);
+    REQUIRE(rig.session->health().route_count == 2);
+    REQUIRE_THROWS_AS(hand->subscribe_routes({{0x123d01, true}}), can::ValidationError);
+    REQUIRE_THROWS_AS(hand->subscribe_rules({{0x3d00, 0xff00, true}}), can::ValidationError);
+    REQUIRE_THROWS_AS(hand->subscribe_rules({{0x28, 0x7ff, false}}), can::ValidationError);
+    REQUIRE_THROWS_AS(hand->subscribe_rules({}), can::ValidationError);
+    REQUIRE_THROWS_AS(hand->subscribe_rules({{0, 0x800, false}}), can::ValidationError);
+    REQUIRE_THROWS_AS(hand->subscribe_rules({{1, 0, false}}), can::ValidationError);
+    REQUIRE_THROWS_AS(hand->subscribe_rules({{0, 0, false}, {1, 0x7ff, false}}),
+                      can::ValidationError);
+    rig.fake->inject(received_frame(0x123d01, true));
+    const auto routed = require_value(masked->receive_until(transport::Clock::now() + 2s));
+    REQUIRE(routed.message.id == 0x123d01);
+    REQUIRE(routed.route_key == transport::RouteKey{0x3d00, true});
+    REQUIRE(routed.channel_instance == arm->health().channel_instance);
+    rig.fake->inject(received_frame(0x28));
+    const auto other = require_value(exact->receive_until(transport::Clock::now() + 2s));
+    REQUIRE(other.compatibility_sequence > routed.compatibility_sequence);
+    arm->close_until(transport::Deadline::max());
+    REQUIRE(rig.session->health().route_count == 1);
+    auto replacement = hand->subscribe_rules({{0x3d00, 0xff00, true}});
+    REQUIRE(rig.session->health().route_count == 2);
+    replacement->close();
+    REQUIRE(rig.session->health().route_count == 1);
+}
+
+TEST_CASE("Channel receive budget spans device inboxes and overflow leaves sequence gaps",
+          "[session]") {
+    ReceiveRig rig;
+    auto options = rig.session->options();
+    options.max_route_keys = 2;
+    options.max_pending_rx = 1;
+    rig.session->configure(options);
+    auto first = rig.session->attach_device("first");
+    auto second = rig.session->attach_device("second");
+    auto a = first->subscribe_routes({{1, false}}, 4);
+    auto b = second->subscribe_rules({{2, 0x7ff, false}}, 4);
+    REQUIRE_THROWS_AS(first->subscribe_routes({{3, false}}), can::QueueFullError);
+    REQUIRE_THROWS_AS(second->subscribe_rules({{3, 0x7ff, false}}), can::QueueFullError);
+    REQUIRE(rig.session->health().route_registration_rejections == 2);
+    rig.fake->inject(received_frame(1));
+    REQUIRE(await_state(a->notification(), [&] { return a->health().pending == 1; }));
+    rig.fake->inject(received_frame(2));
+    REQUIRE(await_state(b->notification(), [&] { return b->health().overflow == 1; }));
+    const auto initial = require_value(a->try_receive());
+    REQUIRE(rig.session->health().pending_rx == 0);
+    REQUIRE(rig.session->health().max_pending_rx == 1);
+    rig.fake->inject(received_frame(2));
+    const auto following = require_value(b->receive_until(transport::Clock::now() + 2s));
+    REQUIRE(following.compatibility_sequence == initial.compatibility_sequence + 2);
+    rig.fake->inject(received_frame(2));
+    REQUIRE(await_state(b->notification(), [&] { return b->health().pending == 1; }));
+    b->close();
+    REQUIRE(rig.session->health().pending_rx == 0);
+    REQUIRE(rig.session->health().dropped_rx_on_close == 1);
+    REQUIRE(rig.session->health().routed_rx_frames == 3);
+}
+
 TEST_CASE("Session change signals coalesce without losing a pre-wait notification", "[session]") {
     transport::ChangeSignal signal;
     const auto initial = signal.revision();
