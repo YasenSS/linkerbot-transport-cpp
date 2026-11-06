@@ -8,9 +8,9 @@ Current source uses the `linkerbot-transport` package name. Published releases
 through v0.3.2 retain `linkerbot-comm`; the 0.3.0 download example below deliberately
 uses its historical asset names and paths. See [name migration](naming.md).
 
-## 0.4.0
+## 0.3.4
 
-[Version 0.4.0](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.4.0)
+[Version 0.3.4](https://github.com/linker-bot/linkerbot-transport-cpp/releases/tag/v0.3.4)
 adds shared Runtime ownership, independent device Sessions and opt-in scheduling
 controls on the existing writer. It adds explicit classic/FD transmit selection,
 native receive timestamp metadata and opt-in SocketCAN/PCAN receive-own messages.
@@ -24,7 +24,7 @@ Physical hardware acceptance remains pending. See [CAN metadata](can-metadata.md
 [device Sessions](device-sessions.md) and the [changelog](../../CHANGELOG.en.md).
 
 Release validation retains the twelve-target matrix below. Archive names begin
-with `linkerbot-transport-0.4.0-`. Download assets only after publication and verify
+with `linkerbot-transport-0.3.4-`. Download assets only after publication and verify
 the signed tag, manifest and checksums. Older release assets remain unchanged.
 
 ## 0.3.3

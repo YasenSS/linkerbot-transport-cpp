@@ -4,7 +4,7 @@ English · [简体中文](CHANGELOG.md)
 
 ## Unreleased
 
-## 0.4.0 — 2026-11-06
+## 0.3.4 — 2026-11-06
 
 - Synchronize source guides, backend contracts, API comments and validation inventory with native receive metadata, explicit frame formats and per-device Runtime ownership. Retain fixed-version evidence and distinguish Unreleased APIs from published SDKs.
 

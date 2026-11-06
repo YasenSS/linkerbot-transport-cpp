@@ -15,7 +15,7 @@ matching belongs in the device SDK. The optional RTU module handles register
 transactions. Device register maps and motion control remain in the device SDK.
 See the [serial and RTU guide](docs/en/modbus-rtu.md).
 
-Current source version: **0.4.0**, including optional serial and Modbus RTU modules.
+Current source version: **0.3.4**, including optional serial and Modbus RTU modules.
 Published v0.3.2 packages do not contain those modules. See the [latest published stable release](https://github.com/linker-bot/linkerbot-transport-cpp/releases/latest).
 See [downloads, checksums and release documentation](docs/en/releases.md).
 See the [changelog](CHANGELOG.en.md); use the matching tag,

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(linkerbot-transport VERSION 0.4.0 LANGUAGES CXX)
+project(linkerbot-transport VERSION 0.3.4 LANGUAGES CXX)
 if(MSVC)
     add_compile_options(/utf-8)
     if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
