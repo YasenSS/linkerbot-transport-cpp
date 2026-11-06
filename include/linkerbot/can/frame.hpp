@@ -29,7 +29,8 @@ namespace linkerbot::can {
 
     // P0.1 public FD/BRS rules:
     //
-    // - Message::is_fd / is_brs are the per-frame source of truth.
+    // - Message::format explicitly overrides the legacy per-backend FD default.
+    //   Unspecified keeps the existing is_fd / is_brs behavior.
     // - BRS is opt-in: only is_brs=true enables it. Backends never upgrade.
     // - is_brs && !is_fd is illegal on every backend (rejected, not normalized).
     // - bool cannot express "unspecified". Untagged (false, false) is resolved by
@@ -82,11 +83,28 @@ namespace linkerbot::can {
         return flags;
     }
 
-    [[nodiscard]] inline auto resolve_tx_flags(LinkKind link,
-                                               const Message &message) -> FrameFlags {
+    [[nodiscard]] inline auto resolve_tx_flags_with_default(LinkKind link, const Message &message,
+                                                            bool untagged_fd) -> FrameFlags {
         validate_frame_flags(message.is_fd, message.is_brs);
         validate_arbitration_id(message.id, message.is_extended);
         validate_payload_length(message.dlc, link);
+        switch (message.format) {
+        case FrameFormat::kUnspecified:
+            break;
+        case FrameFormat::kClassic:
+            if (message.is_fd || message.is_brs) {
+                throw ValidationError("Explicit classic format conflicts with FD/BRS flags");
+            }
+            validate_payload_length(message.dlc, LinkKind::kClassic);
+            return FrameFlags{};
+        case FrameFormat::kFd:
+            if (link == LinkKind::kClassic) {
+                throw ValidationError("CAN FD frame cannot be sent on a classic link");
+            }
+            return FrameFlags{true, message.is_brs};
+        default:
+            throw ValidationError("Unknown frame format");
+        }
 
         if (link == LinkKind::kClassic) {
             if (message.is_fd || message.is_brs) {
@@ -99,7 +117,13 @@ namespace linkerbot::can {
         if (message.is_fd || message.is_brs) {
             return FrameFlags{true, message.is_brs};
         }
-        return FrameFlags{true, false};
+        validate_payload_length(message.dlc, untagged_fd ? LinkKind::kCanFd : LinkKind::kClassic);
+        return FrameFlags{untagged_fd, false};
+    }
+
+    [[nodiscard]] inline auto resolve_tx_flags(LinkKind link,
+                                               const Message &message) -> FrameFlags {
+        return resolve_tx_flags_with_default(link, message, true);
     }
 
     [[nodiscard]] inline auto wire_frame_type(LinkKind link, const Message &message) -> uint8_t {

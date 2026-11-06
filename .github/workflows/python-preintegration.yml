@@ -1,0 +1,121 @@
+name: Python pre-integration proofs
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-preintegration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: CPython ${{ matrix.python }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        python: ['3.10', '3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        id: python
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Build and install native CAN library
+        run: |
+          cmake -S . -B build/proof-native -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Wpedantic -Werror' \
+            -DLINKERBOT_TRANSPORT_BUILD_TESTS=OFF \
+            -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=OFF \
+            -DLINKERBOT_TRANSPORT_ENABLE_SERIAL=OFF \
+            -DLINKERBOT_TRANSPORT_ENABLE_MODBUS=OFF
+          cmake --build build/proof-native --parallel 4
+          cmake --install build/proof-native --prefix "$PWD/build/proof-install"
+      - name: Build isolated CPython probe and run subprocess proofs
+        run: |
+          cmake -S validation/python-preintegration -B build/proof-python -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Wpedantic -Werror' \
+            -DCMAKE_PREFIX_PATH="$PWD/build/proof-install" \
+            -DPython3_EXECUTABLE='${{ steps.python.outputs.python-path }}'
+          cmake --build build/proof-python --parallel 4
+          ctest --test-dir build/proof-python --output-on-failure --no-tests=error
+      - name: Check proof module static analysis
+        if: matrix.python == '3.12' && matrix.runner == 'ubuntu-24.04-arm'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-tidy-18
+          clang-tidy-18 -p build/proof-python validation/python-preintegration/probe.cpp --warnings-as-errors='*'
+          clang-tidy-18 -p build/proof-python validation/python-preintegration/probe.cpp \
+            -checks='-*,clang-analyzer-*,bugprone-*' --warnings-as-errors='*'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: python-proof-${{ matrix.runner }}-${{ matrix.python }}
+          path: |
+            build/proof-python/evidence.json
+            build/proof-python/Testing/Temporary/LastTest.log
+          if-no-files-found: warn
+
+  windows:
+    name: CPython ${{ matrix.python }} (Windows ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: windows-2022, arch: x64, python: '3.12'}
+          - {runner: windows-11-arm, arch: ARM64, python: '3.13'}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        id: python
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.arch == 'ARM64' && 'arm64' || 'x64' }}
+      - name: Build and install native CAN library
+        run: |
+          cmake -S . -B build/proof-native -A ${{ matrix.arch }} `
+            '-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /W4 /GR /EHsc /WX' `
+            -DLINKERBOT_TRANSPORT_BUILD_TESTS=OFF `
+            -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=OFF `
+            -DLINKERBOT_TRANSPORT_ENABLE_SERIAL=OFF `
+            -DLINKERBOT_TRANSPORT_ENABLE_MODBUS=OFF
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build/proof-native --config Release --parallel 4
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --install build/proof-native --config Release --prefix "$PWD/build/proof-install"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build isolated CPython probe and run subprocess proofs
+        run: |
+          cmake -S validation/python-preintegration -B build/proof-python -A ${{ matrix.arch }} `
+            '-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /W4 /GR /EHsc /WX' `
+            -DCMAKE_PREFIX_PATH="$PWD/build/proof-install" `
+            -DPython3_EXECUTABLE='${{ steps.python.outputs.python-path }}'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build/proof-python --config Release --parallel 4
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ctest --test-dir build/proof-python -C Release --output-on-failure --no-tests=error
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: python-proof-windows-${{ matrix.arch }}-${{ matrix.python }}
+          path: |
+            build/proof-python/evidence.json
+            build/proof-python/Testing/Temporary/LastTest.log
+          if-no-files-found: warn

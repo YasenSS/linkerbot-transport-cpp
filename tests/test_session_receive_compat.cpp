@@ -277,3 +277,21 @@ TEST_CASE("Session notification wakes route consumers on close and recovery", "[
     REQUIRE(replacement->health().closed);
     REQUIRE_THROWS_AS(replacement->try_receive(), can::ClosedError);
 }
+
+TEST_CASE("Session preserves native timestamps separately from receive deadlines", "[session]") {
+    ReceiveRig rig;
+    auto route = rig.session->subscribe_routes({{0x123, false}});
+    auto frame = received_frame(0x123);
+    frame.timestamp =
+        can::ReceiveTimestamp{0xffffffff, can::TimestampUnit::kRawTicks,
+                              can::TimestampClock::kVendorRaw, can::TimestampSource::kDriver, 32};
+    frame.is_rx = false;
+    rig.fake->inject(frame);
+    const auto received = require_value(route->receive_until(transport::Clock::now() + 2s));
+    const auto timestamp = require_value(received.message.timestamp);
+    CHECK(timestamp.value == 0xffffffff);
+    CHECK(timestamp.clock == can::TimestampClock::kVendorRaw);
+    CHECK(timestamp.counter_bits == 32);
+    CHECK_FALSE(require_value(received.message.is_rx));
+    CHECK(received.received_at != transport::Deadline{});
+}

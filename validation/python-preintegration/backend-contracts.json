@@ -1,0 +1,120 @@
+{
+  "scope": "Source/API inventory, not hardware acceptance or a Python adapter",
+  "backends": {
+    "socketcan": {
+      "platforms": [
+        "Linux"
+      ],
+      "source": "include/linkerbot/can/socketcan_transport.hpp",
+      "native_options": [
+        "interface_name",
+        "fd_mode",
+        "receive_own_messages",
+        "timestamp_mode"
+      ],
+      "external_configuration": [
+        "nominal_bitrate",
+        "data_bitrate",
+        "interface_up"
+      ],
+      "capabilities": {
+        "hardware_timestamp": true,
+        "explicit_classic_on_fd": true,
+        "receive_own_messages": true
+      },
+      "timestamp_semantics": "SO_TIMESTAMPING hardware or software metadata retains source/clock; hardware mode never substitutes host time."
+    },
+    "pcan": {
+      "platforms": [
+        "Linux",
+        "Windows"
+      ],
+      "source": "include/linkerbot/can/pcan_transport.hpp",
+      "native_options": [
+        "channel",
+        "mode",
+        "nominal_bitrate",
+        "data_bitrate",
+        "fd_timing",
+        "library_path",
+        "receive_timeout_ms",
+        "receive_own_messages"
+      ],
+      "external_configuration": [
+        "driver_version",
+        "library_sha256"
+      ],
+      "capabilities": {
+        "hardware_timestamp": true,
+        "explicit_classic_on_fd": true,
+        "receive_own_messages": true
+      },
+      "timestamp_semantics": "Driver microseconds preserved, including Classic millis overflow; no epoch conversion."
+    },
+    "slcan": {
+      "platforms": [
+        "Linux",
+        "Windows"
+      ],
+      "source": "include/linkerbot/can/slcan_transport.hpp",
+      "native_options": [
+        "port",
+        "serial_baud",
+        "nominal_bitrate",
+        "fd",
+        "brs",
+        "receive_timeout_ms",
+        "command_timeout_ms",
+        "protocol",
+        "data_bitrate",
+        "startup_delay_ms",
+        "receive_own_messages"
+      ],
+      "external_configuration": [
+        "adapter_firmware",
+        "serial_driver"
+      ],
+      "capabilities": {
+        "hardware_timestamp": false,
+        "explicit_classic_on_fd": true,
+        "receive_own_messages": false
+      },
+      "timestamp_semantics": "These profiles disable firmware timestamps; none is synthesized."
+    },
+    "vendor_canfd": {
+      "platforms": [
+        "Linux",
+        "Windows"
+      ],
+      "source": "include/linkerbot/can/vendor_canfd_transport.hpp",
+      "native_options": [
+        "device_index",
+        "channel_index",
+        "library_path",
+        "nom_baud",
+        "dat_baud",
+        "config_flags",
+        "model",
+        "cantype",
+        "send_timeout_ms",
+        "receive_timeout_ms",
+        "receive_own_messages"
+      ],
+      "external_configuration": [
+        "driver_version",
+        "library_sha256",
+        "adapter_firmware"
+      ],
+      "ignored_legacy_fields": {
+        "frame_type": "Kept for aggregate compatibility; not applied to TX or CANFD_Init. Per-frame flags need an explicit conversion."
+      },
+      "capabilities": {
+        "hardware_timestamp": true,
+        "explicit_classic_on_fd": true,
+        "receive_own_messages": false
+      },
+      "timestamp_semantics": "Raw 32-bit TimeStamp preserved without unit/epoch assumptions or wrap extension."
+    }
+  },
+  "frame_flags_source": "FrameFormat is an explicit TX override; kUnspecified preserves existing backend defaults."
+}

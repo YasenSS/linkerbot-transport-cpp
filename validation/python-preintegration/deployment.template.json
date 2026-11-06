@@ -1,0 +1,18 @@
+{
+  "python_baseline": {
+    "accepted": true,
+    "revisions": {
+      "transport": null,
+      "hand": null,
+      "arm": null
+    }
+  },
+  "native_revision": null,
+  "platform": {
+    "os": null,
+    "architecture": null,
+    "python": null
+  },
+  "channels": [],
+  "note": "Populate exact deployed revisions and resolved channel configurations from the already accepted Python deployment. Nulls intentionally fail the evidence gate; inspected source SHAs are not substituted."
+}

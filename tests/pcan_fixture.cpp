@@ -59,7 +59,11 @@ namespace {
     }
     void respond(uint16_t ch, const FD &frame) {
         if (values[14] == 0u) {
-            receive[ch].push_back(frame);
+            auto delivered = frame;
+            if (values[25] != 0u) {
+                delivered.type |= 0x20;
+            }
+            receive[ch].push_back(delivered);
             return;
         }
         for (const unsigned command : {(frame.dlc != 0u) ? unsigned(frame.data[0]) : 0U, 256U}) {
@@ -118,6 +122,20 @@ API Test_CopyTiming(char *buffer, uint32_t size) {
     return 0;
 }
 // This exported test function must retain the PCAN-Basic ABI parameter order.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+API CAN_SetValue(uint16_t ch, uint8_t parameter, void *buffer, uint32_t size) {
+    std::lock_guard<std::mutex> lock(mutex);
+    ++values[26];
+    if (values[27] != 0u) {
+        return values[27];
+    }
+    if (modes[ch] == 0 || parameter != 0x2c || buffer == nullptr || size != sizeof(uint32_t)) {
+        return 0x4000;
+    }
+    values[25] = *static_cast<uint32_t *>(buffer);
+    return 0;
+}
+// The handle/parameter widths and order are prescribed by the PCAN-Basic C ABI.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 API CAN_GetValue(uint16_t ch, uint8_t parameter, void *buffer, uint32_t size) {
     std::unique_lock<std::mutex> lock(mutex);

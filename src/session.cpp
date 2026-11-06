@@ -1605,10 +1605,8 @@ namespace linkerbot::transport {
             throw can::ValidationError("batch pacing must not be negative");
         }
         for (const auto &m : batch.frames) {
-            can::validate_arbitration_id(m.id, m.is_extended);
-            can::validate_frame_flags(m.is_fd, m.is_brs);
             // TX retains the legacy untagged-on-FD-link compatibility rule.
-            can::validate_payload_length(m.dlc, can::LinkKind::kCanFd);
+            (void)can::resolve_tx_flags(can::LinkKind::kCanFd, m);
         }
         if (options.max_pending_age && options.max_pending_age->count() <= 0) {
             throw can::ValidationError("pending age must be positive");
@@ -2181,7 +2179,7 @@ namespace linkerbot::transport {
         if ((current_writer() != nullptr) || can::CANDispatcher::is_any_receive_thread()) {
             throw can::ValidationError("session lifecycle requires an external caller");
         }
-        std::lock_guard<std::mutex> lifecycle(p.lifecycle);
+        std::lock_guard<std::mutex> lifecycle_lock(p.lifecycle);
         {
             std::lock_guard<std::mutex> lock(p.mutex);
             p.stopping = true;

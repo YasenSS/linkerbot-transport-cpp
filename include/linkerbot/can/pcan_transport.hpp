@@ -69,6 +69,8 @@ namespace linkerbot::can {
         std::function<pcan_abi::Status(uint16_t, pcan_abi::FdMessage *, pcan_abi::FdTimestamp *)>
             read_fd;
         std::function<pcan_abi::Status(uint16_t, pcan_abi::FdMessage *)> write_fd;
+        // Optional for existing injected API tables; required only for echo opt-in.
+        std::function<pcan_abi::Status(uint16_t, uint8_t, void *, uint32_t)> set_value = {};
     };
 
     enum class PcanMode { kClassic, kFd };
@@ -87,6 +89,7 @@ namespace linkerbot::can {
         PcanFdTiming fd_timing;
         std::optional<std::string> library_path;       // UTF-8; LINKERBOT_PCAN_LIB if absent
         std::chrono::milliseconds receive_timeout{10}; // 0..100 ms, close interrupts polling
+        bool receive_own_messages = false;
     };
     struct PcanChannel {
         uint16_t handle = 0;

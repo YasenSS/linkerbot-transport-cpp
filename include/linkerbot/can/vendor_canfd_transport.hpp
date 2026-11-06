@@ -100,6 +100,7 @@ namespace linkerbot::can {
             // cancellation API. See docs/zh/minicanfd.md for this limitation.
             int send_timeout_ms = kVendorCanFdDefaultSendTimeoutMs;
             int receive_timeout_ms = kVendorCanFdDefaultReceiveTimeoutMs;
+            bool receive_own_messages = false; // true requires an unexposed vendor echo API.
         };
 
         // Load libcanbus / HCanbus from disk (or LINKERBOT_CANFD_LIB).

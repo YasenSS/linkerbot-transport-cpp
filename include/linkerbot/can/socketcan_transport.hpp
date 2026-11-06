@@ -22,6 +22,7 @@
 
 #include <linux/can.h>
 #include <linux/can/raw.h>
+#include <linux/net_tstamp.h>
 
 namespace linkerbot::can {
 
@@ -32,6 +33,13 @@ namespace linkerbot::can {
     // close() still waits for in-flight calls; the timeout does not guarantee
     // driver completion or imply that a failed write sent no frame.
     inline constexpr long kSocketCANSendTimeoutUs = 50000;
+
+    enum class SocketCANTimestampMode : int { kDisabled, kSoftware, kHardware };
+    struct SocketCANOptions {
+        bool fd_mode = false;
+        bool receive_own_messages = false;
+        SocketCANTimestampMode timestamp_mode = SocketCANTimestampMode::kDisabled;
+    };
 
     // Linux SocketCAN backend (classic CAN and CAN FD).
     class SocketCANTransport : public CANTransport {
@@ -47,11 +55,19 @@ namespace linkerbot::can {
             int fd = -1;
             bool fd_mode = false;
             std::function<void()> on_io_in_flight;
+            SocketCANTimestampMode timestamp_mode = SocketCANTimestampMode::kDisabled;
+            bool receive_own_messages = false;
         };
 
         // fd_mode=true enables CAN_RAW_FD_FRAMES (CAN FD).
         explicit SocketCANTransport(std::string_view interface_name, bool fd_mode = false)
-            : fd_mode_(fd_mode) {
+            : SocketCANTransport(
+                  SocketCANOptions{fd_mode, false, SocketCANTimestampMode::kDisabled},
+                  interface_name) {}
+
+        SocketCANTransport(const SocketCANOptions &options, std::string_view interface_name)
+            : fd_mode_(options.fd_mode) {
+            validate_timestamp_mode(options.timestamp_mode);
             if (interface_name.empty() || interface_name.size() >= IFNAMSIZ) {
                 throw ValidationError("SocketCAN interface name is empty or too long");
             }
@@ -59,6 +75,21 @@ namespace linkerbot::can {
             if (opened_fd < 0) {
                 throw TransportIOError("Failed to create CAN socket",
                                        std::error_code(errno, std::generic_category()));
+            }
+
+            try {
+                if (options.receive_own_messages) {
+                    int enable = 1;
+                    if (::setsockopt(opened_fd, SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, &enable,
+                                     sizeof(enable)) < 0) {
+                        throw TransportIOError("Failed to enable CAN receive-own messages",
+                                               std::error_code(errno, std::generic_category()));
+                    }
+                }
+                apply_timestamp_mode(opened_fd, options.timestamp_mode);
+            } catch (...) {
+                (void)::close(opened_fd);
+                throw;
             }
 
             if (fd_mode_) {
@@ -105,6 +136,21 @@ namespace linkerbot::can {
             : fd_mode_(handle.fd_mode), on_io_in_flight_(std::move(handle.on_io_in_flight)) {
             if (handle.fd < 0) {
                 throw ValidationError("AdoptFd requires an already-open fd");
+            }
+            try {
+                validate_timestamp_mode(handle.timestamp_mode);
+                if (handle.receive_own_messages) {
+                    int enable = 1;
+                    if (::setsockopt(handle.fd, SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, &enable,
+                                     sizeof(enable)) < 0) {
+                        throw TransportIOError("Failed to enable CAN receive-own messages",
+                                               std::error_code(errno, std::generic_category()));
+                    }
+                }
+                apply_timestamp_mode(handle.fd, handle.timestamp_mode);
+            } catch (...) {
+                (void)::close(handle.fd);
+                throw;
             }
             apply_timeouts(handle.fd);
             fd_ = handle.fd;
@@ -166,7 +212,9 @@ namespace linkerbot::can {
             }
             const IoInFlightGuard guard(*this);
             struct can_frame frame {};
-            auto nbytes = ::read(guard.fd(), &frame, sizeof(frame));
+            std::optional<ReceiveTimestamp> timestamp;
+            bool is_rx = true;
+            auto nbytes = receive_frame(guard.fd(), &frame, sizeof(frame), timestamp, is_rx);
             if (nbytes != static_cast<ssize_t>(sizeof(frame))) {
                 if (nbytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                     return std::nullopt;
@@ -189,7 +237,10 @@ namespace linkerbot::can {
                 return std::nullopt;
             }
 
-            return decode_socketcan_frame(frame);
+            auto message = decode_socketcan_frame(frame);
+            message.timestamp = timestamp;
+            message.is_rx = is_rx;
+            return message;
         }
 
         auto write(const Message &message) -> void override {
@@ -315,6 +366,51 @@ namespace linkerbot::can {
             int fd_ = -1;
         };
 
+        static auto validate_timestamp_mode(SocketCANTimestampMode mode) -> void {
+            if (mode != SocketCANTimestampMode::kDisabled &&
+                mode != SocketCANTimestampMode::kSoftware &&
+                mode != SocketCANTimestampMode::kHardware) {
+                throw ValidationError("Unknown SocketCAN timestamp mode");
+            }
+        }
+
+        static auto apply_timestamp_mode(int fd, SocketCANTimestampMode mode) -> void {
+            if (mode == SocketCANTimestampMode::kDisabled) {
+                return;
+            }
+            const int flags = mode == SocketCANTimestampMode::kHardware
+                                  ? SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_RAW_HARDWARE
+                                  : SOF_TIMESTAMPING_RX_SOFTWARE | SOF_TIMESTAMPING_SOFTWARE;
+            if (::setsockopt(fd, SOL_SOCKET, SO_TIMESTAMPING, &flags, sizeof(flags)) < 0) {
+                throw TransportIOError("Failed to configure SocketCAN timestamps",
+                                       std::error_code(errno, std::generic_category()));
+            }
+        }
+
+        static auto receive_frame(int fd, void *frame, size_t length,
+                                  std::optional<ReceiveTimestamp> &timestamp,
+                                  bool &is_rx) -> ssize_t {
+            alignas(struct cmsghdr) std::array<unsigned char, CMSG_SPACE(sizeof(timespec) * 3)>
+                control{};
+            struct iovec vector {
+                frame, length
+            };
+            struct msghdr header {};
+            header.msg_iov = &vector;
+            header.msg_iovlen = 1;
+            header.msg_control = control.data();
+            header.msg_controllen = control.size();
+            const auto received = ::recvmsg(fd, &header, 0);
+            if (received >= 0) {
+                if ((header.msg_flags & MSG_TRUNC) != 0) {
+                    throw TransportIOError("SocketCAN receive frame was truncated");
+                }
+                timestamp = decode_socketcan_timestamp(header);
+                is_rx = (header.msg_flags & MSG_CONFIRM) == 0;
+            }
+            return received;
+        }
+
         static auto apply_timeouts(int fd) -> void {
             struct timeval rcv_tv {};
             rcv_tv.tv_sec = 0;
@@ -340,7 +436,9 @@ namespace linkerbot::can {
         auto read_fd() -> std::optional<Message> {
             const IoInFlightGuard guard(*this);
             struct canfd_frame frame {};
-            auto nbytes = ::read(guard.fd(), &frame, sizeof(frame));
+            std::optional<ReceiveTimestamp> timestamp;
+            bool is_rx = true;
+            auto nbytes = receive_frame(guard.fd(), &frame, sizeof(frame), timestamp, is_rx);
             if (nbytes < 0) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     return std::nullopt;
@@ -360,13 +458,19 @@ namespace linkerbot::can {
                 if (is_can_error_frame(classic.can_id) || is_can_remote_frame(classic.can_id)) {
                     return std::nullopt;
                 }
-                return decode_socketcan_frame(classic);
+                auto message = decode_socketcan_frame(classic);
+                message.timestamp = timestamp;
+                message.is_rx = is_rx;
+                return message;
             }
             if (nbytes == static_cast<ssize_t>(sizeof(struct canfd_frame))) {
                 if (is_can_error_frame(frame.can_id) || is_can_remote_frame(frame.can_id)) {
                     return std::nullopt;
                 }
-                return decode_socketcan_frame(frame);
+                auto message = decode_socketcan_frame(frame);
+                message.timestamp = timestamp;
+                message.is_rx = is_rx;
+                return message;
             }
             throw TransportIOError("SocketCAN read returned an unexpected frame size", {},
                                    static_cast<int>(nbytes));

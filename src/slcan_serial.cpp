@@ -413,7 +413,7 @@ namespace linkerbot::can {
                 }
             }
             auto close() -> void override {
-                cancel();
+                this->cancel();
                 std::scoped_lock io(read_mutex_, write_mutex_);
                 std::lock_guard<std::mutex> lock(state_mutex_);
                 int error = 0;

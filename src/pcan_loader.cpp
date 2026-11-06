@@ -170,6 +170,8 @@ namespace linkerbot::can {
             module, "CAN_ReadFD", false);
         api->write_fd =
             bind<Status(PCAN_CALL *)(uint16_t, FdMessage *)>(module, "CAN_WriteFD", false);
+        api->set_value = bind<Status(PCAN_CALL *)(uint16_t, uint8_t, void *, uint32_t)>(
+            module, "CAN_SetValue", false);
         api->library_path = module.path;
         api->library_owner = module.owner;
         return api;
