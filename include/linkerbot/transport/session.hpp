@@ -22,6 +22,7 @@ namespace linkerbot::can {
 } // namespace linkerbot::can
 
 namespace linkerbot::transport {
+    class DeviceSession;
 
     // Coalesced state-change notification for a language/runtime bridge. Read the
     // revision before inspecting state, then wait on that revision. No application
@@ -107,6 +108,25 @@ namespace linkerbot::transport {
 
     enum class CapacityUnit { kBatches, kFrames };
     enum class DeadlinePolicy { kExecution, kStartOnly };
+    enum class PendingAgeScope { kSession, kEndpoint };
+
+    struct AdmissionLimits {
+        size_t fifo_capacity = 2000;
+        size_t latest_capacity = 64;
+        CapacityUnit fifo_unit = CapacityUnit::kBatches;
+    };
+
+    // Shared accounting identity, not another queue or writer. Limits are immutable.
+    class AdmissionDomain {
+      public:
+        explicit AdmissionDomain(AdmissionLimits limits);
+        [[nodiscard]] AdmissionLimits limits() const noexcept {
+            return limits_;
+        }
+
+      private:
+        const AdmissionLimits limits_;
+    };
 
     // Opt-in SDK scheduling. Defaults retain the existing Session behavior.
     struct SessionOptions {
@@ -131,6 +151,8 @@ namespace linkerbot::transport {
         std::optional<uint64_t> expected_generation = std::nullopt;
         std::optional<std::chrono::microseconds> max_pending_age = std::nullopt;
         DeadlinePolicy deadline_policy = DeadlinePolicy::kExecution;
+        PendingAgeScope pending_age_scope = PendingAgeScope::kSession;
+        std::shared_ptr<const AdmissionDomain> admission_domain = nullptr;
     };
 
     struct SendResult {
@@ -222,6 +244,8 @@ namespace linkerbot::transport {
         // Caller must keep Dispatcher alive until all runtimes/Session references
         // are destroyed. Physical recover is unavailable for this borrowed adapter.
         static std::shared_ptr<Session> borrow(can::CANDispatcher &dispatcher);
+        // Logical device ownership; all devices still submit to this Session's writer.
+        std::shared_ptr<DeviceSession> attach_device(std::string identity);
         ~Session();
         // Final release inside RX/backend callbacks defers destruction to an
         // external cleanup worker. A borrowed dispatcher must outlive this drain.
@@ -271,12 +295,39 @@ namespace linkerbot::transport {
         void close();
 
       private:
+        friend class DeviceSession;
         struct Impl;
         class Cleanup;
         explicit Session(std::unique_ptr<Impl> impl);
         void start();
         std::optional<SendReceipt> submit_impl(MessageBatch batch, SendOptions options,
-                                               bool replace_only);
+                                               bool replace_only,
+                                               std::shared_ptr<void> owner = nullptr);
         std::unique_ptr<Impl> impl_;
+    };
+
+    // A device owns its admission gate and inboxes, not the physical connection.
+    // Explicit close is retryable after a drain timeout. Destruction attempts close.
+    class DeviceSession {
+      public:
+        ~DeviceSession();
+        DeviceSession(const DeviceSession &) = delete;
+        DeviceSession &operator=(const DeviceSession &) = delete;
+        SendReceipt submit(MessageBatch batch, SendOptions options = {});
+        std::optional<SendReceipt> replace_latest_if_pending(MessageBatch batch,
+                                                             SendOptions options);
+        std::shared_ptr<RouteInbox> subscribe_routes(const std::vector<RouteKey> &keys,
+                                                     size_t capacity = 256);
+        void close_until(Deadline deadline);
+        [[nodiscard]] bool closed() const;
+        [[nodiscard]] uint64_t generation() const;
+
+      private:
+        friend class Session;
+        struct State;
+        explicit DeviceSession(std::shared_ptr<State> state);
+        std::optional<SendReceipt> submit_impl(MessageBatch batch, SendOptions options,
+                                               bool replace_only);
+        std::shared_ptr<State> state_;
     };
 } // namespace linkerbot::transport

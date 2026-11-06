@@ -15,6 +15,23 @@
 #include <utility>
 
 namespace linkerbot::transport {
+    struct DeviceSession::State {
+        std::shared_ptr<Session> session;
+        std::string endpoint;
+        uint64_t generation = 0;
+        mutable std::mutex gate;
+        std::timed_mutex closer;
+        bool closing = false;
+        std::atomic<bool> closed{true};
+        std::vector<std::shared_ptr<RouteInbox>> inboxes;
+    };
+    AdmissionDomain::AdmissionDomain(AdmissionLimits limits) : limits_(limits) {
+        if (limits.fifo_capacity == 0 || limits.latest_capacity == 0 ||
+            (limits.fifo_unit != CapacityUnit::kBatches &&
+             limits.fifo_unit != CapacityUnit::kFrames)) {
+            throw can::ValidationError("invalid admission domain limits");
+        }
+    }
     namespace {
         auto current_writer() -> const void *& {
             static thread_local const void *writer = nullptr;
@@ -182,6 +199,7 @@ namespace linkerbot::transport {
         Impl *cleanup_next = nullptr;
         void close();
         struct Job {
+            std::shared_ptr<void> owner;
             MessageBatch batch;
             SendOptions options;
             CancellationSource abort;
@@ -197,6 +215,9 @@ namespace linkerbot::transport {
         std::mutex lifecycle;
         std::condition_variable cv;
         std::map<RouteKey, std::weak_ptr<RouteInbox::State>> routes;
+        std::map<std::string, std::weak_ptr<DeviceSession::State>> devices;
+        uint64_t next_device = 0;
+        bool device_mode = false;
         std::deque<std::shared_ptr<Job>> jobs;
         std::shared_ptr<Job> claimed;
         std::thread writer;
@@ -265,10 +286,14 @@ namespace linkerbot::transport {
             }
             return {fifo, latest};
         }
-        Deadline oldest_accepted() const {
-            auto oldest = claimed ? claimed->receipt->result.accepted_at : Deadline::max();
+        Deadline oldest_accepted(const std::string *endpoint = nullptr) const {
+            auto oldest = claimed && (endpoint == nullptr || claimed->options.endpoint == *endpoint)
+                              ? claimed->receipt->result.accepted_at
+                              : Deadline::max();
             for (const auto &job : jobs) {
-                oldest = std::min(oldest, job->receipt->result.accepted_at);
+                if (endpoint == nullptr || job->options.endpoint == *endpoint) {
+                    oldest = std::min(oldest, job->receipt->result.accepted_at);
+                }
             }
             return oldest;
         }
@@ -1114,7 +1139,8 @@ namespace linkerbot::transport {
         return submit_impl(std::move(batch), std::move(options), true);
     }
     std::optional<SendReceipt> Session::submit_impl(MessageBatch batch, SendOptions options,
-                                                    bool replace_only) {
+                                                    bool replace_only,
+                                                    std::shared_ptr<void> owner) {
         if (batch.frames.empty()) {
             throw can::ValidationError("empty send batch");
         }
@@ -1130,11 +1156,16 @@ namespace linkerbot::transport {
         if (options.max_pending_age && options.max_pending_age->count() <= 0) {
             throw can::ValidationError("pending age must be positive");
         }
+        if (options.pending_age_scope != PendingAgeScope::kSession &&
+            options.pending_age_scope != PendingAgeScope::kEndpoint) {
+            throw can::ValidationError("invalid pending age scope");
+        }
         if (options.policy == SendPolicy::latest &&
             (options.endpoint.empty() || options.family.empty())) {
             throw can::ValidationError("latest requires explicit endpoint and family");
         }
         auto job = std::make_shared<Impl::Job>();
+        job->owner = std::move(owner);
         job->batch = std::move(batch);
         job->options = std::move(options);
         job->receipt = std::make_shared<SendReceipt::State>();
@@ -1145,6 +1176,9 @@ namespace linkerbot::transport {
             throw can::ClosedError("session is closed");
         }
         job->receipt->signal = p.signal;
+        if (p.device_mode && !job->owner) {
+            throw can::ValidationError("use DeviceSession for managed device submission");
+        }
         if (p.stopped_endpoints.count(job->options.endpoint) != 0u) {
             throw can::ClosedError("endpoint admission is stopped");
         }
@@ -1158,8 +1192,14 @@ namespace linkerbot::transport {
         }
         const auto now = Clock::now();
         const auto max_pending_age = job->options.max_pending_age;
-        if (max_pending_age.has_value() && p.oldest_accepted() != Deadline::max() &&
-            std::chrono::duration_cast<std::chrono::microseconds>(now - p.oldest_accepted()) >=
+        const auto oldest =
+            max_pending_age
+                ? p.oldest_accepted(job->options.pending_age_scope == PendingAgeScope::kEndpoint
+                                        ? &job->options.endpoint
+                                        : nullptr)
+                : Deadline::max();
+        if (max_pending_age.has_value() && oldest != Deadline::max() &&
+            std::chrono::duration_cast<std::chrono::microseconds>(now - oldest) >=
                 max_pending_age.value()) {
             ++p.health.rejected_stale;
             throw can::TimeoutError("pending work exceeded age budget");
@@ -1176,6 +1216,32 @@ namespace linkerbot::transport {
             return std::nullopt;
         }
         const auto units = p.pending_units();
+        const auto domain = job->options.admission_domain;
+        if (domain) {
+            const auto limits = domain->limits();
+            size_t fifo = 0;
+            size_t latest = 0;
+            for (const auto &pending : p.jobs) {
+                if (pending->options.admission_domain != domain ||
+                    pending == (previous == p.jobs.end() ? nullptr : *previous)) {
+                    continue;
+                }
+                if (pending->options.policy == SendPolicy::latest) {
+                    ++latest;
+                } else {
+                    fifo += limits.fifo_unit == CapacityUnit::kFrames ? pending->batch.frames.size()
+                                                                      : 1;
+                }
+            }
+            const auto cost =
+                limits.fifo_unit == CapacityUnit::kFrames ? job->batch.frames.size() : 1;
+            if ((job->options.policy == SendPolicy::latest && latest >= limits.latest_capacity) ||
+                (job->options.policy == SendPolicy::fifo &&
+                 (fifo > limits.fifo_capacity || cost > limits.fifo_capacity - fifo))) {
+                ++p.health.rejected_full;
+                throw can::QueueFullError("admission domain is full");
+            }
+        }
         bool full = previous == p.jobs.end() && p.jobs.size() >= p.tx_capacity;
         if (p.options.separate_policy_capacity) {
             if (job->options.policy == SendPolicy::latest) {
@@ -1214,6 +1280,118 @@ namespace linkerbot::transport {
         auto receipt = submit(std::move(batch), std::move(options));
         (void)receipt.wait_until(deadline);
     }
+    std::shared_ptr<DeviceSession> Session::attach_device(std::string identity) {
+        if (identity.empty()) {
+            throw can::ValidationError("device identity must not be empty");
+        }
+        auto state = std::make_shared<DeviceSession::State>();
+        state->session = shared_from_this();
+        auto device = std::shared_ptr<DeviceSession>(new DeviceSession(state));
+        impl_->refresh();
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        if (impl_->stopping || !impl_->health.open) {
+            throw can::ClosedError("session is closed");
+        }
+        if (!impl_->device_mode && (impl_->health.accepted != 0 || !impl_->routes.empty())) {
+            throw can::ValidationError("attach devices before legacy Session use");
+        }
+        if (auto previous = impl_->devices[identity].lock(); previous && !previous->closed.load()) {
+            // Do not take a device gate while holding the Session mutex.
+            throw can::ValidationError("device identity is still registered");
+        }
+        state->generation = impl_->health.generation;
+        state->endpoint = "device/" + std::to_string(++impl_->next_device);
+        impl_->devices[std::move(identity)] = state;
+        state->closed.store(false);
+        impl_->device_mode = true;
+        return device;
+    }
+
+    DeviceSession::DeviceSession(std::shared_ptr<State> state) : state_(std::move(state)) {}
+    DeviceSession::~DeviceSession() {
+        try {
+            close_until(Deadline::max());
+        } catch (...) {
+            // A claimed Job retains State until backend I/O has left the writer.
+        }
+    }
+    std::optional<SendReceipt> DeviceSession::submit_impl(MessageBatch batch, SendOptions options,
+                                                          bool replace_only) {
+        std::lock_guard<std::mutex> lock(state_->gate);
+        if (state_->closing || state_->closed) {
+            throw can::ClosedError("device admission is closed");
+        }
+        options.endpoint = state_->endpoint;
+        options.expected_generation = state_->generation;
+        options.pending_age_scope = PendingAgeScope::kEndpoint;
+        return state_->session->submit_impl(std::move(batch), std::move(options), replace_only,
+                                            state_);
+    }
+    SendReceipt DeviceSession::submit(MessageBatch batch, SendOptions options) {
+        auto receipt = submit_impl(std::move(batch), std::move(options), false);
+        if (!receipt.has_value()) {
+            throw can::InternalError("device submission returned no receipt");
+        }
+        return receipt.value();
+    }
+    std::optional<SendReceipt> DeviceSession::replace_latest_if_pending(MessageBatch batch,
+                                                                        SendOptions options) {
+        if (options.policy != SendPolicy::latest) {
+            throw can::ValidationError("conditional replacement requires latest policy");
+        }
+        return submit_impl(std::move(batch), std::move(options), true);
+    }
+    std::shared_ptr<RouteInbox> DeviceSession::subscribe_routes(const std::vector<RouteKey> &keys,
+                                                                size_t capacity) {
+        std::lock_guard<std::mutex> lock(state_->gate);
+        if (state_->closing || state_->closed) {
+            throw can::ClosedError("device admission is closed");
+        }
+        auto inbox = state_->session->subscribe_routes(keys, capacity);
+        if (inbox->health().generation != state_->generation) {
+            inbox->close();
+            throw can::ClosedError("device generation is stale");
+        }
+        state_->inboxes.push_back(inbox);
+        return inbox;
+    }
+    void DeviceSession::close_until(Deadline deadline) {
+        if (current_writer() != nullptr || can::CANDispatcher::is_any_receive_thread()) {
+            throw can::ValidationError("device close requires an external caller");
+        }
+        std::unique_lock<std::timed_mutex> closer(state_->closer, std::defer_lock);
+        if (deadline == Deadline::max()) {
+            closer.lock();
+        } else if (!closer.try_lock_until(deadline)) {
+            throw can::TimeoutError("another device close is still running");
+        }
+        std::shared_ptr<Session> session;
+        {
+            std::lock_guard<std::mutex> gate(state_->gate);
+            if (state_->closed) {
+                return;
+            }
+            state_->closing = true;
+            session = state_->session;
+        }
+        // No device gate is held across driver drain or route destruction.
+        session->stop_endpoint(state_->endpoint, deadline);
+        std::lock_guard<std::mutex> gate(state_->gate);
+        for (const auto &inbox : state_->inboxes) {
+            inbox->close();
+        }
+        state_->inboxes.clear();
+        state_->closed = true;
+        state_->session.reset();
+    }
+    bool DeviceSession::closed() const {
+        std::lock_guard<std::mutex> lock(state_->gate);
+        return state_->closed;
+    }
+    uint64_t DeviceSession::generation() const {
+        return state_->generation;
+    }
+
     void Session::cancel_endpoint(const std::string &endpoint) {
         auto &p = *impl_;
         std::lock_guard<std::mutex> lock(p.mutex);

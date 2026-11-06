@@ -4,6 +4,8 @@
 
 ## 未发布
 
+- 新增逻辑设备句柄，拥有独立 inbox、绑定 generation 的发送入口及可重试排空，复用原 Session writer；新增共享准入额度域及可选 endpoint 局部队龄检查，保留旧默认行为。
+
 - 为 SDK 绑定新增可选 Session 调度：FIFO 容量计量与独立 latest 限制、同 endpoint FIFO 和公平选择、generation/年龄准入、开始前 deadline、原生逐帧周期及连续发送失败阈值。保留原有签名和默认值。
 - 新增原子的条件 latest 替换、endpoint 准入/排空及返回终态值的回执等待；原取消和抛异常等待接口保持行为。
 - 新增可合并状态通知、保留原帧的路由 key 提取、共享领取/RX 事件顺序和队列/路由诊断。说明唯一 writer 接入边界并增加离线回归；不包含 Python 绑定或实机验收。

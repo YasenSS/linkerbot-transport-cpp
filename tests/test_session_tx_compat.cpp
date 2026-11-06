@@ -213,6 +213,231 @@ TEST_CASE("Session generation and oldest in-flight age are checked during admiss
     rig.session->submit(batch(1), stale).wait();
 }
 
+TEST_CASE("Session endpoint age excludes unrelated claimed and queued work", "[session]") {
+    TxRig rig;
+    auto active = rig.block_writer("hand");
+    auto waiting = rig.session->submit(batch(1), endpoint("hand"));
+    auto arm = endpoint("arm");
+    arm.max_pending_age = 1us;
+    std::this_thread::sleep_for(1ms);
+    REQUIRE_THROWS_AS(rig.session->submit(batch(1), arm), can::TimeoutError);
+    arm.pending_age_scope = transport::PendingAgeScope::kEndpoint;
+    auto accepted = rig.session->submit(batch(7), arm);
+    std::this_thread::sleep_for(1ms);
+    REQUIRE_THROWS_AS(rig.session->submit(batch(1), arm), can::TimeoutError);
+    REQUIRE(rig.session->health().rejected_stale == 2);
+    rig.fake->release_tx_gate();
+    active.wait();
+    waiting.wait();
+    accepted.wait();
+}
+
+TEST_CASE("Session endpoint age includes its own claimed work", "[session]") {
+    TxRig rig;
+    auto active = rig.block_writer("arm");
+    auto arm = endpoint("arm");
+    arm.max_pending_age = 1us;
+    arm.pending_age_scope = transport::PendingAgeScope::kEndpoint;
+    std::this_thread::sleep_for(1ms);
+    REQUIRE_THROWS_AS(rig.session->submit(batch(1), arm), can::TimeoutError);
+    auto hand = arm;
+    hand.endpoint = "hand";
+    auto accepted = rig.session->submit(batch(1), hand);
+    rig.fake->release_tx_gate();
+    active.wait();
+    accepted.wait();
+}
+
+TEST_CASE("Session admission domains share request limits and isolate frame budgets", "[session]") {
+    TxRig rig;
+    auto blocker = rig.block_writer();
+    auto hands = std::make_shared<transport::AdmissionDomain>(
+        transport::AdmissionLimits{1, 1, transport::CapacityUnit::kBatches});
+    auto arms = std::make_shared<transport::AdmissionDomain>(
+        transport::AdmissionLimits{7, 1, transport::CapacityUnit::kFrames});
+    auto left = endpoint("left");
+    left.admission_domain = hands;
+    auto right = endpoint("right");
+    right.admission_domain = hands;
+    auto arm = endpoint("arm");
+    arm.admission_domain = arms;
+    auto hand_request = rig.session->submit(batch(3), left);
+    REQUIRE_THROWS_AS(rig.session->submit(batch(1), right), can::QueueFullError);
+    auto targets = rig.session->submit(batch(7), arm);
+    REQUIRE_THROWS_AS(rig.session->submit(batch(1), arm), can::QueueFullError);
+    auto replaceable = latest("left");
+    replaceable.admission_domain = hands;
+    auto old = rig.session->submit(batch(1), replaceable);
+    auto replacement = rig.session->replace_latest_if_pending(batch(2), replaceable);
+    REQUIRE(replacement.has_value());
+    REQUIRE(old.wait_result_until(transport::Clock::now()).outcome ==
+            transport::SendOutcome::superseded);
+    replaceable.endpoint = "right";
+    REQUIRE_THROWS_AS(rig.session->submit(batch(1), replaceable), can::QueueFullError);
+    rig.session->cancel_endpoint("left");
+    auto released = rig.session->submit(batch(1), right);
+    rig.fake->release_tx_gate();
+    blocker.wait();
+    targets.wait();
+    released.wait();
+    REQUIRE(hand_request.completed());
+    REQUIRE(rig.session->health().rejected_full == 3);
+}
+
+TEST_CASE("Session global capacity still limits independent admission domains", "[session]") {
+    TxRig rig;
+    transport::SessionOptions settings;
+    settings.tx_capacity = 1;
+    rig.session->configure(settings);
+    auto blocker = rig.block_writer();
+    auto first = endpoint("first");
+    first.admission_domain =
+        std::make_shared<transport::AdmissionDomain>(transport::AdmissionLimits{});
+    auto second = endpoint("second");
+    second.admission_domain =
+        std::make_shared<transport::AdmissionDomain>(transport::AdmissionLimits{});
+    auto queued = rig.session->submit(batch(1), first);
+    REQUIRE_THROWS_AS(rig.session->submit(batch(1), second), can::QueueFullError);
+    rig.fake->release_tx_gate();
+    blocker.wait();
+    queued.wait();
+}
+
+TEST_CASE("Admission domains validate immutable limits", "[session]") {
+    REQUIRE_THROWS_AS(transport::AdmissionDomain(transport::AdmissionLimits{0, 1}),
+                      can::ValidationError);
+    REQUIRE_THROWS_AS(transport::AdmissionDomain(transport::AdmissionLimits{1, 0}),
+                      can::ValidationError);
+    REQUIRE_THROWS_AS(transport::AdmissionDomain(transport::AdmissionLimits{
+                          1, 1, static_cast<transport::CapacityUnit>(99)}),
+                      can::ValidationError);
+    const transport::AdmissionDomain domain({7, 2, transport::CapacityUnit::kFrames});
+    REQUIRE(domain.limits().fifo_capacity == 7);
+    REQUIRE(domain.limits().latest_capacity == 2);
+    REQUIRE(domain.limits().fifo_unit == transport::CapacityUnit::kFrames);
+    TxRig rig;
+    auto invalid = endpoint("arm");
+    invalid.pending_age_scope = static_cast<transport::PendingAgeScope>(99);
+    REQUIRE_THROWS_AS(rig.session->submit(batch(1), invalid), can::ValidationError);
+}
+
+TEST_CASE("Device sessions isolate admission routes and retryable drain", "[session]") {
+    TxRig rig;
+    REQUIRE_THROWS_AS(rig.session->attach_device(""), can::ValidationError);
+    auto left = rig.session->attach_device("left");
+    auto right = rig.session->attach_device("right");
+    REQUIRE_THROWS_AS(rig.session->submit(batch(1)), can::ValidationError);
+    REQUIRE(left->generation() == rig.session->health().generation);
+    REQUIRE_FALSE(left->closed());
+    REQUIRE_THROWS_AS(rig.session->attach_device("left"), can::ValidationError);
+    auto left_inbox = left->subscribe_routes({{0x28, false}});
+    auto right_inbox = right->subscribe_routes({{0x29, false}});
+    rig.fake->arm_tx_gate();
+    auto active = left->submit(batch(3));
+    REQUIRE(rig.fake->wait_until_tx_entered(2s));
+    auto pending = left->submit(batch(1));
+    auto retained = right->submit(batch(1));
+    REQUIRE_THROWS_AS(left->close_until(transport::Clock::now()), can::TimeoutError);
+    REQUIRE_FALSE(left->closed());
+    REQUIRE_THROWS_AS(left->submit(batch(1)), can::ClosedError);
+    REQUIRE_THROWS_AS(left->subscribe_routes({{0x30, false}}), can::ClosedError);
+    REQUIRE_THROWS_AS(rig.session->attach_device("left"), can::ValidationError);
+    REQUIRE(pending.completed());
+    rig.fake->release_tx_gate();
+    active.wait();
+    retained.wait();
+    left->close_until(transport::Deadline::max());
+    left->close_until(transport::Clock::now());
+    REQUIRE(left->closed());
+    REQUIRE(left_inbox->health().closed);
+    REQUIRE_FALSE(right_inbox->health().closed);
+    REQUIRE(rig.session->health().open);
+    auto replacement = rig.session->attach_device("left");
+    replacement->subscribe_routes({{0x28, false}});
+    replacement->submit(batch(1)).wait();
+    right->submit(batch(1)).wait();
+}
+
+TEST_CASE("Device sessions retain native latest and generation checks", "[session]") {
+    can::FakeTransport *backend = nullptr;
+    auto session = transport::Session::create([&] {
+        auto fresh = std::make_unique<can::FakeTransport>();
+        backend = fresh.get();
+        return fresh;
+    });
+    auto device = session->attach_device("arm");
+    auto options = latest("ignored");
+    REQUIRE_FALSE(device->replace_latest_if_pending(batch(1), options));
+    REQUIRE_THROWS_AS(device->replace_latest_if_pending(batch(1), {}), can::ValidationError);
+    backend->arm_tx_gate();
+    auto active = device->submit(batch(1));
+    REQUIRE(backend->wait_until_tx_entered(2s));
+    auto old = device->submit(batch(1), options);
+    auto replacement = device->replace_latest_if_pending(batch(2), options);
+    REQUIRE(replacement.has_value());
+    REQUIRE(old.wait_result_until(transport::Clock::now()).outcome ==
+            transport::SendOutcome::superseded);
+    backend->release_tx_gate();
+    active.wait();
+    test_support::require_value(replacement).wait();
+    const auto generation = session->health().generation;
+    REQUIRE(session->recover(generation) != generation);
+    REQUIRE_THROWS_AS(device->submit(batch(1)), can::ClosedError);
+    REQUIRE_THROWS_AS(device->subscribe_routes({{0x28, false}}), can::ClosedError);
+    device->close_until(transport::Deadline::max());
+    session->close();
+    REQUIRE_THROWS_AS(session->attach_device("closed"), can::ClosedError);
+}
+
+TEST_CASE("Device attachment cannot reinterpret an active legacy Session", "[session]") {
+    TxRig rig;
+    rig.session->submit(batch(1)).wait();
+    REQUIRE_THROWS_AS(rig.session->attach_device("arm"), can::ValidationError);
+    rig.session->submit(batch(1)).wait();
+}
+
+TEST_CASE("Device close rejects writer callbacks before changing admission", "[session]") {
+    TxRig rig;
+    auto device = rig.session->attach_device("arm");
+    bool rejected = false;
+    rig.fake->on_request(0x28, [&](const can::Message &) {
+        try {
+            device->close_until(transport::Clock::now());
+        } catch (const can::ValidationError &) {
+            rejected = true;
+        }
+        return std::vector<can::Message>{};
+    });
+    device->submit(batch(1)).wait();
+    REQUIRE(rejected);
+    REQUIRE_FALSE(device->closed());
+    device->submit(batch(1)).wait();
+}
+
+TEST_CASE("Concurrent device close observes its own waiting deadline", "[session]") {
+    TxRig rig;
+    auto device = rig.session->attach_device("arm");
+    rig.fake->arm_tx_gate();
+    auto active = device->submit(batch(1));
+    REQUIRE(rig.fake->wait_until_tx_entered(2s));
+    auto queued = device->submit(batch(1));
+    auto closer =
+        std::async(std::launch::async, [&] { device->close_until(transport::Deadline::max()); });
+    struct ReleaseGate {
+        can::FakeTransport *backend;
+        ~ReleaseGate() {
+            backend->release_tx_gate();
+        }
+    } release{rig.fake};
+    REQUIRE(queued.wait_result_until(transport::Clock::now() + 2s).outcome ==
+            transport::SendOutcome::cancelled);
+    REQUIRE_THROWS_AS(device->close_until(transport::Clock::now()), can::TimeoutError);
+    rig.fake->release_tx_gate();
+    closer.get();
+    active.wait();
+    REQUIRE(device->closed());
+}
+
 TEST_CASE("Session optional endpoint FIFO prevents priority from overtaking an earlier request",
           "[session]") {
     TxRig rig;
