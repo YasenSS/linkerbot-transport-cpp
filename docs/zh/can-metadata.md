@@ -7,7 +7,7 @@
 `Message::timestamp` 可为空，携带原生数值、单位、时钟、来源和计数器位宽。它与 Session 的本地单调时钟 `received_at` 分开保存；发送忽略接收元数据，不用主机读取时间填补缺失值。
 
 - SocketCAN 的 `SocketCANOptions::timestamp_mode` 默认 `kDisabled`。`kSoftware` 请求内核系统时间戳；`kHardware` 请求设备原始硬件时间戳，不请求软件回退。驱动、接口硬件配置和时钟关联仍需部署侧确认。选项设置成功不代表硬件实际提供时间戳。缺失、截断或非法元数据仍为空。
-- PCAN 保留驱动微秒值，经典模式合并毫秒回绕字段，FD 模式保留完整 64 位值。来源标为 `kDriver`；API 没有逐帧硬件/软件来源标记，不推定 UTC 纪元或硬件精度。
+- PCAN 保留驱动微秒值，经典模式合并毫秒回绕字段，FD 模式保留完整 64 位值。时钟和来源均标为 `kDriver`；API 没有逐帧硬件/软件来源标记，不推定 UTC 纪元或硬件精度。
 - vendor 保留原始 32 位 `TimeStamp`，包含零值和回绕，单位为 `kRawTicks`，时钟为 `kVendorRaw`。不猜测单位或纪元，不展开回绕，与 Python ctypes 后端保留原始整数的方式一致。
 - 当前 SLCAN 固件配置不提供接收时间戳，不生成替代值，也不更改启动命令。
 

@@ -37,7 +37,7 @@ replaced with a host read time.
   stays absent. A synthetic ancillary message is not hardware evidence.
 - PCAN: preserve driver microseconds without floating point or epoch conversion.
   Classic timestamps include `millis + (overflow << 32)` before conversion to
-  microseconds; FD timestamps keep all 64 bits. Source is `kDriver`: the API does
+  microseconds; FD timestamps keep all 64 bits. Clock and source are `kDriver`: the API does
   not provide a per-frame hardware/software provenance flag. Do not infer a UTC
   epoch or hardware precision from the value alone.
 - Vendor CAN FD: preserve `CanFDMsg::TimeStamp`, including zero and wraparound,

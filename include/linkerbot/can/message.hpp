@@ -12,7 +12,7 @@ namespace linkerbot::can {
 
     // Unspecified preserves each backend's existing untagged-frame behavior.
     enum class FrameFormat : int { kUnspecified, kClassic, kFd };
-    enum class TimestampClock { kDevice, kSystemRealtime, kVendorRaw };
+    enum class TimestampClock { kDevice, kSystemRealtime, kVendorRaw, kDriver };
     enum class TimestampUnit { kNanoseconds, kMicroseconds, kRawTicks };
     enum class TimestampSource { kHardware, kSoftware, kDriver };
     struct ReceiveTimestamp {

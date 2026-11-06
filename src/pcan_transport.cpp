@@ -496,7 +496,7 @@ namespace linkerbot::can {
                     status = state_->api->read_fd(state_->config.channel, &frame, &timestamp);
                     message.timestamp =
                         ReceiveTimestamp{timestamp, TimestampUnit::kMicroseconds,
-                                         TimestampClock::kDevice, TimestampSource::kDriver, 64};
+                                         TimestampClock::kDriver, TimestampSource::kDriver, 64};
                     type = frame.type;
                     dlc = frame.dlc;
                     message.id = frame.id;
@@ -511,7 +511,7 @@ namespace linkerbot::can {
                         timestamp.micros;
                     message.timestamp =
                         ReceiveTimestamp{micros, TimestampUnit::kMicroseconds,
-                                         TimestampClock::kDevice, TimestampSource::kDriver, 64};
+                                         TimestampClock::kDriver, TimestampSource::kDriver, 64};
                     type = frame.type;
                     dlc = frame.length;
                     message.id = frame.id;

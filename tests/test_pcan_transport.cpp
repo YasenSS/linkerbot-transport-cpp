@@ -600,7 +600,7 @@ TEST_CASE("PCAN preserves complete driver timestamps without epoch conversion", 
         const auto received = require_value(transport.read());
         const auto timestamp = require_value(received.timestamp);
         CHECK(timestamp.unit == TimestampUnit::kMicroseconds);
-        CHECK(timestamp.clock == TimestampClock::kDevice);
+        CHECK(timestamp.clock == TimestampClock::kDriver);
         CHECK(timestamp.source == TimestampSource::kDriver);
         CHECK(timestamp.value == (mode == PcanMode::kFd ? 0x123456789abcdef0ULL
                                                         : ((uint64_t{2} << 32) + 1) * 1000 + 3));
