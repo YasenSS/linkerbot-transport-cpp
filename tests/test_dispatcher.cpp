@@ -596,13 +596,15 @@ TEST_CASE("consecutive receive errors fault once and reject sends", "[dispatcher
     options.error_backoff_base = std::chrono::milliseconds(1);
     options.error_backoff_max = std::chrono::milliseconds(2);
     options.on_fault = [&](const linkerbot::can::CANError &error) {
-        ++fault_calls;
         reported_status.store(error.native_status().value_or(0));
+        ++fault_calls;
         throw std::runtime_error("fault observer failure must be isolated");
     };
     CANDispatcher dispatcher(std::move(transport), options);
 
     REQUIRE(wait_until([&] { return dispatcher.get_health().state == TransportState::kFaulted; }));
+    // Fault state can become visible before the observer has published its result.
+    REQUIRE(wait_until([&] { return fault_calls.load() == 1; }));
     const auto health = dispatcher.get_health();
     REQUIRE(health.consecutive_errors == 3);
     REQUIRE(health.last_error_code == ErrorCode::kTransportIo);
