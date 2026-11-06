@@ -15,10 +15,10 @@ matching belongs in the device SDK. The optional RTU module handles register
 transactions. Device register maps and motion control remain in the device SDK.
 See the [serial and RTU guide](docs/en/modbus-rtu.md).
 
-Current source version: **0.3.3**, including optional serial and Modbus RTU modules.
+Current source version: **0.4.0**, including optional serial and Modbus RTU modules.
 Published v0.3.2 packages do not contain those modules. See the [latest published stable release](https://github.com/linker-bot/linkerbot-transport-cpp/releases/latest).
 See [downloads, checksums and release documentation](docs/en/releases.md).
-Source guides also cover [Unreleased changes](CHANGELOG.en.md); use the matching tag,
+See the [changelog](CHANGELOG.en.md); use the matching tag,
 headers and bundled documentation to determine a published SDK's actual interfaces.
 
 The canonical package is `linkerbot-transport`; former `linkerbot-comm` calls and
