@@ -35,6 +35,12 @@ namespace {
             return receipt;
         }
     };
+    struct ReleaseTxGate {
+        can::FakeTransport *backend;
+        ~ReleaseTxGate() {
+            backend->release_tx_gate();
+        }
+    };
     transport::MessageBatch batch(size_t count) {
         transport::MessageBatch result;
         result.frames.resize(count);
@@ -308,6 +314,157 @@ TEST_CASE("Session endpoint age includes its own claimed work", "[session]") {
     rig.fake->release_tx_gate();
     active.wait();
     accepted.wait();
+}
+
+TEST_CASE("Device pending age distinguishes its default from explicit Session scope", "[session]") {
+    TxRig rig;
+    auto peer = rig.session->attach_device("peer");
+    auto device = rig.session->attach_device("device");
+    const ReleaseTxGate release{rig.fake};
+    rig.fake->arm_tx_gate();
+    auto active = peer->submit(batch(1));
+    REQUIRE(rig.fake->wait_until_tx_entered(2s));
+    auto queued = peer->submit(batch(1));
+    std::this_thread::sleep_for(2ms);
+    transport::SendOptions options;
+    options.max_pending_age = 1us;
+    SECTION("omitted scope retains the device default") {
+        auto accepted = device->submit(batch(1), options);
+        REQUIRE_FALSE(accepted.completed());
+        // The default still includes this device's own waiting work.
+        std::this_thread::sleep_for(2ms);
+        REQUIRE_THROWS_AS(device->submit(batch(1), options), can::TimeoutError);
+    }
+    SECTION("explicit default resolves to the device endpoint") {
+        options.pending_age_scope = transport::PendingAgeScope::kDefault;
+        auto accepted = device->submit(batch(1), options);
+        REQUIRE_FALSE(accepted.completed());
+    }
+    SECTION("explicit endpoint excludes the peer") {
+        options.pending_age_scope = transport::PendingAgeScope::kEndpoint;
+        auto accepted = device->submit(batch(1), options);
+        REQUIRE_FALSE(accepted.completed());
+    }
+    SECTION("explicit Session includes the peer") {
+        options.pending_age_scope = transport::PendingAgeScope::kSession;
+        REQUIRE_THROWS_AS(device->submit(batch(1), options), can::TimeoutError);
+        REQUIRE(rig.session->health().accepted == 2);
+    }
+    rig.fake->release_tx_gate();
+    active.wait();
+    queued.wait();
+}
+
+TEST_CASE("Explicit device domain age includes only the selected domain", "[session]") {
+    TxRig rig;
+    transport::DeviceOptions shared;
+    shared.admission_domain =
+        std::make_shared<transport::AdmissionDomain>(transport::AdmissionLimits{});
+    auto peer = rig.session->attach_device("peer", shared);
+    auto same_domain = rig.session->attach_device("same", shared);
+    transport::DeviceOptions separate;
+    separate.admission_domain =
+        std::make_shared<transport::AdmissionDomain>(transport::AdmissionLimits{});
+    auto other_domain = rig.session->attach_device("other", separate);
+    const ReleaseTxGate release{rig.fake};
+    rig.fake->arm_tx_gate();
+    auto active = peer->submit(batch(1));
+    REQUIRE(rig.fake->wait_until_tx_entered(2s));
+    std::this_thread::sleep_for(2ms);
+    transport::SendOptions options;
+    options.max_pending_age = 1us;
+    options.pending_age_scope = transport::PendingAgeScope::kAdmissionDomain;
+    REQUIRE_THROWS_AS(same_domain->submit(batch(1), options), can::TimeoutError);
+    auto accepted = other_domain->submit(batch(1), options);
+    REQUIRE_FALSE(accepted.completed());
+    rig.fake->release_tx_gate();
+    active.wait();
+    accepted.wait();
+}
+
+TEST_CASE("Device scope selection applies to owned work and conditional replacement", "[session]") {
+    TxRig rig;
+    auto peer = rig.session->attach_device("peer");
+    auto device = rig.session->attach_device("device");
+    const ReleaseTxGate release{rig.fake};
+    rig.fake->arm_tx_gate();
+    auto active = peer->submit(batch(1));
+    REQUIRE(rig.fake->wait_until_tx_entered(2s));
+    // Leave room for local submissions while making the peer older than the budget.
+    std::this_thread::sleep_for(200ms);
+    auto options = latest("ignored");
+    options.max_pending_age = 100ms;
+    auto old = device->submit(batch(1), options);
+    options.pending_age_scope = transport::PendingAgeScope::kSession;
+    REQUIRE_THROWS_AS(device->replace_latest_if_pending(batch(2), options), can::TimeoutError);
+    REQUIRE_FALSE(old.completed());
+    auto operation = device->begin_operation();
+    REQUIRE_THROWS_AS(operation.submit(batch(1), options), can::TimeoutError);
+    options.pending_age_scope = transport::PendingAgeScope::kDefault;
+    auto replacement = device->replace_latest_if_pending(batch(2), options);
+    REQUIRE(replacement.has_value());
+    REQUIRE(old.result().outcome == transport::SendOutcome::superseded);
+    options.policy = transport::SendPolicy::fifo;
+    auto owned = operation.submit(batch(1), options);
+    rig.fake->release_tx_gate();
+    active.wait();
+    test_support::require_value(replacement).wait();
+    owned.wait();
+}
+
+TEST_CASE("Explicit device Session age includes a peer's final cooldown", "[session]") {
+    TxRig rig;
+    transport::DeviceOptions paced;
+    paced.send_period = 1h;
+    auto peer = rig.session->attach_device("peer", paced);
+    auto device = rig.session->attach_device("device");
+    auto cooling = peer->submit(batch(1));
+    const auto signal = peer->notification();
+    const auto deadline = transport::Clock::now() + 2s;
+    while (cooling.result().sent_frames == 0) {
+        const auto revision = signal->revision();
+        if (cooling.result().sent_frames != 0) {
+            break;
+        }
+        REQUIRE(signal->wait_until(revision, deadline));
+    }
+    REQUIRE_FALSE(cooling.completed());
+    std::this_thread::sleep_for(2ms);
+    transport::SendOptions options;
+    options.max_pending_age = 1us;
+    options.pending_age_scope = transport::PendingAgeScope::kSession;
+    REQUIRE_THROWS_AS(device->submit(batch(1), options), can::TimeoutError);
+    options.pending_age_scope = transport::PendingAgeScope::kDefault;
+    device->submit(batch(1), options).wait();
+    REQUIRE_FALSE(cooling.completed());
+    peer->close_until(deadline);
+    cooling.wait();
+}
+
+TEST_CASE("Session default age remains whole Session with stable explicit scope values",
+          "[session]") {
+    static_assert(static_cast<int>(transport::PendingAgeScope::kSession) == 0);
+    static_assert(static_cast<int>(transport::PendingAgeScope::kEndpoint) == 1);
+    static_assert(static_cast<int>(transport::PendingAgeScope::kAdmissionDomain) == 2);
+    TxRig rig;
+    const ReleaseTxGate release{rig.fake};
+    auto active = rig.block_writer("peer");
+    std::this_thread::sleep_for(2ms);
+    auto options = endpoint("device");
+    options.max_pending_age = 1us;
+    SECTION("default options") {
+        REQUIRE_THROWS_AS(rig.session->submit(batch(1), options), can::TimeoutError);
+    }
+    SECTION("explicit default") {
+        options.pending_age_scope = transport::PendingAgeScope::kDefault;
+        REQUIRE_THROWS_AS(rig.session->submit(batch(1), options), can::TimeoutError);
+    }
+    SECTION("explicit Session") {
+        options.pending_age_scope = transport::PendingAgeScope::kSession;
+        REQUIRE_THROWS_AS(rig.session->submit(batch(1), options), can::TimeoutError);
+    }
+    rig.fake->release_tx_gate();
+    active.wait();
 }
 
 TEST_CASE("Session admission domains share request limits and isolate frame budgets", "[session]") {
