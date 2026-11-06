@@ -54,6 +54,46 @@ namespace {
         accepted.wait();
     }
 
+    void run_enum_consumer() {
+        auto backend = std::make_unique<can::FakeTransport>();
+        auto *fake = backend.get();
+        auto session = transport::Session::own(std::move(backend));
+        volatile int unrecognized = 99;
+        auto configuration = session->options();
+        // These casts deliberately model invalid external configuration values.
+        // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+        configuration.fifo_unit = static_cast<transport::CapacityUnit>(unrecognized);
+        bool rejected = false;
+        try {
+            session->configure(configuration);
+        } catch (const can::ValidationError &) {
+            rejected = true;
+        }
+        check(rejected && session->options().fifo_unit == transport::CapacityUnit::kBatches,
+              "installed configure accepted an invalid FIFO unit");
+        const transport::MessageBatch single{{can::Message{}}};
+        transport::SendOptions policy;
+        // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+        policy.policy = static_cast<transport::SendPolicy>(unrecognized);
+        transport::SendOptions deadline;
+        // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+        deadline.deadline_policy = static_cast<transport::DeadlinePolicy>(unrecognized);
+        for (const auto &options : {policy, deadline}) {
+            rejected = false;
+            try {
+                session->send(single, options);
+            } catch (const can::ValidationError &) {
+                rejected = true;
+            }
+            check(rejected, "installed send accepted an invalid enum");
+        }
+        check(session->health().accepted == 0 && fake->sent().empty(),
+              "installed invalid enums caused admission or transmission");
+        session->submit(single).wait();
+        check(fake->sent().size() == 1, "installed default send no longer dispatches");
+        session->close();
+    }
+
     void run_consumer() {
         auto backend = std::make_unique<can::FakeTransport>();
         auto *fake = backend.get();
@@ -131,6 +171,7 @@ int main() {
     try {
         run_consumer();
         run_device_age_consumer();
+        run_enum_consumer();
         std::cout << "Installed Session compatibility APIs passed\n";
         return 0;
     } catch (const std::exception &error) {

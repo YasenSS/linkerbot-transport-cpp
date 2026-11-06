@@ -1590,6 +1590,14 @@ namespace linkerbot::transport {
     std::optional<SendReceipt> Session::submit_impl(MessageBatch batch, SendOptions options,
                                                     bool replace_only,
                                                     std::shared_ptr<void> owner) {
+        if (options.policy != SendPolicy::fifo && options.policy != SendPolicy::latest) {
+            throw can::ValidationError("invalid send policy");
+        }
+        if (options.deadline_policy != DeadlinePolicy::kExecution &&
+            options.deadline_policy != DeadlinePolicy::kStartOnly &&
+            options.deadline_policy != DeadlinePolicy::kDispatchStart) {
+            throw can::ValidationError("invalid deadline policy");
+        }
         if (batch.frames.empty()) {
             throw can::ValidationError("empty send batch");
         }
@@ -2064,7 +2072,9 @@ namespace linkerbot::transport {
     void Session::configure(SessionOptions options) {
         if (options.tx_capacity == 0 || options.fifo_capacity == 0 ||
             options.latest_capacity == 0 || options.aging_quantum.count() <= 0 ||
-            options.send_period.count() < 0) {
+            options.send_period.count() < 0 ||
+            (options.fifo_unit != CapacityUnit::kBatches &&
+             options.fifo_unit != CapacityUnit::kFrames)) {
             throw can::ValidationError("invalid Session scheduling options");
         }
         std::lock_guard<std::mutex> lock(impl_->mutex);

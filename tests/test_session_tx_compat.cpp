@@ -1,5 +1,6 @@
 #include "optional_value.hpp"
 
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <future>
@@ -66,7 +67,156 @@ namespace {
         options.family = "angles";
         return options;
     }
+    std::array<transport::SendOptions, 3> unrecognized_send_options(int value) {
+        auto policy = latest("target");
+        auto deadline = latest("target");
+        // Model unrecognized external configuration values deliberately.
+        // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+        policy.policy = static_cast<transport::SendPolicy>(value);
+        // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+        deadline.deadline_policy = static_cast<transport::DeadlinePolicy>(value);
+        auto fifo = deadline;
+        fifo.policy = transport::SendPolicy::fifo;
+        return {policy, deadline, fifo};
+    }
 } // namespace
+
+TEST_CASE("Invalid FIFO units leave every scheduling option unchanged", "[session]") {
+    TxRig rig;
+    transport::SessionOptions original;
+    original.tx_capacity = 17;
+    original.separate_policy_capacity = true;
+    original.fifo_capacity = 13;
+    original.latest_capacity = 7;
+    original.fifo_unit = transport::CapacityUnit::kFrames;
+    original.endpoint_fifo = true;
+    original.aging_quantum = 23ms;
+    original.send_period = 5us;
+    original.max_consecutive_send_errors = 4;
+    original.domain_round_robin = true;
+    original.max_route_keys = 19;
+    original.max_pending_rx = 29;
+    original.max_batch_frames = 5;
+    rig.session->configure(original);
+    for (const int value : {-1, 99}) {
+        transport::SessionOptions invalid;
+        // Intentionally exercise a value outside the supported configuration set.
+        // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+        invalid.fifo_unit = static_cast<transport::CapacityUnit>(value);
+        REQUIRE_THROWS_AS(rig.session->configure(invalid), can::ValidationError);
+        const auto after = rig.session->options();
+        REQUIRE(after.tx_capacity == original.tx_capacity);
+        REQUIRE(after.separate_policy_capacity == original.separate_policy_capacity);
+        REQUIRE(after.fifo_capacity == original.fifo_capacity);
+        REQUIRE(after.latest_capacity == original.latest_capacity);
+        REQUIRE(after.fifo_unit == original.fifo_unit);
+        REQUIRE(after.endpoint_fifo == original.endpoint_fifo);
+        REQUIRE(after.aging_quantum == original.aging_quantum);
+        REQUIRE(after.send_period == original.send_period);
+        REQUIRE(after.max_consecutive_send_errors == original.max_consecutive_send_errors);
+        REQUIRE(after.domain_round_robin == original.domain_round_robin);
+        REQUIRE(after.max_route_keys == original.max_route_keys);
+        REQUIRE(after.max_pending_rx == original.max_pending_rx);
+        REQUIRE(after.max_batch_frames == original.max_batch_frames);
+    }
+    REQUIRE(rig.session->health().accepted == 0);
+    REQUIRE(rig.fake->sent().empty());
+    // A valid configuration is still accepted before the first send.
+    rig.session->configure(transport::SessionOptions{});
+    rig.session->submit(batch(1)).wait();
+}
+
+TEST_CASE("Invalid send enums fail before the first admission", "[session]") {
+    TxRig rig;
+    for (const int value : {-1, 99}) {
+        for (const auto &options : unrecognized_send_options(value)) {
+            REQUIRE_THROWS_AS(rig.session->submit(batch(1), options), can::ValidationError);
+            REQUIRE_THROWS_AS(rig.session->send(batch(1), options), can::ValidationError);
+            REQUIRE_THROWS_AS(rig.session->replace_latest_if_pending(batch(1), options),
+                              can::ValidationError);
+        }
+    }
+    const auto health = rig.session->health();
+    REQUIRE(health.accepted == 0);
+    REQUIRE(health.pending_tx == 0);
+    REQUIRE(health.queue_high_water == 0);
+    REQUIRE(rig.fake->sent().empty());
+    rig.session->configure(transport::SessionOptions{});
+    rig.session->submit(batch(1)).wait();
+}
+
+TEST_CASE("Invalid send enums preserve queued latest work and admission state", "[session]") {
+    TxRig rig;
+    const ReleaseTxGate release{rig.fake};
+    auto active = rig.block_writer();
+    auto old = rig.session->submit(batch(1), latest("target"));
+    const auto before = rig.session->health();
+    for (const int value : {-1, 99}) {
+        for (const auto &options : unrecognized_send_options(value)) {
+            REQUIRE_THROWS_AS(rig.session->submit(batch(2), options), can::ValidationError);
+            REQUIRE_THROWS_AS(rig.session->replace_latest_if_pending(batch(2), options),
+                              can::ValidationError);
+            const auto after = rig.session->health();
+            REQUIRE(after.accepted == before.accepted);
+            REQUIRE(after.pending_tx == before.pending_tx);
+            REQUIRE(after.pending_fifo == before.pending_fifo);
+            REQUIRE(after.pending_latest == before.pending_latest);
+            REQUIRE(after.queue_high_water == before.queue_high_water);
+            REQUIRE(old.result().outcome == transport::SendOutcome::pending);
+            REQUIRE(rig.fake->sent().empty());
+        }
+    }
+    rig.fake->release_tx_gate();
+    active.wait();
+    old.wait();
+    REQUIRE(old.result().outcome == transport::SendOutcome::dispatched);
+    REQUIRE(rig.fake->sent().size() == 2);
+}
+
+TEST_CASE("Device and owned submissions reject send enums without replacing latest", "[session]") {
+    TxRig rig;
+    auto device = rig.session->attach_device("target");
+    const ReleaseTxGate release{rig.fake};
+    auto operation = device->begin_operation();
+    rig.fake->arm_tx_gate();
+    auto active = device->submit(batch(1));
+    REQUIRE(rig.fake->wait_until_tx_entered(2s));
+    auto old = device->submit(batch(1), latest("ignored"));
+    const auto before = rig.session->health();
+    for (const int value : {-1, 99}) {
+        for (const auto &options : unrecognized_send_options(value)) {
+            REQUIRE_THROWS_AS(device->submit(batch(2), options), can::ValidationError);
+            REQUIRE_THROWS_AS(operation.submit(batch(2), options), can::ValidationError);
+            REQUIRE_THROWS_AS(device->replace_latest_if_pending(batch(2), options),
+                              can::ValidationError);
+            REQUIRE(rig.session->health().accepted == before.accepted);
+            REQUIRE(rig.session->health().pending_tx == before.pending_tx);
+            REQUIRE(rig.session->health().queue_high_water == before.queue_high_water);
+            REQUIRE(old.result().outcome == transport::SendOutcome::pending);
+            REQUIRE(rig.fake->sent().empty());
+        }
+    }
+    rig.fake->release_tx_gate();
+    active.wait();
+    old.wait();
+    REQUIRE(old.result().outcome == transport::SendOutcome::dispatched);
+    REQUIRE(rig.fake->sent().size() == 2);
+}
+
+TEST_CASE("Every supported send enum retains valid dispatch", "[session]") {
+    TxRig rig;
+    for (const auto policy : {transport::SendPolicy::fifo, transport::SendPolicy::latest}) {
+        for (const auto deadline :
+             {transport::DeadlinePolicy::kExecution, transport::DeadlinePolicy::kStartOnly,
+              transport::DeadlinePolicy::kDispatchStart}) {
+            auto options = latest("target");
+            options.policy = policy;
+            options.deadline_policy = deadline;
+            rig.session->submit(batch(1), options).wait();
+        }
+    }
+    REQUIRE(rig.fake->sent().size() == 6);
+}
 
 TEST_CASE("Device pacing delays only its next batch and cancellation ends final cooldown",
           "[session]") {

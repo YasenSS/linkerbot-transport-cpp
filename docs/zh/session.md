@@ -194,6 +194,10 @@ priority 加等待老化、较早 deadline、较久未服务的 endpoint 和队�
 
 ## 准入、截止时间与 endpoint 排空
 
+不支持的 `SessionOptions::fifo_unit`、`SendOptions::policy` 和 `SendOptions::deadline_policy`
+在配置赋值或发送准入前抛出 `ValidationError`。拒绝不修改现有配置或等待中的 latest 任务；
+支持的枚举值及默认行为不变。
+
 `SendOptions.expected_generation` 非空时在准入锁内校验；旧代次抛 `ClosedError`，不返回回执。
 它防止旧设备 actor 向恢复后的新连接提交任务，但不代替设备身份核验。
 
