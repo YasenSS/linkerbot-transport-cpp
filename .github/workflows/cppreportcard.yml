@@ -47,7 +47,7 @@ jobs:
           echo "CCACHE_DIR=$RUNNER_TEMP/transport-ccache" >> "$GITHUB_ENV"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ccache build-essential cmake ninja-build clang-18 clang-format-18 clang-tidy-18 cppcheck
+            ccache build-essential cmake ninja-build clang-18 clang-format-18 clang-tidy-18 cppcheck python3-dev
       - name: Configure and build analysis inputs
         id: analysis_inputs
         run: |
@@ -71,12 +71,19 @@ jobs:
             -DCMAKE_PREFIX_PATH="$PWD/build/report-install"
           cmake --build build/report-shared-consumer --parallel 4
           ctest --test-dir build/report-shared-consumer --output-on-failure --no-tests=error
+          cmake -S validation/python-preintegration -B build/report-python-proof -G Ninja \
+            -DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DPython3_EXECUTABLE=/usr/bin/python3 \
+            -DCMAKE_PREFIX_PATH="$PWD/build/report-install"
+          cmake --build build/report-python-proof --parallel 4
+          ctest --test-dir build/report-python-proof --output-on-failure --no-tests=error
           python3 validation/prepare-report-db.py \
             --output build/report-compile-commands.json \
             build/report/compile_commands.json \
             build/report-quickstart/compile_commands.json \
             build/report-consumer/compile_commands.json \
-            build/report-shared-consumer/compile_commands.json
+            build/report-shared-consumer/compile_commands.json \
+            build/report-python-proof/compile_commands.json
       - name: Verify test-framework analysis model
         run: |
           python3 validation/test-cppcheck-model.py --compile-commands build/report-compile-commands.json
@@ -110,5 +117,6 @@ jobs:
             .github/cppreportcard/report.json
             .github/cppreportcard/report.md
             .github/cppreportcard/badge.svg
+            build/report-python-proof/evidence.json
           include-hidden-files: true
           if-no-files-found: warn
