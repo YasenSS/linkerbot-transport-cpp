@@ -1,4 +1,4 @@
-"""Merge compilation databases and expose project system-include directories."""
+"""Merge compilation databases and preserve analyzer include/target configuration."""
 
 import argparse
 import json

@@ -75,7 +75,8 @@ accepted on specified hardware. When changing bitrate, also set prescalers, segm
 Configuration validates ranges, SJW ≤ TSEG2 and exact bitrates.
 
 PCAN sends and receives explicit frame flags: `is_fd=false,is_brs=false` remains Classic on an
-FD channel. FD requires `is_fd=true`; BRS additionally requires `is_brs=true`. The device protocol
+FD channel when `format` is unspecified. `FrameFormat::kClassic` and `kFd` explicitly
+select the frame type; BRS still requires both `is_fd=true` and `is_brs=true`. The device protocol
 selects standard/extended IDs and BRS; this library has no hand-model encoder. Wire DLC 0–15 maps
 to 0–64 bytes. Unrepresentable send lengths round up to a legal DLC and are zero-padded.
 Classic rejects payloads above 8 bytes, FD/BRS and invalid IDs without truncation.
@@ -103,7 +104,12 @@ combined error statuses are not suppressed. `read()` also returns empty after fi
 frames until the deadline or after at most 256 vendor read attempts, so an empty optional does not by itself
 prove that the full receive wait elapsed. `PcanTransportError::reason()` distinguishes bus-off, unavailable/uninitialized
 adapters, TX queue full and bus errors, retaining raw status bits in `native_status()`.
-RTR/echo frames are filtered; status/error messages produce errors instead of application data.
+RTR frames are filtered. Echo frames are filtered by default; opt-in
+`PcanConfig::receive_own_messages=true` enables the native setter and delivers them with
+`Message::is_rx=false`. Missing setter support fails before initialization; driver
+rejection follows the channel cleanup/retry protocol. Status/error messages produce
+errors instead of application data. Driver timestamps retain microsecond values and
+a driver-specific clock, without epoch conversion. See [CAN metadata](can-metadata.md).
 Synchronous driver calls have no cancellation API, so a stuck driver cannot be forcibly interrupted.
 Windows driver call timing and load behavior still require hardware validation.
 

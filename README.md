@@ -18,6 +18,8 @@ See the [serial and RTU guide](docs/en/modbus-rtu.md).
 Current source version: **0.3.3**, including optional serial and Modbus RTU modules.
 Published v0.3.2 packages do not contain those modules. See the [latest published stable release](https://github.com/linker-bot/linkerbot-transport-cpp/releases/latest).
 See [downloads, checksums and release documentation](docs/en/releases.md).
+Source guides also cover [Unreleased changes](CHANGELOG.en.md); use the matching tag,
+headers and bundled documentation to determine a published SDK's actual interfaces.
 
 The canonical package is `linkerbot-transport`; former `linkerbot-comm` calls and
 archives remain available as compatibility entries. See [name migration](docs/en/naming.md).

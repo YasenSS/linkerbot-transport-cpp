@@ -28,8 +28,9 @@ namespace linkerbot::can {
     inline constexpr uint8_t kVendorCanFdDefaultConfigFlags = 0x01 | 0x02 | 0x04;
     inline constexpr uint8_t kVendorCanFdDefaultModel = 0;
     inline constexpr uint8_t kVendorCanFdDefaultCanType = 1;
-    // Documented default only. TX FrameType is encoded from Message flags
-    // (untagged => FD without BRS). Not passed to CANFD_Init.
+    // Documented legacy default only. TX FrameType uses Message format/flags;
+    // unspecified format with false/false flags => FD without BRS.
+    // This constant is not passed to CANFD_Init.
     inline constexpr uint8_t kVendorCanFdDefaultFrameType = kFrameTypeFd;
     inline constexpr unsigned kVendorCanFdMaxTransmitBatch = 100;
     inline constexpr const char *kVendorCanFdLibEnv = "LINKERBOT_CANFD_LIB";

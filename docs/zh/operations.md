@@ -26,7 +26,11 @@ MiniCANFD 和 PCAN 的库选择优先级为配置参数 → 各自环境变量 �
 
 ## 共享、退出与异常清理
 
-多个设备可共享同一 Session，但 Session 不是每个调用者独立的连接句柄。
+设备需要独立生命周期时，使用 `TransportRuntime` 和每设备一个 `DeviceSession`。关闭一个设备
+只结束其自身工作、订阅和计数租约，其余设备继续连接；最后一个设备释放通道。重试所有权和
+协调恢复见[设备会话](device-sessions.md)。
+
+以下为直接共享原始 Session 的兼容接口规则：Session 不是每个调用者独立的连接句柄。
 共享使用者中任一方 `close()` 会关闭整个会话、清理该会话持有的资源，并使其他使用者的 inbox 失效；
 外部总线或借用 dispatcher 的所有权不因此转移给 Session。
 每个设备结束时优先关闭自身 inbox、取消自身 endpoint；最后由统一的所有者关闭 Session。

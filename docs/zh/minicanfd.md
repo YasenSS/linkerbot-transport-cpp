@@ -88,6 +88,7 @@ Session 创建后已经启动，没有额外的 open 方法。
 | `frame_type` | `0x04`；只保留聚合初始化源码兼容，不参与 TX 或 `CANFD_Init` |
 | `send_timeout_ms` | 10 ms，允许 0–100 ms |
 | `receive_timeout_ms` | 10 ms，允许 0–10 ms |
+| `receive_own_messages` | `false`；开启会在加载库或初始化通道前被拒绝 |
 | 单次原生接收缓冲 | 最多请求 64 帧 |
 | 单次原生发送批次 | 最多 100 帧 |
 
@@ -95,7 +96,9 @@ Session 创建后已经启动，没有额外的 open 方法。
 未标记帧在 FD Transport 上沿用已有的 FD、无 BRS 语义。标准/扩展帧和 BRS
 应按上层设备协议设置，Transport 不根据型号推断这些标志。
 `Message.dlc` 为 0–64 字节，后端转换为厂商 0–15 的 DLC 编码；
-不可直接表示的长度向上取整并清零填充。`Config::frame_type` 不覆盖发送标志。
+不可直接表示的长度向上取整并清零填充。`Config::frame_type` 不覆盖发送标志。显式 `Message::format = FrameFormat::kClassic`
+可在 FD 通道发送不超过 8 字节且无 FD/BRS 标志的经典帧。接收保留厂商原始 32 位时间戳计数器，
+不推定单位、纪元或回绕扩展；方向保持未知，ABI 不支持开启自身发送帧接收，见 [CAN 元数据说明](can-metadata.md)。
 
 直接调用 `write_batch()` 超过 100 帧会同步抛 `ValidationError`。Session 在 `gap=0` 且后端
 选择原生批次发送时，会把整个 `MessageBatch` 交给该接口；超过 100 帧时回执以失败完成，

@@ -78,8 +78,16 @@ unexpected read sizes and system I/O failures produce errors.
 `Message.dlc` counts bytes; extended identifiers require `is_extended=true`.
 
 For compatibility, an untagged message sent in FD mode is FD without BRS. Setting `is_fd=false`
-cannot force a Classic transmission on this backend in FD mode. A Classic backend rejects FD/BRS
-and payloads larger than 8 bytes.
+alone cannot force a Classic transmission in FD mode. Set `Message::format` to
+`FrameFormat::kClassic` to select it explicitly; FD/BRS flags must be false and the
+payload must not exceed 8 bytes. `kUnspecified` retains the old FD default. A Classic
+backend rejects FD/BRS and payloads larger than 8 bytes.
+
+The options constructor is `SocketCANTransport(options, interface_name)`.
+`SocketCANOptions::receive_own_messages` defaults to false and `timestamp_mode` to
+`kDisabled`; opt in to native echo or software/raw hardware timestamps explicitly.
+`read()` uses `recvmsg()` to preserve available metadata. See [CAN metadata](can-metadata.md)
+for clock domains, missing timestamps, direction flags and hardware-validation limits.
 
 The socket receive timeout is 10 ms and the send timeout is 50 ms. A receive timeout returns an
 empty optional, but an empty result does not prove that the full receive wait elapsed. A negative system `write()` result throws `TransportIOError` with `system_error()`;

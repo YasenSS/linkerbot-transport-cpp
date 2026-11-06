@@ -19,10 +19,14 @@ header search paths and the C++17 requirement only; it does not replace the impl
 | Reception and physical batch boundaries | `can::CANDispatcher` | Dedicated receive thread, subscription broadcasts and serialized physical transmit batches |
 | Recoverable shared bus | `can::ManagedCANBus` | Stores a factory, explicit `start/stop/recover`, legacy transmit queue |
 | In-process connection pool | `can::SharedCANBusPool`, `CANBusLease` | Same-key bus sharing; leases retain ownership needed to retry the final close |
-| Device SDK session | `transport::Session`, `RouteInbox`, `SendReceipt` | Exact routing, one transmit scheduler, deadlines, cancellation and generation-based recovery |
+| Shared multi-device runtime | `transport::TransportRuntime`, `DeviceSession`, `DeviceOperation` | Independent device registrations and lifetimes on one shared physical Session/writer |
+| Direct Session and legacy sharing | `transport::Session`, `RouteInbox`, `SendReceipt` | Exact routing, one transmit scheduler, deadlines, cancellation and generation-based recovery |
 | Offline testing | `can::FakeTransport` | In-memory I/O, error injection and synchronization gates; does not represent an adapter |
 
-Device SDKs normally use Session. Use lower layers when implementing a backend or maintaining legacy code.
+New multi-device integrations use `TransportRuntime` and one `DeviceSession` per
+logical device on the existing Session writer; see [device sessions](device-sessions.md).
+Direct Session use remains available. Use lower layers when implementing a backend
+or maintaining legacy code.
 
 ## Frames and backend interpretation
 
@@ -31,11 +35,17 @@ are at most `0x7ff`; extended identifiers are at most `0x1fffffff` and require
 `is_extended=true`. Classic frames carry at most 8 bytes and FD frames at most 64;
 `is_brs=true` requires `is_fd=true`.
 
-| Backend / mode | Transmit interpretation of `is_fd=false,is_brs=false` |
+| Backend / mode | Transmit interpretation when `format` is unspecified and `is_fd=false,is_brs=false` |
 | --- | --- |
 | SocketCAN Classic, PCAN Classic, Lawicel Classic | Classic |
 | SocketCAN FD, MiniCANFD | Compatibility behavior: FD without BRS |
 | PCAN FD, CANable FD | Classic; set `is_fd=true` explicitly for FD |
+
+`Message::format` explicitly selects classic/FD encoding without changing these
+legacy defaults. Optional `timestamp` and `is_rx` preserve backend receive metadata;
+TX ignores them. Clock domains and per-backend limits are specified in
+[CAN metadata](can-metadata.md). Public structure additions require consumers to
+rebuild with matching headers and libraries.
 
 Backends may round lengths such as 9, 10 or 11 bytes up to a representable wire length
 and pad with zeros. Upper-layer parsers must use the returned length and validate the
@@ -99,8 +109,10 @@ to 512 frames. An executing batch does not occupy waiting-queue capacity but cou
 `pending_tx`. Defaults are FIFO, priority 0 and no finite deadline. See the
 [Session guide](session.md) for sharing, routing, receipts, recovery and exit contracts.
 
-`transport::Clock` is `std::chrono::steady_clock`; deadlines and timestamps are not UTC
-or Unix time. `CancellationSource` and its tokens share an atomic, one-way state.
+`transport::Clock` is `std::chrono::steady_clock`; Session deadlines, receipt times
+and `RoutedMessage::received_at` are not UTC or Unix time. `Message::timestamp` is
+separate backend metadata whose clock and unit must be inspected.
+`CancellationSource` and its tokens share an atomic, one-way state.
 Cancellation is repeatable but cannot be reversed. Cancellation, deadline expiry or a wait
 timeout does not establish that a frame already passed to a driver was not delivered.
 Inspect `sent_frames`, `current_frame_uncertain` and device state at the business layer.

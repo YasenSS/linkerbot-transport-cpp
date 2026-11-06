@@ -125,6 +125,17 @@ bytes and downloads them to compare hashes. It alone has repository write permis
 automatically publishes or moves tags. Inspect an incomplete draft before retrying; released
 bytes require a new version instead of replacement. Changing these workflows does not itself create a tag or Release.
 
+## Python pre-integration validation
+
+The separate `python-preintegration.yml` workflow builds an isolated CPython probe
+against the installed native library. It tests conventional GIL-enabled CPython
+3.10–3.13 on Linux x86_64/ARM64, Windows x64 with 3.12 and Windows ARM64 with 3.13.
+The source fixture is `validation/python-preintegration`; it is not a production
+binding or a wheel. Subinterpreters and free-threaded builds are rejected.
+Allocation/receipt, callback, lifecycle and deployment-gate checks do not establish
+actual hand/arm Runtime sharing or hardware compatibility. See [CAN metadata](can-metadata.md)
+for backend-specific capabilities and physical validation limits.
+
 ## CI timing and reproducible comparisons
 
 See the [measured results and limitations](ci-performance.md), including all baseline and

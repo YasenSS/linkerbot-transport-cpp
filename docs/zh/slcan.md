@@ -86,7 +86,9 @@ CANable 的接收和发送独立，不等待不存在的串口 ACK。
 解析器支持拆包/粘包，Classic 未完成行上限 26 字符，FD 上限 138 字符，
 最多缓存 256 帧，单次串口读取最多 256 字节。非法 ASCII、BEL、超长行、队列溢出、
 发送失败和 ACK 超时进入故障态，必须关闭重建，避免使用迟到 ACK。
-不支持 RTR、时间戳后缀和命令回显。
+不支持 RTR、时间戳后缀和命令回显。`SlcanConfig::receive_own_messages` 默认 false；
+true 会在串口初始化前被拒绝，不生成接收时间戳或方向替代值。`Message::format` 可在已配置
+固件及链路能力范围内显式选择经典/FD，见 [CAN 元数据说明](can-metadata.md)。
 
 Windows 使用独占 `CreateFileW`、8N1、无软硬件流控、DTR/RTS 禁用，
 采用 overlapped I/O / CancelIoEx。取消后等待 OS 完成请求才释放缓冲区；

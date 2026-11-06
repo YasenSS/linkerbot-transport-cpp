@@ -20,7 +20,8 @@ namespace linkerbot::can {
         std::string port; // Explicit COM1..COM65535 or Linux /dev/... path.
         uint32_t serial_baud = 115200;
         uint32_t nominal_bitrate = 1'000'000;
-        bool fd = false, brs = false; // BRS requires FD; Message flags select each frame type.
+        // BRS requires FD; each Message selects its format/flags.
+        bool fd = false, brs = false;
         std::chrono::milliseconds receive_timeout{10};  // 1..100 ms
         std::chrono::milliseconds command_timeout{500}; // 1..5000 ms
         SlcanProtocol protocol = SlcanProtocol::kLawicelClassic;

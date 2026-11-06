@@ -67,7 +67,8 @@ data = 1/11/4/4，精确产生 1M/5M bit/s。此时序尚未在指定硬件验�
 更改速率时须同时设置分频、段长和 SJW；配置会校验范围、SJW ≤ TSEG2 及精确速率。
 
 PCAN 按显式帧标志收发：`is_fd=false,is_brs=false` 在 FD 通道上仍是 Classic；
-FD 需 `is_fd=true`，BRS 需额外 `is_brs=true`。设备协议决定标准/扩展 ID 和 BRS，
+上述解释适用于 `format` 未指定时；`FrameFormat::kClassic` / `kFd` 可显式选择帧类型，
+BRS 仍要求同时设置 `is_fd=true` 和 `is_brs=true`。设备协议决定标准/扩展 ID 和 BRS，
 本库不提供手型号编码器。DLC 0–15 转换为 0–64 字节；发送不能直接表示的长度向上取合法 DLC 并零填充。
 Classic 拒绝大于 8 字节、FD/BRS 或非法 ID，不截断。
 
@@ -89,7 +90,10 @@ initialized，也不会误清理其他连接。
 仅纯 `QRCVEMPTY` 按接收队列为空处理，组合错误不吞掉；过滤非数据帧直到截止时间或完成最多 256 次厂商读取尝试后，
 `read()` 也会返回空值，因此空值不表示已经等待完整接收时限。bus-off、adapter unavailable/uninitialized、
 TX queue full、bus error 分别由 `PcanTransportError::reason()` 表达，原始位码保留在
-`native_status()`。RTR/echo 过滤，status/error 消息报错，不作为业务数据交付。
+`native_status()`。RTR 帧被过滤；echo 默认过滤，显式开启
+`PcanConfig::receive_own_messages=true` 后由原生 setter 配置，并以 `Message::is_rx=false`
+交付。缺少 setter 时在初始化前拒绝；驱动拒绝时执行通道清理/重试协议。status/error 消息仍报错。
+驱动时间戳保留微秒值及驱动时钟标识，不作纪元转换，见 [CAN 元数据说明](can-metadata.md)。
 同步驱动调用没有取消 API，卡住的驱动不能强行中断；Windows 驱动调用时限和负载测试待验收。
 
 ## 验证

@@ -68,7 +68,14 @@ CAN 错误帧与 RTR 不作为应用帧交付，过滤一帧后立即返回空�
 `Message.dlc` 是字节数；扩展 ID 需要显式 `is_extended=true`。
 
 FD 模式发送未标记帧会沿用 FD、无 BRS 的兼容行为，不能靠 `is_fd=false` 在这个后端的
-FD 模式强制发 Classic。Classic 后端拒绝 FD/BRS 或超过 8 字节的载荷。
+FD 模式强制发 Classic。显式设置 `Message::format = FrameFormat::kClassic` 可以发送经典帧，
+要求 FD/BRS 标志为 false 且载荷不超过 8 字节。`kUnspecified` 保留原有 FD 默认行为；
+Classic 后端拒绝 FD/BRS 或超过 8 字节的载荷。
+
+配置构造入口为 `SocketCANTransport(options, interface_name)`。`SocketCANOptions` 中
+`receive_own_messages` 默认 false，`timestamp_mode` 默认 `kDisabled`；原生回显及软件/原始硬件
+时间戳须显式开启。`read()` 通过 `recvmsg()` 保留可用元数据，时钟、方向标志和实机验证边界
+见 [CAN 元数据说明](can-metadata.md)。
 
 socket 接收超时设为 10 ms，发送超时设为 50 ms；接收超时返回空值，但空值不表示已经等待完整接收时限。系统 `write()` 以负值
 失败时抛出的 `TransportIOError` 保留 `system_error()`；异常短写也抛 `TransportIOError`，但

@@ -16,7 +16,12 @@ Expose only the interfaces the container uses: a visible CAN network interface f
 
 ## Sharing, shutdown, and failed cleanup
 
-Devices can share a Session, but it is not an independent connection handle for each caller. Any sharer calling `close()` closes the entire Session, cleans up resources held by that Session, and invalidates the other sharers' inboxes. Ownership of an external bus or borrowed dispatcher does not transfer to the Session. When one device finishes, close its inbox and cancel its endpoint first; a common owner should close the Session last.
+For independent device lifetimes, use `TransportRuntime` with one `DeviceSession`
+per device. Closing a device releases its own work, subscriptions and counted lease;
+peers remain connected, and the last device releases the channel. Retry ownership
+and coordinated recovery are described in [device sessions](device-sessions.md).
+
+For legacy callers sharing a raw Session, it is not an independent connection handle for each caller. Any sharer calling `close()` closes the entire Session, cleans up resources held by that Session, and invalidates the other sharers' inboxes. Ownership of an external bus or borrowed dispatcher does not transfer to the Session. When one device finishes, close its inbox and cancel its endpoint first; a common owner should close the Session last.
 
 Shutdown order: stop producing application tasks → cancel endpoints no longer needed → check in-flight receipts and device state → close inboxes/Session → handle retryable cleanup errors → release borrowed dispatchers or external buses. Do not synchronously call Session `close()`/`recover()` from callbacks. Before destroying a borrowed dispatcher, call `Session::drain_deferred_cleanup()` from an external thread to wait for deferred cleanup.
 

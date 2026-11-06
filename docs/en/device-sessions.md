@@ -44,7 +44,7 @@ The Python source baselines use a shared hand domain of 256 request batches and 
 
 ## Routes and diagnostics
 
-`subscribe_routes()` owns exact ID/format pairs. `subscribe_rules()` owns masked ID/format ranges, including extended A7 Lite routing. Rules preserve the original frame and record their logical key separately. Overlap is rejected using actual wire ranges, including exact-versus-masked conflicts. Group registration rolls back after allocation failure. Masked routes cannot use the legacy global extractor.
+`subscribe_routes()` owns exact ID/standard-versus-extended-ID pairs. `subscribe_rules()` owns masked ID ranges with the same extended-ID flag, including extended A7 Lite routing. Rules preserve the original frame and record their logical key separately. Overlap is rejected using actual wire ranges, including exact-versus-masked conflicts. Group registration rolls back after allocation failure. Masked routes cannot use the legacy global extractor.
 
 `observe_rules(rules, capacity)` provides bounded read-only discovery observation. It does not take route ownership or ordinary receive-budget slots; a full observer drops its own copy. Normal owners receive their frame first. Discovery requests still use the same device writer. Observation inbox health records its own backlog and drops.
 
@@ -52,4 +52,4 @@ The Python source baselines use a shared hand domain of 256 request batches and 
 
 Channel health includes route count, receive backlog/high-water mark, routed frames, stale frames, registration quota rejections and close drops. Device health reports admission state, generation, instance, registered operations, send-error streak, queued FIFO frames/latest slots, in-flight jobs and oldest owned work.
 
-This transport implementation does not provide Python bindings, Python Future execution, protocol transactions, SDK migration or motor safety policy. Hardware timestamps and arbitrary Python backend plugins are not provided by these APIs. Software tests do not establish hardware or firmware compatibility; deployments need the device/driver/topology acceptance checks described in the migration plan.
+This transport implementation does not provide Python bindings, Python Future execution, protocol transactions, SDK migration or motor safety policy. Native receive timestamps and backend-specific echo options are described in [CAN metadata](can-metadata.md). Arbitrary Python backend plugins are not implied by the native backends. Software tests do not establish hardware or firmware compatibility; deployments need the device/driver/topology acceptance checks described in the migration plan.

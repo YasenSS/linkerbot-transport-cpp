@@ -2,7 +2,7 @@
 
 新增字段保持现有源码调用和聚合初始化方式兼容。使用方须用匹配的头文件和库重新编译；`Message` 和配置结构大小增加，不保证已编译二进制的 ABI 兼容。本次不接入 hand/arm，也不修改 Python 生产绑定。
 
-`Message::format` 默认 `FrameFormat::kUnspecified`，保留原有后端行为：SocketCAN/vendor 的 FD 链路将未标记帧视为 FD，PCAN/SLCAN 将其视为经典帧。显式 `kClassic` 可在 FD 通道发送经典帧，要求不超过 8 字节且无 FD/BRS 标志；`kFd` 在经典链路上会被拒绝。非法枚举、冲突标志和超长经典帧在 Session 入队或替换 latest 任务之前被拒绝。接收帧只保留既有 flags，新的发送覆盖字段保持未指定。
+`Message::format` 默认 `FrameFormat::kUnspecified`，保留原有后端行为：SocketCAN/vendor 的 FD 链路将未标记帧视为 FD，PCAN/SLCAN 将其视为经典帧。显式 `kClassic` 可在 FD 通道发送经典帧，要求不超过 8 字节且无 FD/BRS 标志；`kFd` 在经典链路上会被拒绝。非法枚举、冲突标志和超长经典帧在 Session 入队或替换 latest 任务之前被拒绝。接收帧只保留既有 flags，新的发送覆盖字段保持未指定。接收路由 key 使用仲裁 ID 和标准/扩展标志，不使用这个发送端经典/FD 覆盖字段。
 
 `Message::timestamp` 可为空，携带原生数值、单位、时钟、来源和计数器位宽。它与 Session 的本地单调时钟 `received_at` 分开保存；发送忽略接收元数据，不用主机读取时间填补缺失值。
 

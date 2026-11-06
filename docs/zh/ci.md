@@ -101,6 +101,14 @@ gh workflow run release.yml --repo linker-bot/linkerbot-transport-cpp \
 job 有仓库写权限，不自动正式发布或移动标签。不完整草稿须先检查再重试，正式产物修订
 需新版本。修改工作流本身不会创建标签或 Release。
 
+## Python 接入前验证
+
+独立的 `python-preintegration.yml` 使用已安装原生库构建 CPython 验证模块，覆盖 Linux
+x86_64/ARM64 的常规 GIL CPython 3.10–3.13、Windows x64 的 3.12 及 Windows ARM64 的 3.13。
+源码入口为 `validation/python-preintegration`；它不是生产绑定或 wheel，拒绝子解释器和
+free-threaded 构建。分配失败、回执、回调、生命周期和部署证据校验不证明实际 hand/arm 已共用
+Runtime，也不代表实机兼容，后端能力与实机边界见 [CAN 元数据说明](can-metadata.md)。
+
 ## CI 耗时对照
 
 [实测结果与限制（英文）](../en/ci-performance.md)记录全部基线/优化运行链接、三轮中位数、
