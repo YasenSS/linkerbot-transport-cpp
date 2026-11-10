@@ -135,7 +135,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "directory", nargs="?", type=Path,
-        default=Path(__file__).parent / "results" / "arm64-linux-2026-11-03",
+        default=Path(__file__).resolve().parents[1] / "results" / "arm64-linux-2026-11-03",
     )
     args = parser.parse_args()
     try:

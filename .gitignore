@@ -368,3 +368,8 @@ Temporary Items
 # add your custom gitignore here:
 !.gitignore
 !.gitsubmodules
+
+# Local benchmark runs; retain the versioned historical microbenchmark baseline.
+/benchmarks/results/*
+!/benchmarks/results/arm64-linux-2026-11-03/
+/benchmarks/**/__pycache__/
