@@ -3,7 +3,7 @@
 English · [简体中文](../zh/performance.md)
 
 [Documentation index](../README.md) · [Build guide](build.md) ·
-[Benchmark source and measurement rules](../../benchmarks/README.md)
+[Benchmark source and measurement rules](../../benchmarks/micro/README.md)
 
 The ARM64 Linux measurements identified per-operation allocation in subscriber
 snapshots. Reusing immutable membership between subscription changes removed
@@ -170,7 +170,7 @@ cmake --build build/perf-alloc --parallel 4
 taskset -c 0-3 ./build/perf-alloc/linkerbot-perf \
   --iterations 200000 --idle-ms 500 --repetitions 3
 
-python3 benchmarks/summarize.py benchmarks/results/arm64-linux-2026-11-03
+python3 benchmarks/micro/summarize.py benchmarks/results/arm64-linux-2026-11-03
 ```
 
 Keep each process's CSV output, tool versions, affinity and run order. The summary
