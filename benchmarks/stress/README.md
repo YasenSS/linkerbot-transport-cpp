@@ -7,8 +7,10 @@ python3 benchmarks/stress/run.py --quick
 python3 benchmarks/stress/run.py
 python3 benchmarks/stress/run.py --source /path/to/another/local/transport
 python3 benchmarks/stress/run.py --output /path/to/results
-python3 benchmarks/stress/run.py --verify benchmarks/results/stress-20261110-152431/压测原始数据.tar.gz
+python3 benchmarks/stress/run.py --verify /path/to/generated/archive.tar.gz
 ```
+
+已保存的 2026-11-10 正式结果已翻译为英文，使用归档内的英文校验器；具体步骤见[英文结果说明](../results/stress-20261110-152431/README.md)。上述 `--verify` 命令用于本工具生成的原始格式归档。
 
 默认测试本工具所在通信库的实际源码，不联网同步、不使用发布包。即使从其他工作目录启动也能定位源码；`--source` 可选择另一个本地 Git 工作树。需要 Ubuntu、Python 3.10+、CMake、GCC/G++、Git、iproute2、kmod 和 vcan 内核支持，以及可免交互执行 `ip netns`、`modprobe vcan`、`kill` 的 `sudo -n`。无需物理 CAN 设备。
 
