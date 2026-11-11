@@ -376,9 +376,13 @@ install(FILES examples/quickstart/CMakeLists.txt examples/quickstart/main.cpp
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-transport/examples/quickstart)
 install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-transport/docs
     FILES_MATCHING PATTERN "*.md" PATTERN "*.csv" PATTERN "ci-performance-*.json")
-install(FILES benchmarks/README.md benchmarks/summarize.py
+install(FILES benchmarks/README.md
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-transport/benchmarks)
-install(DIRECTORY benchmarks/results/
+install(FILES benchmarks/micro/README.md benchmarks/micro/summarize.py
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-transport/benchmarks/micro)
+install(FILES benchmarks/stress/README.md
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-transport/benchmarks/stress)
+install(DIRECTORY benchmarks/results/arm64-linux-2026-11-03
     DESTINATION ${CMAKE_INSTALL_DATADIR}/linkerbot-transport/benchmarks/results
     FILES_MATCHING PATTERN "*.md" PATTERN "*.csv")
 

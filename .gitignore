@@ -368,3 +368,13 @@ Temporary Items
 # add your custom gitignore here:
 !.gitignore
 !.gitsubmodules
+
+# Local benchmark runs; retain the historical baseline and selected formal results.
+/benchmarks/results/*
+!/benchmarks/results/arm64-linux-2026-11-03/
+!/benchmarks/results/stress-20261110-152431/
+/benchmarks/results/stress-20261110-152431/*
+!/benchmarks/results/stress-20261110-152431/README.md
+!/benchmarks/results/stress-20261110-152431/stress-report.md
+!/benchmarks/results/stress-20261110-152431/stress-raw-data.tar.gz
+/benchmarks/**/__pycache__/

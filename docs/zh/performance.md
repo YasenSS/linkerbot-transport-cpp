@@ -3,7 +3,7 @@
 [English](../en/performance.md) · 简体中文
 
 [文档索引](../README.md) · [构建指南](build.md) ·
-[基准源码与测量规则](../../benchmarks/README.md)
+[基准源码与测量规则](../../benchmarks/micro/README.md)
 
 ARM64 Linux 测量确认了订阅者快照每次操作的分配。在订阅关系不变时复用不可变成员快照，
 消除了该分配；在这组样本中，1、8、64 个订阅者下的稳态快照／分发耗时中位数降低。
@@ -140,7 +140,7 @@ cmake --build build/perf-alloc --parallel 4
 taskset -c 0-3 ./build/perf-alloc/linkerbot-perf \
   --iterations 200000 --idle-ms 500 --repetitions 3
 
-python3 benchmarks/summarize.py benchmarks/results/arm64-linux-2026-11-03
+python3 benchmarks/micro/summarize.py benchmarks/results/arm64-linux-2026-11-03
 ```
 
 保留每个进程的 CSV、工具版本、亲和性和运行顺序。汇总脚本校验回调／成员数量校验值，

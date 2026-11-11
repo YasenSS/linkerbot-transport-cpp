@@ -52,7 +52,7 @@ From the repository root, validate the CSV schema, modes and checksums and
 summarize medians and ranges with:
 
 ```sh
-python3 benchmarks/summarize.py benchmarks/results/arm64-linux-2026-11-03
+python3 benchmarks/micro/summarize.py benchmarks/results/arm64-linux-2026-11-03
 ```
 
 The uninstrumented median for snapshot acquisition plus invocation at 1, 8 and
