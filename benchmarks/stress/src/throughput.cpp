@@ -455,7 +455,8 @@ int main(int argc, char **argv) {
                   << ",\"peer_received\":" << peer_received.load()
                   << ",\"peer_sent\":" << peer_sent.load() << ",\"seconds\":" << elapsed
                   << ",\"sent\":" << sent << ",\"received\":" << received
-                  << ",\"frames_per_second\":" << received / elapsed << ",\"cpu_percent_one_core\":"
+                  << ",\"frames_per_second\":" << static_cast<double>(received) / elapsed
+                  << ",\"cpu_percent_one_core\":"
                   << static_cast<double>(cpu_elapsed) / (elapsed * 1e7)
                   << ",\"roundtrip_p50_us_upper\":" << percentile(50)
                   << ",\"roundtrip_p95_us_upper\":" << percentile(95)

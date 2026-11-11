@@ -1,14 +1,16 @@
+// glibc requires this exact feature-test macro for the Linux socket extensions.
+// NOLINTNEXTLINE(bugprone-reserved-identifier)
 #define _GNU_SOURCE
 #include <errno.h>
+#include <fcntl.h>
 #include <linux/can.h>
 #include <linux/sock_diag.h>
 #include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
-#include <fcntl.h>
 #include <unistd.h>
 
 /* No per-frame hooks. Observe the original binary's sockets at open/close.
@@ -26,21 +28,27 @@ static void record(int fd, int role, const char *event, int tune_errno) {
     const char *path = getenv("LBT_PROBE_LOG");
     if (path) {
         char line[768];
-        int n = snprintf(line, sizeof(line),
-            "{\"event\":\"%s\",\"role\":\"%s\",\"fd\":%d,\"rcvbuf\":%u,\"rmem_alloc\":%u,\"drops\":%u,\"probe_errno\":%d,\"tune_errno\":%d}\n",
-            event, role == 1 ? "session" : "peer", fd,
-            mem[SK_MEMINFO_RCVBUF], mem[SK_MEMINFO_RMEM_ALLOC],
-            mem[SK_MEMINFO_DROPS], probe_errno, tune_errno);
-        int out = syscall(SYS_openat, AT_FDCWD, path, O_WRONLY|O_CREAT|O_APPEND, 0666);
-        if (out >= 0) {
-            syscall(SYS_write, out, line, n);
-            syscall(SYS_close, out);
+        // Linux does not provide Annex K snprintf_s; bound and check this output.
+        // NOLINTBEGIN(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
+        int n =
+            snprintf(line, sizeof(line),
+                     "{\"event\":\"%s\",\"role\":\"%s\",\"fd\":%d,\"rcvbuf\":%u,\"rmem_alloc\":%u,"
+                     "\"drops\":%u,\"probe_errno\":%d,\"tune_errno\":%d}\n",
+                     event, role == 1 ? "session" : "peer", fd, mem[SK_MEMINFO_RCVBUF],
+                     mem[SK_MEMINFO_RMEM_ALLOC], mem[SK_MEMINFO_DROPS], probe_errno, tune_errno);
+        // NOLINTEND(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
+        if (n > 0 && (size_t)n < sizeof(line)) {
+            int out = (int)syscall(SYS_openat, AT_FDCWD, path, O_WRONLY | O_CREAT | O_APPEND, 0666);
+            if (out >= 0) {
+                syscall(SYS_write, out, line, (size_t)n);
+                syscall(SYS_close, out);
+            }
         }
     }
     errno = saved;
 }
 int socket(int domain, int type, int protocol) {
-    int fd = syscall(SYS_socket, domain, type, protocol);
+    int fd = (int)syscall(SYS_socket, domain, type, protocol);
     if (fd >= 0 && fd < 65536 && domain == PF_CAN) {
         pthread_mutex_lock(&lock);
         int role = ++next_role;
@@ -66,5 +74,5 @@ int close(int fd) {
         }
         pthread_mutex_unlock(&lock);
     }
-    return syscall(SYS_close, fd);
+    return (int)syscall(SYS_close, fd);
 }

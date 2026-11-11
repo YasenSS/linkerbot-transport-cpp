@@ -52,10 +52,10 @@ jobs:
         id: analysis_inputs
         run: |
           cmake -S . -B build/report -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DLINKERBOT_TRANSPORT_BUILD_TESTS=ON -DLINKERBOT_TRANSPORT_BUILD_EXAMPLES=ON \
-            -DLINKERBOT_TRANSPORT_BUILD_BENCHMARKS=ON
+            -DLINKERBOT_TRANSPORT_BUILD_BENCHMARKS=ON -DLINKERBOT_PERF_BUILD_STRESS=ON
           cmake --build build/report --parallel 4
           cmake --install build/report --prefix "$PWD/build/report-install"
           cmake -S examples/quickstart -B build/report-quickstart -G Ninja \

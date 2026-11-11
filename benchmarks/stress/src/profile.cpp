@@ -60,7 +60,7 @@ uint64_t rss_kib() {
     return resident * static_cast<uint64_t>(sysconf(_SC_PAGESIZE)) / 1024;
 }
 double time_us(const timeval &t) {
-    return t.tv_sec * 1e6 + t.tv_usec;
+    return static_cast<double>(t.tv_sec) * 1e6 + static_cast<double>(t.tv_usec);
 }
 struct RawSocket {
     int fd = -1;
@@ -384,7 +384,7 @@ int main(int argc, char **argv) {
                   << ",\"inbox_pending\":" << inbox_pending << ",\"overflows\":" << health.overflows
                   << ",\"route_misses\":" << health.route_misses
                   << ",\"invalid_frames\":" << health.invalid_frames
-                  << ",\"frames_per_second\":" << validated.load() / elapsed
+                  << ",\"frames_per_second\":" << static_cast<double>(validated.load()) / elapsed
                   << ",\"cpu_percent_one_core\":" << (user_us + system_us) / elapsed / 10000
                   << ",\"user_cpu_percent\":" << user_us / elapsed / 10000
                   << ",\"system_cpu_percent\":" << system_us / elapsed / 10000

@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          git ls-files -z -- '*.cpp' '*.hpp' '*.h' \
+          git ls-files -z -- '*.c' '*.cpp' '*.hpp' '*.h' \
             | xargs -0 clang-format-18 --dry-run --Werror 2>&1 \
             | tee clang-format.log
       - name: Configure the static-analysis database
